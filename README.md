@@ -113,7 +113,7 @@ Fifteen documents in [`docs/spec/`](docs/spec/). If you only read two, read [`00
 
 ## Status
 
-Pre-M0. The immediate work is four de-risking experiments that produce no product code and any of which can change the shape of the project. See the [milestone issues](https://github.com/tamnd/kohebi/issues) and [`10-milestones.md`](docs/spec/10-milestones.md).
+Pre-M0. The immediate work is four de-risking experiments that produce no product code and any of which can change the shape of the project. See the [roadmap](https://github.com/tamnd/kohebi/issues/19) and [`10-milestones.md`](docs/spec/10-milestones.md).
 
 Two of them are worth calling out, because if both resolve badly this is a smaller project than described:
 
