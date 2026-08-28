@@ -30,7 +30,7 @@ pub mod value;
 pub mod view;
 
 pub use dump::{dump, dump_with_attributes};
-pub use error::{ErrorClass, LineMap, Position, SyntaxError};
+pub use error::{ErrorClass, LineMap, Position, Site, SyntaxError};
 pub use lexer::Lexer;
 pub use parser::{parse_expression, parse_module};
 pub use source::{Source, SourceError, decode};

@@ -8,7 +8,9 @@
 //! than written from memory. If one of them ever changes upstream, the harness
 //! in `tamnd/kohebi-compat` is what will notice.
 
-use kohebi_parse::{ErrorClass, Keyword, Lexer, NumberKind, SyntaxError, TokenKind, tokenize};
+use kohebi_parse::{
+    ErrorClass, Keyword, Lexer, NumberKind, Span, SyntaxError, TokenKind, tokenize,
+};
 
 /// The token stream as `KIND(text)`, with the synthesised tokens having no text.
 fn lex(source: &str) -> String {
@@ -42,6 +44,14 @@ fn render(tokens: &[kohebi_parse::Token], source: &str) -> String {
 
 fn error(source: &str) -> SyntaxError {
     tokenize(source).expect_err("expected this to fail")
+}
+
+/// The span of an error that has one.
+///
+/// Only the encoding failures have none, and they come out of `decode` rather
+/// than out of the lexer, so nothing this file produces can be missing one.
+fn placed(error: &SyntaxError) -> Span {
+    error.span().expect("a lexer error always points somewhere")
 }
 
 // Every token span, laid end to end with the gaps, has to add up to the source.
@@ -273,7 +283,7 @@ fn an_unclosed_bracket_points_at_where_it_was_opened() {
     let src = "x = (1,\n2\n";
     let e = error(src);
     assert_eq!(e.message, "'(' was never closed");
-    assert_eq!(e.span.slice(src), "(");
+    assert_eq!(placed(&e).slice(src), "(");
 }
 
 #[test]
@@ -503,7 +513,7 @@ fn an_unterminated_triple_quote_names_the_line_it_gave_up_on() {
         "unterminated triple-quoted string literal (detected at line 2)"
     );
     // The caret still points at the opening quote, which is where the fix goes.
-    assert_eq!(e.span.start, 4);
+    assert_eq!(placed(&e).start, 4);
 }
 
 #[test]
@@ -825,9 +835,13 @@ fn characters_python_has_no_token_for_are_reported_the_way_cpython_reports_them(
 
 #[test]
 fn a_null_byte_is_rejected_before_anything_is_lexed() {
+    let e = error("x = \0\n");
+    assert_eq!(e.message, "source code string cannot contain null bytes");
+    // CPython raises this before it has told the compiler what the file is
+    // called, so the block is the exception line and nothing above it.
     assert_eq!(
-        error("x = \0\n").message,
-        "source code string cannot contain null bytes"
+        e.report("x = \0\n", "t.py"),
+        "SyntaxError: source code string cannot contain null bytes"
     );
 }
 
@@ -964,6 +978,9 @@ fn two_hundred_brackets_are_fine_and_two_hundred_and_one_are_not() {
         assert_eq!(error.class, kohebi_parse::ErrorClass::Syntax);
         // CPython reports offset 201, one-based, which is the 201st bracket.
         let lines = kohebi_parse::LineMap::new(&source);
-        assert_eq!(lines.position(error.span.start).error_offset(&source), 201);
+        assert_eq!(
+            lines.position(placed(&error).start).error_offset(&source),
+            201
+        );
     }
 }

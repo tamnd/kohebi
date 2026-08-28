@@ -40,7 +40,7 @@ use crate::ast::{
     Arg, Arguments, Attributes, BoolOp, CmpOp, Comprehension, Expr, ExprContext, ExprKind, Ident,
     Keyword as KwArg, Mod, Operator, UnaryOp,
 };
-use crate::error::{LineMap, SyntaxError};
+use crate::error::{LineMap, Site, SyntaxError};
 use crate::literal;
 use crate::token::{Interpolated, Keyword, Span, Token, TokenKind};
 use crate::value::{StrBuf, Value};
@@ -1468,7 +1468,7 @@ impl<'a> Parser<'a> {
             match token.kind {
                 TokenKind::InterpolatedStart(..) => depth += 1,
                 TokenKind::InterpolatedEnd(_) if depth == 0 => {
-                    error.span = token.span;
+                    error.site = Site::Span(token.span);
                     return error;
                 }
                 TokenKind::InterpolatedEnd(_) => depth -= 1,
