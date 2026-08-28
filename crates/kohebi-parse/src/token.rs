@@ -211,6 +211,20 @@ pub struct StringPrefix {
     pub unicode: bool,
 }
 
+/// The two kinds of interpolated string literal.
+///
+/// They lex identically, character for character, and differ only in what gets
+/// built from them: `f"..."` evaluates its replacement fields and joins the
+/// result, while `t"..."` from PEP 750 hands the pieces to the caller
+/// unevaluated. One set of tokens covers both, with this to say which.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Interpolated {
+    /// `f"..."`.
+    Format,
+    /// `t"..."`, new in Python 3.14.
+    Template,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum TokenKind {
     /// An identifier that is not a hard keyword. Soft keywords land here.
@@ -219,6 +233,22 @@ pub enum TokenKind {
     Number(NumberKind),
     /// A complete string literal, quotes and prefix included in the span.
     String(StringPrefix),
+
+    /// The prefix and opening quotes of an interpolated string, such as `rf"""`.
+    ///
+    /// One of these is not one token. PEP 701 made an f-string a small grammar
+    /// of its own, so it arrives as a start, then the literal text and the
+    /// tokens of every replacement field in source order, then an end. Anything
+    /// that wants the string back as a unit has to reassemble it, which is the
+    /// parser's job rather than the lexer's.
+    InterpolatedStart(Interpolated, StringPrefix),
+    /// A run of literal text inside an interpolated string, exactly as it
+    /// appears in the source. Escapes are not decoded and a doubled brace is
+    /// not collapsed, both for the same reason the escapes in a plain string
+    /// are left alone: there is no object model here to decode them into.
+    InterpolatedMiddle(Interpolated),
+    /// The closing quotes of an interpolated string.
+    InterpolatedEnd(Interpolated),
 
     /// End of a logical line. Only emitted for lines that carried code.
     Newline,
@@ -356,6 +386,12 @@ impl TokenKind {
             Self::Name | Self::Keyword(_) => "NAME",
             Self::Number(_) => "NUMBER",
             Self::String(_) => "STRING",
+            Self::InterpolatedStart(Interpolated::Format, _) => "FSTRING_START",
+            Self::InterpolatedStart(Interpolated::Template, _) => "TSTRING_START",
+            Self::InterpolatedMiddle(Interpolated::Format) => "FSTRING_MIDDLE",
+            Self::InterpolatedMiddle(Interpolated::Template) => "TSTRING_MIDDLE",
+            Self::InterpolatedEnd(Interpolated::Format) => "FSTRING_END",
+            Self::InterpolatedEnd(Interpolated::Template) => "TSTRING_END",
             Self::Newline => "NEWLINE",
             Self::NonLogicalNewline => "NL",
             Self::Comment => "COMMENT",
