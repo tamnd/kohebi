@@ -1,0 +1,51 @@
+[package]
+name = "m04"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "M0.4: hand-written Rust at three sealing levels, measured against CPython"
+
+# Its own workspace. M0 experiments are measurement rigs, not product code, and
+# `cargo build --workspace` at the repo root must never compile them.
+[workspace]
+
+[[bin]]
+name = "m04"
+path = "src/main.rs"
+
+[features]
+# Swap the system allocator for a size-classed pool, so the boxed variant can be
+# compared with CPython without the comparison turning into malloc against
+# obmalloc. Off by default: the default build is the pessimistic one.
+pool = []
+
+# What a user gets from `kohebi build`, not a profile tuned to flatter the
+# result. M0.1 settled on release with incremental turned back on as the
+# default the AOT mode should emit, so that is what this is built with.
+[profile.release]
+lto = false
+codegen-units = 16
+
+[lints.clippy]
+# Negative priority so the individual allows below win against the group.
+all = { level = "warn", priority = -1 }
+
+# The initial conditions are copied digit for digit from `workloads/nbody.py`,
+# which took them from the Computer Language Benchmarks Game. Trimming them to
+# what an f64 can hold would make the Rust and the Python different programs,
+# and the whole rig rests on the two printing the same answer.
+excessive_precision = "allow"
+
+# The Rust deliberately mirrors the shape of the Python it is being compared
+# against, index arithmetic and all. Rewriting a loop into iterator form because
+# it reads better would change what is being measured.
+needless_range_loop = "allow"
+
+# `x >= MIN && x <= MAX` on the integer overflow check, which is the hottest
+# branch in the boxed variant. `RangeInclusive::contains` compiles to the same
+# two comparisons in every build we looked at, but this experiment has already
+# been bitten once by a 1.5x swing from a change that touched nothing in the
+# loop, and rewriting hot code to satisfy a style lint the week we publish its
+# timings is not a trade worth making.
+manual_range_contains = "allow"
