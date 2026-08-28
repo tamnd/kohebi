@@ -56,15 +56,18 @@ fn assert_spans_cover(source: &str) {
             "token {t:?} starts before the previous one ended in {source:?}"
         );
         assert!(t.span.end >= t.span.start, "backwards span {t:?}");
-        if t.kind.is_real() {
+        // A format spec reports its text even when it has none, so that is the
+        // one real token allowed to be empty.
+        if t.kind.is_real() && !matches!(t.kind, TokenKind::InterpolatedMiddle(_)) {
             assert!(!t.span.is_empty(), "empty span on a real token {t:?}");
         }
         // Anything skipped between tokens is whitespace, a line continuation,
-        // or the byte order mark. Never anything with meaning.
+        // the byte order mark, or the second half of a doubled brace inside an
+        // f-string. Never anything with meaning.
         let gap = &source[at..t.span.start as usize];
         assert!(
             gap.chars()
-                .all(|c| c.is_whitespace() || c == '\\' || c == '\u{feff}'),
+                .all(|c| c.is_whitespace() || matches!(c, '\\' | '\u{feff}' | '{' | '}')),
             "the lexer dropped {gap:?} from {source:?}"
         );
         at = t.span.end as usize;
@@ -510,16 +513,250 @@ fn a_string_continued_with_a_backslash_at_the_end_of_a_line_keeps_going() {
     assert_eq!(tokens[2].span.slice(source), "'a\\\nb'");
 }
 
+// F-strings
+//
+// Every expectation below was read off CPython 3.14 rather than reasoned about.
+// The `tokenize` module is the specification here, and it has more corners than
+// the language reference admits to.
+
 #[test]
-fn f_strings_are_reported_as_our_gap_and_not_as_the_users_mistake() {
-    let e = error("x = f'{y}'\n");
-    assert_eq!(e.class, ErrorClass::Unsupported);
-    assert_eq!(e.message, "f-strings are not implemented yet");
+fn an_f_string_is_a_start_its_pieces_and_an_end() {
     assert_eq!(
-        e.to_string(),
-        "NotImplementedError: f-strings are not implemented yet"
+        lex("f\"a{b}c\"\n"),
+        "FSTRING_START(f\") FSTRING_MIDDLE(a) OP({) NAME(b) OP(}) FSTRING_MIDDLE(c) \
+         FSTRING_END(\") NEWLINE ENDMARKER"
     );
-    assert_eq!(error("x = rf'{y}'\n").class, ErrorClass::Unsupported);
+}
+
+#[test]
+fn an_f_string_with_nothing_in_it_has_no_middle_at_all() {
+    assert_eq!(
+        lex("f\"\"\n"),
+        "FSTRING_START(f\") FSTRING_END(\") NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_replacement_field_holds_ordinary_python() {
+    assert_eq!(
+        lex("f\"{a if b else c!r}\"\n"),
+        "FSTRING_START(f\") OP({) NAME(a) NAME(if) NAME(b) NAME(else) NAME(c) OP(!) NAME(r) \
+         OP(}) FSTRING_END(\") NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_doubled_brace_is_split_so_that_only_one_of_the_pair_is_in_a_token() {
+    // The gap between the two middles is the second brace, which CPython
+    // leaves out of both.
+    assert_eq!(
+        lex("f\"{{a}}\"\n"),
+        "FSTRING_START(f\") FSTRING_MIDDLE({) FSTRING_MIDDLE(a}) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+    assert_spans_cover("f\"{{a}}\"\n");
+}
+
+#[test]
+fn a_lone_closing_brace_in_the_text_is_a_mistake() {
+    let e = error("f\"}\"\n");
+    assert_eq!(e.message, "f-string: single '}' is not allowed");
+}
+
+#[test]
+fn a_colon_at_the_field_level_starts_a_format_spec() {
+    assert_eq!(
+        lex("f\"{x:>10}\"\n"),
+        "FSTRING_START(f\") OP({) NAME(x) OP(:) FSTRING_MIDDLE(>10) OP(}) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_colon_inside_brackets_is_a_slice_and_not_a_format_spec() {
+    assert_eq!(
+        lex("f\"{a[1:2]}\"\n"),
+        "FSTRING_START(f\") OP({) NAME(a) OP([) NUMBER(1) OP(:) NUMBER(2) OP(]) OP(}) \
+         FSTRING_END(\") NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_colon_at_the_field_level_never_pairs_up_into_a_walrus() {
+    // `f"{x:=1}"` formats x with the spec `=1`. It is not an assignment.
+    assert_eq!(
+        lex("f\"{x:=1}\"\n"),
+        "FSTRING_START(f\") OP({) NAME(x) OP(:) FSTRING_MIDDLE(=1) OP(}) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_format_spec_reports_its_text_even_when_it_has_none() {
+    // The empty middle before the closing brace is not an artefact. CPython
+    // emits one, and a harness comparing streams will see it.
+    assert_eq!(
+        lex("f\"{x:}\"\n"),
+        "FSTRING_START(f\") OP({) NAME(x) OP(:) FSTRING_MIDDLE() OP(}) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_format_spec_can_hold_a_field_of_its_own() {
+    assert_eq!(
+        lex("f\"{x:>{w}}\"\n"),
+        "FSTRING_START(f\") OP({) NAME(x) OP(:) FSTRING_MIDDLE(>) OP({) NAME(w) OP(}) \
+         FSTRING_MIDDLE() OP(}) FSTRING_END(\") NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_brace_in_a_format_spec_opens_a_field_rather_than_escaping_itself() {
+    assert_eq!(
+        lex("f\"\"\"{x:a{{b}}c}\"\"\"\n"),
+        "FSTRING_START(f\"\"\") OP({) NAME(x) OP(:) FSTRING_MIDDLE(a) OP({) OP({) NAME(b) \
+         OP(}) OP(}) FSTRING_MIDDLE(c) OP(}) FSTRING_END(\"\"\") NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn an_f_string_can_hold_another_one_with_the_same_quotes() {
+    // Legal since PEP 701, and the reason the lexer keeps a stack.
+    assert_eq!(
+        lex("f'{f'{y}'}'\n"),
+        "FSTRING_START(f') OP({) FSTRING_START(f') OP({) NAME(y) OP(}) FSTRING_END(') \
+         OP(}) FSTRING_END(') NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_string_inside_a_field_may_reuse_the_enclosing_quote() {
+    assert_eq!(
+        lex("f\"{d[\"k\"]}\"\n"),
+        "FSTRING_START(f\") OP({) NAME(d) OP([) STRING(\"k\") OP(]) OP(}) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_field_may_span_lines_even_when_the_quotes_do_not() {
+    // Also new in PEP 701, and it produces an NL rather than a NEWLINE,
+    // because the logical line is still open.
+    assert_eq!(
+        lex("f\"{x\n+1}\"\n"),
+        "FSTRING_START(f\") OP({) NAME(x) NL OP(+) NUMBER(1) OP(}) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn text_carries_its_escapes_through_untouched() {
+    // Decoding them needs an object model. The span keeps the source until
+    // there is one.
+    assert_eq!(
+        lex("f\"a\\nb{c}\"\n"),
+        "FSTRING_START(f\") FSTRING_MIDDLE(a\\\\nb) OP({) NAME(c) OP(}) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_backslash_does_not_escape_a_brace() {
+    assert_eq!(
+        lex("f\"\\{x}\"\n"),
+        "FSTRING_START(f\") FSTRING_MIDDLE(\\\\) OP({) NAME(x) OP(}) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_backslash_does_stop_a_quote_from_closing_the_string() {
+    assert_eq!(
+        lex("f\"a\\\"b\"\n"),
+        "FSTRING_START(f\") FSTRING_MIDDLE(a\\\\\"b) FSTRING_END(\") NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_named_character_escape_keeps_its_braces() {
+    // `\N{BULLET}` is one escape, not a replacement field, and CPython ends
+    // the run of text on it.
+    assert_eq!(
+        lex("f\"a\\N{BULLET}b\"\n"),
+        "FSTRING_START(f\") FSTRING_MIDDLE(a\\\\N{BULLET}) FSTRING_MIDDLE(b) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn a_raw_f_string_has_no_named_escape_so_the_brace_opens_a_field() {
+    assert_eq!(
+        lex("rf\"\\N{x}\"\n"),
+        "FSTRING_START(rf\") FSTRING_MIDDLE(\\\\N) OP({) NAME(x) OP(}) FSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn an_unterminated_f_string_says_which_kind_it_was() {
+    assert_eq!(
+        error("f\"a\n").message,
+        "unterminated f-string literal (detected at line 1)"
+    );
+    assert_eq!(
+        error("f\"\"\"a\n").message,
+        "unterminated triple-quoted f-string literal (detected at line 1)"
+    );
+}
+
+#[test]
+fn a_file_that_stops_inside_a_field_is_still_looking_for_the_brace() {
+    assert_eq!(error("f\"{x\"\n").message, "f-string: expecting '}'");
+    assert_eq!(error("f\"{x\n").message, "f-string: expecting '}'");
+}
+
+#[test]
+fn a_single_quoted_format_spec_cannot_hold_a_line_break() {
+    assert_eq!(
+        error("f\"{x:d\n}\"\n").message,
+        "f-string: newlines are not allowed in format specifiers for single quoted f-strings"
+    );
+}
+
+#[test]
+fn a_t_string_lexes_like_an_f_string_under_a_different_name() {
+    // PEP 750, new in 3.14. Same grammar, different tokens, because what gets
+    // built from them is not the same thing at all.
+    assert_eq!(
+        lex("t\"a{b}\"\n"),
+        "TSTRING_START(t\") TSTRING_MIDDLE(a) OP({) NAME(b) OP(}) TSTRING_END(\") \
+         NEWLINE ENDMARKER"
+    );
+}
+
+#[test]
+fn the_two_interpolated_prefixes_do_not_combine() {
+    assert_eq!(
+        error("ft\"x\"\n").message,
+        "'f' and 't' prefixes are incompatible"
+    );
+    assert_eq!(
+        error("bt\"x\"\n").message,
+        "'b' and 't' prefixes are incompatible"
+    );
+    assert_eq!(
+        error("tu\"x\"\n").message,
+        "'u' and 't' prefixes are incompatible"
+    );
+}
+
+#[test]
+fn f_strings_hold_the_logical_line_open_the_way_brackets_do() {
+    assert_spans_cover("f\"a{b}c\"\n");
+    assert_spans_cover("f\"\"\"a\n{b}\"\"\"\n");
+    assert_spans_cover("x = f\"{y:>{w}}\" + 1\n");
+    assert_spans_cover("f'{f'{y}'}'\n");
 }
 
 // Operators

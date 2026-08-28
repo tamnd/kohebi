@@ -22,18 +22,19 @@
 //! is the character after the identifier, so identifiers are scanned first and
 //! reclassified as a string prefix afterwards.
 //!
-//! Not here yet: f-strings. PEP 701 made them recursive, which means the lexer
-//! and the parser have to be reentrant into each other, and that is worth its
-//! own change rather than being bolted onto this one. An f-string is reported
-//! as [`ErrorClass::Unsupported`] rather than as a syntax error, so it shows up
-//! as our gap and not as the user's mistake.
+//! F-strings are a fourth. Since PEP 701 they are not a single token but a
+//! small grammar: literal text, replacement fields holding arbitrary Python,
+//! format specs holding more literal text, and more replacement fields inside
+//! those. The lexer handles it with a stack of open f-strings, each carrying a
+//! stack of what it is currently reading, which is enough to get back to the
+//! right place when a field closes. Nothing recurses.
 
 use std::cmp::Ordering;
 
 use smallvec::{SmallVec, smallvec};
 
 use crate::error::{ErrorClass, LineMap, SyntaxError};
-use crate::token::{Keyword, NumberKind, Span, StringPrefix, Token, TokenKind};
+use crate::token::{Interpolated, Keyword, NumberKind, Span, StringPrefix, Token, TokenKind};
 
 type Result<T> = std::result::Result<T, SyntaxError>;
 
@@ -43,6 +44,53 @@ const TAB_SIZE: u32 = 8;
 /// What a tab counts as under the second measure. Comparing the two is how a
 /// mix of tabs and spaces gets caught.
 const ALT_TAB_SIZE: u32 = 1;
+
+/// What an open f-string is in the middle of reading.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Part {
+    /// The literal text between replacement fields.
+    Literal,
+    /// A replacement field, which holds ordinary Python.
+    Expression,
+    /// A format spec, which is literal text again except that a brace in it
+    /// always opens a nested field rather than escaping itself.
+    Spec,
+}
+
+/// One open f-string.
+#[derive(Clone, Debug)]
+struct FString {
+    /// The quote character it was opened with, which is the only one that can
+    /// close it. Since PEP 701 a nested f-string may reuse the same one.
+    quote: u8,
+    triple: bool,
+    /// `f` or `t`, which changes nothing about how it lexes and everything
+    /// about what the tokens are called.
+    kind: Interpolated,
+    /// A raw one has no `\N{...}` escape, so a brace after a backslash there
+    /// opens a replacement field like any other.
+    raw: bool,
+    /// Where the prefix started, so an unterminated one can point at it.
+    start: usize,
+    /// Has the chunk of literal text ending at the current position already
+    /// been handed out? Only a format spec can produce an empty chunk, and
+    /// without this it would produce it forever.
+    chunk_emitted: bool,
+    /// Innermost last, with [`Part::Literal`] always at the bottom. A `{`
+    /// pushes, the matching `}` pops, and a `:` turns the field it is in into
+    /// its own format spec.
+    parts: SmallVec<[Part; 4]>,
+    /// How many brackets were open when this f-string started. The field
+    /// braces only mean anything at that depth: inside `f"{d[1:2]}"` the colon
+    /// is a slice, not the start of a format spec.
+    brackets_base: usize,
+}
+
+impl FString {
+    fn part(&self) -> Part {
+        *self.parts.last().expect("the literal part is never popped")
+    }
+}
 
 /// One level of the indentation stack, measured both ways.
 #[derive(Clone, Copy, Debug)]
@@ -74,6 +122,8 @@ pub struct Lexer<'src> {
     /// Open brackets, innermost last, with the span of each opener so an
     /// unclosed one can point at where it was opened.
     brackets: SmallVec<[(TokenKind, Span); 8]>,
+    /// Open f-strings, innermost last. Almost always empty, and never deep.
+    fstrings: SmallVec<[FString; 2]>,
     /// Has this logical line produced a token yet? Decides `NEWLINE` against
     /// `NL` when the line ends.
     line_has_code: bool,
@@ -111,6 +161,7 @@ impl<'src> Lexer<'src> {
             pending_dedents: 0,
             at_line_start: true,
             brackets: SmallVec::new(),
+            fstrings: SmallVec::new(),
             line_has_code: false,
             owes_line_ending: true,
             state: State::Running,
@@ -190,18 +241,51 @@ impl<'src> Lexer<'src> {
                 self.pending_dedents -= 1;
                 return Ok(Some(Token::new(TokenKind::Dedent, self.here())));
             }
-            if self.at_line_start && self.brackets.is_empty() {
-                if let Some(indent) = self.line_start()? {
-                    return Ok(Some(indent));
+            let token = if self.reading_fstring_text() {
+                self.fstring_text()?
+            } else {
+                if self.at_line_start && !self.in_continuation() {
+                    if let Some(indent) = self.line_start()? {
+                        return Ok(Some(indent));
+                    }
+                    continue;
                 }
-                continue;
-            }
-            let token = self.scan()?;
+                self.scan()?
+            };
             if token.kind.is_real() {
                 self.line_has_code = true;
             }
             return Ok(Some(token));
         }
+    }
+
+    /// Is a line break here just a line break, rather than the end of a logical
+    /// line? True inside brackets, and true inside an f-string, which holds the
+    /// line open for the same reason.
+    fn in_continuation(&self) -> bool {
+        !self.brackets.is_empty() || !self.fstrings.is_empty()
+    }
+
+    /// Is the next thing to read the literal text of an f-string, rather than
+    /// ordinary Python?
+    fn reading_fstring_text(&self) -> bool {
+        self.fstrings
+            .last()
+            .is_some_and(|f| matches!(f.part(), Part::Literal | Part::Spec))
+    }
+
+    /// Are we inside a replacement field, at the field's own bracket depth?
+    ///
+    /// Only there do `:` and `}` mean something other than what they mean in
+    /// ordinary Python.
+    fn in_field(&self) -> bool {
+        self.fstrings
+            .last()
+            .is_some_and(|f| f.part() == Part::Expression && self.brackets.len() == f.brackets_base)
+    }
+
+    fn fstring_mut(&mut self) -> &mut FString {
+        self.fstrings.last_mut().expect("an f-string is open")
     }
 
     /// Deal with the indentation of a fresh logical line.
@@ -327,6 +411,10 @@ impl<'src> Lexer<'src> {
             return self.at_eof();
         };
 
+        if let Some(token) = self.field_delimiter(b, start) {
+            return Ok(token);
+        }
+
         match b {
             b'#' => {
                 while self.peek().is_some_and(|c| c != b'\n' && c != b'\r') {
@@ -338,15 +426,15 @@ impl<'src> Lexer<'src> {
                 self.pos = self
                     .line_break_at(start)
                     .expect("just matched a line break");
-                let kind = if self.brackets.is_empty() {
+                let kind = if self.in_continuation() {
+                    TokenKind::NonLogicalNewline
+                } else {
                     self.at_line_start = true;
                     if self.line_has_code {
                         TokenKind::Newline
                     } else {
                         TokenKind::NonLogicalNewline
                     }
-                } else {
-                    TokenKind::NonLogicalNewline
                 };
                 Ok(Token::new(kind, self.span_from(start)))
             }
@@ -366,7 +454,54 @@ impl<'src> Lexer<'src> {
         }
     }
 
+    /// The three characters that change meaning inside a replacement field.
+    ///
+    /// They only change meaning at the field's own bracket depth, and they are
+    /// taken before the normal dispatch so that a `:` cannot pair up into a
+    /// `:=` that was never written. Returns `None` for anything else, including
+    /// everywhere outside a field.
+    fn field_delimiter(&mut self, b: u8, start: usize) -> Option<Token> {
+        if !self.in_field() {
+            return None;
+        }
+        let kind = match b {
+            b'}' => {
+                self.fstring_mut().parts.pop();
+                TokenKind::RBrace
+            }
+            b':' => {
+                let f = self.fstring_mut();
+                f.parts.pop();
+                f.parts.push(Part::Spec);
+                TokenKind::Colon
+            }
+            // A closer with nothing open in the field is a mistake, and CPython
+            // recovers from it by leaving the field: the brace counter it keeps
+            // is shared with the f-string itself. The error that follows is
+            // about whatever comes next, so it only reads right if we leave the
+            // same way.
+            b')' => {
+                self.fstring_mut().parts.pop();
+                TokenKind::RParen
+            }
+            b']' => {
+                self.fstring_mut().parts.pop();
+                TokenKind::RBracket
+            }
+            _ => return None,
+        };
+        self.pos += 1;
+        self.begin_chunk();
+        Some(Token::new(kind, self.span_from(start)))
+    }
+
     fn at_eof(&mut self) -> Result<Token> {
+        // A file that stops in the middle of a replacement field. The literal
+        // parts report an unterminated string instead, and they get there
+        // first, so anything arriving here was reading an expression.
+        if !self.fstrings.is_empty() {
+            return Err(self.expecting_close_brace());
+        }
         if let Some((kind, span)) = self.brackets.first() {
             let open = kind.as_str().expect("brackets have fixed text");
             return Err(SyntaxError::syntax(
@@ -421,13 +556,9 @@ impl<'src> Lexer<'src> {
                     self.pos = end;
                     return self.string(start, prefix);
                 }
-                PrefixKind::Formatted => {
+                PrefixKind::Interpolated(kind, prefix) => {
                     self.pos = end;
-                    return Err(SyntaxError::new(
-                        ErrorClass::Unsupported,
-                        "f-strings are not implemented yet",
-                        self.span_from(start),
-                    ));
+                    return Ok(self.fstring_start(start, kind, prefix));
                 }
                 PrefixKind::Incompatible(a, b) => {
                     self.pos = end;
@@ -512,7 +643,196 @@ impl<'src> Lexer<'src> {
         Ok(Token::new(TokenKind::String(prefix), self.span_from(start)))
     }
 
+    /// The prefix and opening quotes of an f-string.
+    ///
+    /// `self.pos` is on the first quote. Everything after this comes out of
+    /// [`Self::fstring_text`] until the f-string closes.
+    fn fstring_start(&mut self, start: usize, kind: Interpolated, prefix: StringPrefix) -> Token {
+        let quote = self.peek().expect("called on a quote");
+        let triple = self.bytes[self.pos..].starts_with(&[quote, quote, quote]);
+        self.pos += if triple { 3 } else { 1 };
+        self.fstrings.push(FString {
+            quote,
+            triple,
+            kind,
+            raw: prefix.raw,
+            start,
+            chunk_emitted: false,
+            parts: smallvec![Part::Literal],
+            brackets_base: self.brackets.len(),
+        });
+        Token::new(
+            TokenKind::InterpolatedStart(kind, prefix),
+            self.span_from(start),
+        )
+    }
+
+    /// The next token from the literal side of an f-string.
+    ///
+    /// One of four things: a run of text, the `{` that opens a replacement
+    /// field, the `}` that closes one, or the closing quotes.
+    fn fstring_text(&mut self) -> Result<Token> {
+        let f = self.fstrings.last().expect("called with an f-string open");
+        let (quote, triple, kind, raw) = (f.quote, f.triple, f.kind, f.raw);
+        let (spec, emitted) = (f.part() == Part::Spec, f.chunk_emitted);
+        let start = self.pos;
+
+        loop {
+            let Some(c) = self.peek() else {
+                return Err(self.unterminated_fstring());
+            };
+            match c {
+                // `\N{...}` names a character, and the brace that opens the
+                // name does not open a replacement field. A raw string has no
+                // such escape, so there the brace means what it usually does.
+                b'\\'
+                    if !raw
+                        && self.byte_at(self.pos + 1) == Some(b'N')
+                        && self.byte_at(self.pos + 2) == Some(b'{') =>
+                {
+                    self.pos += 3;
+                    self.named_escape(quote, triple);
+                    // CPython ends the run of text on the escape and starts the
+                    // next one after it, the same way it does for a doubled
+                    // brace, so a name is never split across two tokens.
+                    let span = self.span_from(start);
+                    self.begin_chunk();
+                    return Ok(Token::new(TokenKind::InterpolatedMiddle(kind), span));
+                }
+                // A backslash keeps the next character from ending the literal,
+                // in a raw f-string as much as in any other. It does not do
+                // that for a brace: `\{` is a backslash and then a field.
+                b'\\' => {
+                    self.pos += 1;
+                    if !matches!(self.peek(), Some(b'{' | b'}')) {
+                        self.advance_char();
+                    }
+                }
+                // A doubled brace is one brace in the output. CPython ends the
+                // chunk on the first of the pair and starts the next one after
+                // the second, so the two are never both inside a token. In a
+                // format spec there is no such escape, since a brace there
+                // always opens a nested field.
+                b'{' | b'}' if !spec && self.byte_at(self.pos + 1) == Some(c) => {
+                    self.pos += 1;
+                    let span = self.span_from(start);
+                    self.pos += 1;
+                    self.begin_chunk();
+                    return Ok(Token::new(TokenKind::InterpolatedMiddle(kind), span));
+                }
+                b'{' | b'}' => break,
+                _ if c == quote && self.at_closing_quotes(quote, triple) => break,
+                // A single-quoted f-string cannot carry a line break, and a
+                // format spec cannot carry one either way round, which CPython
+                // says in its own words.
+                b'\n' | b'\r' if !triple => {
+                    return Err(if spec {
+                        SyntaxError::syntax(
+                            "f-string: newlines are not allowed in format specifiers \
+                             for single quoted f-strings",
+                            self.here(),
+                        )
+                    } else {
+                        self.unterminated_fstring()
+                    });
+                }
+                _ => self.advance_char(),
+            }
+        }
+
+        // The text that ran up to the delimiter. An empty run is not a token,
+        // with one exception: a format spec reports its text even when there is
+        // none of it, right before the `}` that ends the field.
+        let span = self.span_from(start);
+        if !span.is_empty() || (spec && !emitted && self.peek() == Some(b'}')) {
+            self.fstring_mut().chunk_emitted = true;
+            return Ok(Token::new(TokenKind::InterpolatedMiddle(kind), span));
+        }
+
+        match self.peek() {
+            Some(b'{') => {
+                self.pos += 1;
+                self.fstring_mut().parts.push(Part::Expression);
+                Ok(Token::new(TokenKind::LBrace, self.span_from(start)))
+            }
+            Some(b'}') if spec => {
+                self.pos += 1;
+                self.fstring_mut().parts.pop();
+                self.begin_chunk();
+                Ok(Token::new(TokenKind::RBrace, self.span_from(start)))
+            }
+            // A `}` in literal text with no field open. The doubled form is
+            // how you write one, and CPython insists on it.
+            Some(b'}') => {
+                self.pos += 1;
+                Err(SyntaxError::syntax(
+                    "f-string: single '}' is not allowed",
+                    self.span_from(start),
+                ))
+            }
+            _ => {
+                self.pos += if triple { 3 } else { 1 };
+                self.fstrings.pop();
+                Ok(Token::new(
+                    TokenKind::InterpolatedEnd(kind),
+                    self.span_from(start),
+                ))
+            }
+        }
+    }
+
+    fn at_closing_quotes(&self, quote: u8, triple: bool) -> bool {
+        !triple || self.bytes[self.pos..].starts_with(&[quote, quote, quote])
+    }
+
+    /// Consume the body of a `\N{...}` escape, whose opening brace has already
+    /// been passed.
+    ///
+    /// An escape with no closing brace is a mistake, but not one the tokenizer
+    /// reports: the text still belongs to the literal, and the complaint comes
+    /// later from the thing that decodes it. So this stops at whatever would
+    /// have ended the literal anyway and leaves that to the caller's loop.
+    fn named_escape(&mut self, quote: u8, triple: bool) {
+        while let Some(c) = self.peek() {
+            match c {
+                b'}' => {
+                    self.pos += 1;
+                    return;
+                }
+                _ if c == quote && self.at_closing_quotes(quote, triple) => return,
+                b'\n' | b'\r' if !triple => return,
+                _ => self.advance_char(),
+            }
+        }
+    }
+
+    /// Start a fresh run of literal text at the current position.
+    fn begin_chunk(&mut self) {
+        self.fstring_mut().chunk_emitted = false;
+    }
+
+    fn unterminated_fstring(&self) -> SyntaxError {
+        let f = self.fstrings.last().expect("an f-string is open");
+        self.unterminated_literal(f.start, f.triple, true)
+    }
+
+    /// What CPython says when an f-string runs out of file in the middle of a
+    /// replacement field.
+    fn expecting_close_brace(&self) -> SyntaxError {
+        SyntaxError::syntax("f-string: expecting '}'", self.here())
+    }
+
     fn unterminated(&self, start: usize, triple: bool) -> SyntaxError {
+        // A plain string that runs off the end inside a replacement field is
+        // not reported as a string at all. CPython is still looking for the
+        // brace at that point, and says so.
+        if !self.fstrings.is_empty() {
+            return self.expecting_close_brace();
+        }
+        self.unterminated_literal(start, triple, false)
+    }
+
+    fn unterminated_literal(&self, start: usize, triple: bool, fstring: bool) -> SyntaxError {
         // CPython names the line it gave up on, not the line the literal
         // started on. For a single-quoted string those are the same line; for a
         // triple-quoted one that ran to the end of the file they are not, and
@@ -520,10 +840,11 @@ impl<'src> Lexer<'src> {
         // so that a literal stopped by a trailing newline names the line that
         // had text on it rather than the empty one after it.
         let line = self.line_at(self.pos.saturating_sub(1));
-        let what = if triple {
-            "triple-quoted string"
-        } else {
-            "string"
+        let what = match (triple, fstring) {
+            (true, true) => "triple-quoted f-string",
+            (true, false) => "triple-quoted string",
+            (false, true) => "f-string",
+            (false, false) => "string",
         };
         SyntaxError::syntax(
             format!("unterminated {what} literal (detected at line {line})"),
@@ -825,8 +1146,8 @@ fn is_ident_start(c: char) -> bool {
 /// What an identifier sitting in front of a quote turns out to be.
 enum PrefixKind {
     Plain(StringPrefix),
-    /// An f-string. Valid Python, not implemented here yet.
-    Formatted,
+    /// An `f` or `t` string, which is a stream of tokens rather than one.
+    Interpolated(Interpolated, StringPrefix),
     /// Letters that are all prefixes but cannot be used together, such as `ur`.
     Incompatible(char, char),
     /// Not a prefix at all, so the identifier is just an identifier.
@@ -834,19 +1155,23 @@ enum PrefixKind {
 }
 
 fn parse_prefix(text: &str) -> PrefixKind {
-    let (mut raw, mut bytes, mut unicode, mut formatted) = (false, false, false, false);
+    let (mut raw, mut bytes, mut unicode) = (false, false, false);
+    let (mut formatted, mut template) = (false, false);
     for c in text.bytes() {
         match c.to_ascii_lowercase() {
             b'r' if !raw => raw = true,
             b'b' if !bytes => bytes = true,
             b'u' if !unicode => unicode = true,
             b'f' if !formatted => formatted = true,
+            b't' if !template => template = true,
             _ => return PrefixKind::NotAPrefix,
         }
     }
     // `u` is only there so Python 2 source keeps parsing, and it combines with
-    // nothing. Bytes and formatting are mutually exclusive for the more
-    // ordinary reason that `str.format` has no meaning on bytes.
+    // nothing. Bytes and interpolation are mutually exclusive for the more
+    // ordinary reason that `str.format` has no meaning on bytes, and the two
+    // interpolated kinds are exclusive with each other because they build
+    // different things out of the same syntax.
     if unicode {
         if raw {
             return PrefixKind::Incompatible('u', 'r');
@@ -857,12 +1182,33 @@ fn parse_prefix(text: &str) -> PrefixKind {
         if formatted {
             return PrefixKind::Incompatible('u', 'f');
         }
+        if template {
+            return PrefixKind::Incompatible('u', 't');
+        }
     }
     if bytes && formatted {
         return PrefixKind::Incompatible('b', 'f');
     }
-    if formatted {
-        return PrefixKind::Formatted;
+    if bytes && template {
+        return PrefixKind::Incompatible('b', 't');
+    }
+    if formatted && template {
+        return PrefixKind::Incompatible('f', 't');
+    }
+    if formatted || template {
+        let kind = if template {
+            Interpolated::Template
+        } else {
+            Interpolated::Format
+        };
+        return PrefixKind::Interpolated(
+            kind,
+            StringPrefix {
+                raw,
+                bytes: false,
+                unicode: false,
+            },
+        );
     }
     PrefixKind::Plain(StringPrefix {
         raw,

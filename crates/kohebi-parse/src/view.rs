@@ -90,7 +90,7 @@ pub fn project<'src>(source: &'src str, tokens: &[Token]) -> Vec<ViewToken<'src>
             ViewToken {
                 name: token.kind.tokenize_name(),
                 start: line_col(&padded, &lines, span.start),
-                end: end_line_col(&padded, &lines, span),
+                end: end_line_col(&padded, &lines, span, token.kind),
                 // Text comes from the real source, never from the padding, so
                 // the phantom newline is reported with no text at all, which is
                 // what CPython reports for it.
@@ -105,13 +105,16 @@ pub fn project<'src>(source: &'src str, tokens: &[Token]) -> Vec<ViewToken<'src>
 /// A token that ends with a newline is the reason this is not just
 /// [`line_col`]. `tokenize` reads the file a line at a time and the line it
 /// hands back includes its own terminator, so a `NEWLINE` token on line 1 ends
-/// at `1,2` rather than at the start of line 2. The end position of a token
-/// therefore always sits on the token's last line, even when the offset after
-/// it belongs to the next one. Empty tokens such as `DEDENT` and `ENDMARKER`
-/// are left alone, because for those CPython does report the next line.
-fn end_line_col(source: &str, lines: &LineMap, span: Span) -> LineCol {
-    let ends_a_line =
-        span.end > span.start && source.as_bytes().get(span.end as usize - 1) == Some(&b'\n');
+/// at `1,2` rather than at the start of line 2.
+///
+/// It is only the line ending tokens that work this way. An `FSTRING_MIDDLE`
+/// can also end just after a newline, and CPython reports that one at the start
+/// of the following line, so the rule is written in terms of which token it is
+/// rather than which character it ends on.
+fn end_line_col(source: &str, lines: &LineMap, span: Span, kind: TokenKind) -> LineCol {
+    let ends_a_line = matches!(kind, TokenKind::Newline | TokenKind::NonLogicalNewline)
+        && span.end > span.start
+        && source.as_bytes().get(span.end as usize - 1) == Some(&b'\n');
     if ends_a_line {
         let position = lines.position(span.end - 1);
         let start = position.line_start as usize;
