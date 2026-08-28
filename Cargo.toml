@@ -6,7 +6,7 @@ members = ["crates/*"]
 exclude = ["experiments"]
 
 [workspace.package]
-version = "0.0.5"
+version = "0.0.6"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT OR Apache-2.0"
@@ -16,19 +16,19 @@ authors = ["tamnd"]
 
 [workspace.dependencies]
 # Internal crates. Kept at path-only until the first release; see docs/spec/13-repo-layout.md.
-kohebi-abi = { path = "crates/kohebi-abi", version = "0.0.5" }
-kohebi-aot = { path = "crates/kohebi-aot", version = "0.0.5" }
-kohebi-bc = { path = "crates/kohebi-bc", version = "0.0.5" }
-kohebi-capi = { path = "crates/kohebi-capi", version = "0.0.5" }
-kohebi-cir = { path = "crates/kohebi-cir", version = "0.0.5" }
-kohebi-core = { path = "crates/kohebi-core", version = "0.0.5" }
-kohebi-hir = { path = "crates/kohebi-hir", version = "0.0.5" }
-kohebi-interp = { path = "crates/kohebi-interp", version = "0.0.5" }
-kohebi-jit = { path = "crates/kohebi-jit", version = "0.0.5" }
-kohebi-parse = { path = "crates/kohebi-parse", version = "0.0.5" }
-kohebi-pyo3-compat = { path = "crates/kohebi-pyo3-compat", version = "0.0.5" }
-kohebi-std = { path = "crates/kohebi-std", version = "0.0.5" }
-kohebi-testing = { path = "crates/kohebi-testing", version = "0.0.5" }
+kohebi-abi = { path = "crates/kohebi-abi", version = "0.0.6" }
+kohebi-aot = { path = "crates/kohebi-aot", version = "0.0.6" }
+kohebi-bc = { path = "crates/kohebi-bc", version = "0.0.6" }
+kohebi-capi = { path = "crates/kohebi-capi", version = "0.0.6" }
+kohebi-cir = { path = "crates/kohebi-cir", version = "0.0.6" }
+kohebi-core = { path = "crates/kohebi-core", version = "0.0.6" }
+kohebi-hir = { path = "crates/kohebi-hir", version = "0.0.6" }
+kohebi-interp = { path = "crates/kohebi-interp", version = "0.0.6" }
+kohebi-jit = { path = "crates/kohebi-jit", version = "0.0.6" }
+kohebi-parse = { path = "crates/kohebi-parse", version = "0.0.6" }
+kohebi-pyo3-compat = { path = "crates/kohebi-pyo3-compat", version = "0.0.6" }
+kohebi-std = { path = "crates/kohebi-std", version = "0.0.6" }
+kohebi-testing = { path = "crates/kohebi-testing", version = "0.0.6" }
 
 # External. Versions verified against crates.io on 2026-08-28.
 anyhow = "1.0.104"

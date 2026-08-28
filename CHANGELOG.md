@@ -6,6 +6,14 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+## 0.0.6
+
+Three merged pull requests since 0.0.5, and all of them are item 9, the error messages. A file kohebi refuses now prints what CPython prints for it, character for character and line for line, over 87 recorded blocks and a corpus of 46 files written to be refused.
+
+Two things came out of this that were not obvious going in. A CPython error message is often not a sentence the compiler wrote, it is a sentence a codec wrote with the compiler's wrapping around it, and the positions in it count something other than the file. And a refusal is not always four lines, because a `SyntaxError` can be missing its filename, its line or its column, and the traceback module prints as far down that list as it can get.
+
+What is left in M1 is the general grammar errors and CPython's second diagnostic pass.
+
 A refused string literal now reads the way CPython writes it, block for block. `'\u12'` was `SyntaxError: truncated \uXXXX escape` with carets under the escape, and is now `SyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \uXXXX escape` with carets under the whole literal, which is what someone pasting the message into a search engine needs it to say.
 
 That message has rules rather than text behind it, and the rules are the reason this took a fixture to get right instead of a guess. CPython does not report the escape at all. It hands the literal's body to the `unicodeescape` codec and wraps whatever comes back, so the position range counts the body and not the file. The body is expanded before the codec sees it, because a codec works on bytes and a body does not have to, and every non-ASCII character becomes a ten character `\U0001234` form on the way, which is why `'ሴ\u12'` reports position 10-13 for an escape three characters in. The range ends where the codec stopped reading rather than where the escape ends, so `'\u1'` and `'\u12'` report different ranges for the same mistake. An unterminated `\N{` runs its range to the end of the literal.
