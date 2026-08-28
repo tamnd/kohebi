@@ -44,6 +44,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      # Asking twice, because the runners ship a rustup that reports success on
+      # `toolchain install --target` and leaves the standard library for a
+      # target it is not hosting behind. `rustup target add` is idempotent, and
+      # when it does fail it fails here rather than as `can't find crate for
+      # core` several minutes into a build.
+      - run: rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo build --release --bin kohebi --target ${{ matrix.target }}
       - name: Package
