@@ -150,26 +150,23 @@ fn every_refused_statement_is_refused_for_the_same_reason() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// The two definitions and `match` are the gap now, and they say so.
+/// `match` is the gap now, and it says so.
 ///
 /// A gap that reported itself as a `SyntaxError` would tell someone their
 /// working program is broken, and would hide from anyone measuring coverage
-/// how much of the grammar is still missing. They are reported from inside a
+/// how much of the grammar is still missing. It is reported from inside a
 /// block as well as at the margin, since a body is parsed by the same code
 /// that parses a file.
 #[test]
 fn the_unwritten_statements_report_themselves() {
     for source in [
-        "def f(): pass",
-        "class C: pass",
-        "async def f(): pass",
-        "@deco\ndef f(): pass",
         "match x:\n    case 1: pass",
-        "if x:\n    def f(): pass",
-        "while x:\n    class C: pass",
-        "for x in y:\n    @deco\n    def f(): pass",
+        "match x:\n    case [1, 2]: pass\n    case _: pass",
+        "if x:\n    match y:\n        case 1: pass",
+        "def f():\n    match x:\n        case 1: pass",
+        "class C:\n    match x:\n        case 1: pass",
         "with a:\n    match x:\n        case 1: pass",
-        "try:\n    async def f(): pass\nexcept:\n    pass",
+        "try:\n    match x:\n        case 1: pass\nexcept:\n    pass",
     ] {
         let error = parse_module(source).expect_err("not written yet");
         assert_eq!(

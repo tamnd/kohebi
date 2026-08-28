@@ -9,7 +9,7 @@ Source text to tokens to a CPython-compatible AST. This is the first code in the
 | Stage | Input | Output | Crate | State |
 | --- | --- | --- | --- | --- |
 | Lexer | `&str` | `Vec<Token>` | `kohebi-parse` | Done |
-| Parser | `&[Token]` | AST | `kohebi-parse` | Every statement but `def`, `class`, and `match` |
+| Parser | `&[Token]` | AST | `kohebi-parse` | Every statement but `match` |
 | Lowering | AST | HIR | `kohebi-hir` | Not started |
 | Compilation | HIR | register bytecode | `kohebi-bc` | Not started |
 
@@ -91,7 +91,7 @@ The order of work, one pull request each, each one landing with the differential
 3. Expressions: Pratt table, calls, subscripts, attributes, comprehensions, lambdas, conditional expressions, the walrus, f-strings and t-strings. Done, with 404 hand-written cases and a sweep of 552966 expressions out of the standard library that has no shape or position mismatches left. The only expressions the sweep still refuses are the two literal gaps, `\N{...}` and lone surrogates.
 4. Simple statements, imports, and assignment targets. Done, with 276 hand-written cases and a sweep of 76524 simple statements taken out of the standard library that has no shape or position mismatches and no refusals. `parse_module` exists from here on.
 5. Compound statements: `if`, `while`, `for`, `with`, `try`, and the `async` forms. Done, with 449 hand-written cases and a sweep of 22057 compound statements taken out of the standard library that has no shape or position mismatches and no refusals.
-6. `def` and `class`, with decorators, parameter lists, and type parameters. Held back from the item above because a parameter list is a grammar of its own, and reported as a gap rather than as a syntax error until it lands.
+6. `def` and `class`, with decorators, parameter lists, and type parameters. Held back from the item above because a parameter list is a grammar of its own. Done, with 581 hand-written cases and a sweep of 1832 whole standard library modules that has no shape or position mismatches. The sweep parses each file end to end rather than one statement at a time, which is the first time the parser has been measured against real files, and the only 73 it refuses are the two literal gaps left over from item 3.
 7. `match`, which is its own grammar and its own eight node types.
 8. Encoding declarations, so the last three standard library files come into the corpus.
 9. Error messages, in a second pass.

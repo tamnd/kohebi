@@ -5,9 +5,9 @@ Same shape and same reasoning as `gen-expr-fixture.py`, in exec mode rather
 than eval mode, so a case here is a whole module and not one expression. The
 Rust side parses the same source and has to print the same two strings.
 
-`def` and `class` are not covered, because they are not parsed. They are
-reported as a gap rather than as an error, and a gap has nothing to compare
-against until it is filled.
+`match` is not covered, because it is not parsed. It is reported as a gap
+rather than as an error, and a gap has nothing to compare against until it is
+filled.
 
 The first field is the verdict: `ok`, or the name of the exception class, since
 a block that should have been indented raises an `IndentationError` and not a
@@ -286,6 +286,96 @@ OK = [
     # the second, and both have to agree.
     "if x:\n\tpass",
     "if x:\n\tif y:\n\t\tpass",
+    # Functions, from the empty one up.
+    "def f(): pass",
+    "def f():\n    pass",
+    "def f():\n    'doc'\n    return 1\n",
+    "def f(a): pass",
+    "def f(a, b): pass",
+    "def f(a,): pass",
+    "def f(a, b,): pass",
+    # Defaults, which are a tail of the two positional lists together.
+    "def f(a=1): pass",
+    "def f(a, b=1): pass",
+    "def f(a=1, b=2): pass",
+    "def f(a=(1, 2)): pass",
+    "def f(a=[]): pass",
+    # The two separators.
+    "def f(a, /): pass",
+    "def f(a, /, b): pass",
+    "def f(a, b, /, c, d): pass",
+    "def f(a=1, /, b=2): pass",
+    "def f(*, a): pass",
+    "def f(*, a, b): pass",
+    "def f(*, a=1): pass",
+    "def f(a, *, b): pass",
+    "def f(a, /, b, *, c): pass",
+    # The two collectors.
+    "def f(*a): pass",
+    "def f(**a): pass",
+    "def f(*a, **b): pass",
+    "def f(*a, b): pass",
+    "def f(*a, b, **c): pass",
+    "def f(a, /, b, *c, d, **e): pass",
+    "def f(a, /, b=1, *c, d, e=2, **f): pass",
+    # Annotations, which only a `def` takes.
+    "def f(a: int): pass",
+    "def f(a: int = 1): pass",
+    "def f(a: int, b: str = 'x'): pass",
+    "def f(*a: int, **b: str): pass",
+    "def f(*a: *Ts): pass",
+    "def f(a: list[int]): pass",
+    "def f() -> None: pass",
+    "def f(a: int) -> list[int]: pass",
+    "def f() -> (yield): pass",
+    # Type parameters, which are the list a `type` alias already takes.
+    "def f[T](): pass",
+    "def f[T](x: T) -> T: pass",
+    "def f[T, *Ts, **P](): pass",
+    "def f[T: int](): pass",
+    "def f[T = int](): pass",
+    # Classes, whose brackets hold exactly what a call's hold.
+    "class C: pass",
+    "class C:\n    pass",
+    "class C(): pass",
+    "class C(B): pass",
+    "class C(A, B): pass",
+    "class C(B,): pass",
+    "class C(metaclass=M): pass",
+    "class C(B, metaclass=M): pass",
+    "class C(*a): pass",
+    "class C(**a): pass",
+    "class C(*a, **b): pass",
+    "class C(1): pass",
+    "class C[T]: pass",
+    "class C[T](B): pass",
+    "class C[T: int = str](B): pass",
+    "class C:\n    def m(self): pass\n",
+    # Decorators, which are any expression at all and do not move the node they
+    # decorate.
+    "@d\ndef f(): pass",
+    "@d\nclass C: pass",
+    "@a.b\ndef f(): pass",
+    "@a.b.c(1, x=2)\ndef f(): pass",
+    "@a\n@b\n@c\ndef f(): pass",
+    "@1\ndef f(): pass",
+    "@(lambda f: f)\ndef f(): pass",
+    "@ d\ndef f(): pass",
+    "if x:\n    @d\n    def f(): pass\n",
+    # The `async` forms.
+    "async def f(): pass",
+    "async def f():\n    await x\n",
+    "async def f(a: int = 1) -> None: pass",
+    "@d\nasync def f(): pass",
+    "async def f():\n    async for x in y:\n        pass\n",
+    # Definitions nested in each other and in the other compound statements.
+    "def f():\n    def g(): pass\n    return g\n",
+    "class C:\n    class D:\n        pass\n",
+    "def f():\n    class C: pass\n",
+    "class C:\n    @property\n    def m(self): return 1\n",
+    "for x in y:\n    def f(): pass\n",
+    "try:\n    def f(): pass\nexcept:\n    class C: pass\n",
+    "with a:\n    async def f(): pass\n",
 ]
 
 ERRORS = [
@@ -517,6 +607,63 @@ ERRORS = [
     # the other two.
     "if x:\n  pass\n\tpass",
     "if x:\n\tpass\n        pass",
+    # A parameter list out of order. Each of these is one of the three pieces
+    # of state noticing something it cannot allow.
+    "def f(/): pass",
+    "def f(/,): pass",
+    "def f(a, /, b, /): pass",
+    "def f(*a, /): pass",
+    "def f(a, *, /): pass",
+    "def f(*): pass",
+    "def f(*,): pass",
+    "def f(*, **k): pass",
+    "def f(*a, *b): pass",
+    "def f(**k, a): pass",
+    "def f(**a, **b): pass",
+    "def f(a=1, b): pass",
+    "def f(a, b=1, /, c, d=2, *, e, f=3, **g): pass",
+    "def f(*a=1): pass",
+    "def f(**a=1): pass",
+    "def f(a=): pass",
+    "def f(a=,): pass",
+    "def f((a, b)): pass",
+    "def f(1): pass",
+    "def f(a.b): pass",
+    "def f(,): pass",
+    "def f(a b): pass",
+    "def f(a,,b): pass",
+    "def f(a:): pass",
+    "def f(a: *int): pass",
+    "def f(**k: *Ts): pass",
+    "lambda *a=1: 1",
+    "lambda a=,: 1",
+    "lambda a=: 1",
+    # A header that never reaches its body.
+    "def 1(): pass",
+    "def f: pass",
+    "def f[T]: pass",
+    "def f[]: pass",
+    "def f() pass",
+    "def f()\n    pass",
+    "def f() ->: pass",
+    "def f() -> *int: pass",
+    "def f():\npass",
+    "async def f():\npass",
+    "class 1: pass",
+    "class C[]: pass",
+    "class C pass",
+    "class C(B) pass",
+    "class C(B) -> x: pass",
+    "class C(,): pass",
+    "class C(a for a in b): pass",
+    "class C(a=1, b): pass",
+    "class C(**a, b): pass",
+    "class C:\npass",
+    # A decorator with nothing underneath it, or the wrong thing.
+    "@d\nx = 1",
+    "@d\nif x: pass",
+    "@d\n@e\nx = 1",
+    "if x:\n    @d\n    y = 1\n",
     # Four shapes are missing above and are worth naming. `from a import (b`
     # is the lazy tokenizer difference already recorded for `lambda (: 1`:
     # CPython reaches the field and says `'(' was never closed`, while we

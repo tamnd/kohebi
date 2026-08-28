@@ -1,11 +1,10 @@
-//! Statements, all but the two that carry a parameter list.
+//! Statements, and the simple ones in full.
 //!
 //! A simple statement is one that fits on a logical line and has no indented
 //! body, which is the whole of assignment, `del`, `return`, `raise`, `assert`,
 //! `global`, `nonlocal`, `import`, `type`, and the three one word ones. Those
-//! are here. The ones with a body are in `compound`, except `def` and `class`,
-//! which report themselves as a gap until they land rather than as the user's
-//! mistake.
+//! are here. The ones with a body are in `compound`, and the two of those that
+//! carry a parameter list are in `definition`.
 //!
 //! ## Where the fiddly parts are
 //!
@@ -40,6 +39,7 @@ use crate::value::Value;
 use super::{Parser, Result, assignment_target_name};
 
 mod compound;
+mod definition;
 
 /// Parse a whole file, the way `ast.parse(source)` does.
 ///
@@ -47,7 +47,7 @@ mod compound;
 ///
 /// A `SyntaxError` for source CPython also rejects, or an `Unsupported` error
 /// for a construct that is valid Python and is not written yet, which for now
-/// is `def`, `class`, and `match`.
+/// is `match`.
 pub fn parse_module(source: &str) -> Result<Mod> {
     let tokens = crate::tokenize(source)?;
     let mut parser = Parser::new(source, &tokens);
@@ -117,15 +117,6 @@ fn written_without_brackets(kind: &ExprKind) -> bool {
     }
 }
 
-/// The two compound statements that are not written yet, named for the message
-/// that says so. The rest are in `compound`.
-fn compound_keyword(keyword: Keyword) -> Option<&'static str> {
-    match keyword {
-        Keyword::Def | Keyword::Class => Some(keyword.as_str()),
-        _ => None,
-    }
-}
-
 impl Parser<'_> {
     /// Every statement in the file, in order.
     pub(super) fn module_body(&mut self) -> Result<Vec<Stmt>> {
@@ -175,13 +166,7 @@ impl Parser<'_> {
 
     fn simple_statement(&mut self) -> Result<Stmt> {
         let start = self.offset();
-        if self.at(TokenKind::At) {
-            return Err(self.unsupported("decorators are not parsed yet"));
-        }
         if let TokenKind::Keyword(keyword) = self.peek() {
-            if let Some(name) = compound_keyword(keyword) {
-                return Err(self.unsupported(format!("'{name}' statements are not parsed yet")));
-            }
             match keyword {
                 Keyword::Pass => return Ok(self.word_statement(StmtKind::Pass, start)),
                 Keyword::Break => return Ok(self.word_statement(StmtKind::Break, start)),

@@ -1,10 +1,9 @@
 //! The statements with a colon and a body: `if`, `while`, `for`, `with`, and
-//! `try`, plus the two `async` forms of the last two.
+//! `try`, plus the `async` forms of the last two.
 //!
-//! `def` and `class` are the other two and they are not here yet, because a
-//! parameter list is a grammar of its own and it deserves its own change.
-//! Until then they report themselves as a gap, the same way everything
-//! unwritten does.
+//! `def` and `class` are here too, by way of `definition`, which owns them
+//! because a parameter list is a grammar of its own. The dispatch and the block
+//! itself stay here so that all of it reads in one place.
 //!
 //! ## Where the fiddly parts are
 //!
@@ -69,10 +68,13 @@ impl Parser<'_> {
     /// A compound statement, if one starts here.
     ///
     /// `None` means the line starts with something else, which is every simple
-    /// statement and also `def`, `class`, and `match`, since those are still
-    /// reported as a gap by `simple_statement`.
+    /// statement and also `match`, since that one is still reported as a gap by
+    /// `simple_statement`.
     fn compound_statement(&mut self) -> Result<Option<Stmt>> {
         let start = self.offset();
+        if self.at(TokenKind::At) {
+            return Ok(Some(self.decorated()?));
+        }
         let TokenKind::Keyword(keyword) = self.peek() else {
             return Ok(None);
         };
@@ -82,6 +84,8 @@ impl Parser<'_> {
             Keyword::For => self.for_statement(start, false)?,
             Keyword::With => self.with_statement(start, false)?,
             Keyword::Try => self.try_statement(start)?,
+            Keyword::Def => self.function_def(start, Vec::new(), false)?,
+            Keyword::Class => self.class_def(start, Vec::new())?,
             Keyword::Async => self.async_statement(start)?,
             // A clause keyword on its own has no statement to belong to.
             Keyword::Elif | Keyword::Else | Keyword::Except | Keyword::Finally => {
@@ -92,11 +96,15 @@ impl Parser<'_> {
         Ok(Some(stmt))
     }
 
-    /// `async for` and `async with`, and the report that `async def` is a gap.
+    /// `async def`, `async for`, and `async with`.
+    ///
+    /// `start` is the `async` rather than the word after it, because that is
+    /// where CPython puts the node.
     fn async_statement(&mut self, start: u32) -> Result<Stmt> {
         match self.peek_at(1) {
             TokenKind::Keyword(Keyword::Def) => {
-                Err(self.unsupported("'async def' statements are not parsed yet"))
+                self.bump();
+                self.function_def(start, Vec::new(), true)
             }
             TokenKind::Keyword(Keyword::For) => {
                 self.bump();
@@ -117,12 +125,21 @@ impl Parser<'_> {
 
     // ----- the block itself -------------------------------------------------
 
-    /// The body of a compound statement.
+    /// The body of a statement that opens one with a keyword.
     ///
-    /// Either the rest of the header line, or an indented block underneath it.
     /// `opener` and `line` are only for the message when the block is missing,
     /// which names the keyword that wanted it and the line that keyword is on.
     fn block(&mut self, opener: &str, line: u32) -> Result<Vec<Stmt>> {
+        self.block_after(&format!("'{opener}' statement"), line)
+    }
+
+    /// The body of a compound statement.
+    ///
+    /// Either the rest of the header line, or an indented block underneath it.
+    /// `subject` is what the missing block message calls the thing that wanted
+    /// it, which is `'if' statement` for the keyword ones and `function
+    /// definition` or `class definition` for the two that carry a name.
+    pub(super) fn block_after(&mut self, subject: &str, line: u32) -> Result<Vec<Stmt>> {
         let mut body = Vec::new();
         if !self.eat(TokenKind::Newline) {
             self.logical_line(&mut body)?;
@@ -131,7 +148,7 @@ impl Parser<'_> {
         if !self.eat(TokenKind::Indent) {
             return Err(SyntaxError::new(
                 ErrorClass::Indentation,
-                format!("expected an indented block after '{opener}' statement on line {line}"),
+                format!("expected an indented block after {subject} on line {line}"),
                 self.current().span,
             ));
         }
@@ -159,7 +176,7 @@ impl Parser<'_> {
     /// See the note at the top of the file: `expected ':'` is what CPython
     /// says when the header ran out of line, and `invalid syntax` is what it
     /// says when something else is in the way.
-    fn block_colon(&mut self) -> Result<()> {
+    pub(super) fn block_colon(&mut self) -> Result<()> {
         if self.eat(TokenKind::Colon) {
             return Ok(());
         }
@@ -169,8 +186,9 @@ impl Parser<'_> {
         Err(self.invalid_syntax())
     }
 
-    /// The colon after `try`, `else`, and `finally`, which is always demanded.
-    fn forced_colon(&mut self) -> Result<()> {
+    /// The colon after `try`, `else`, `finally`, and `def`, which is always
+    /// demanded.
+    pub(super) fn forced_colon(&mut self) -> Result<()> {
         if self.eat(TokenKind::Colon) {
             return Ok(());
         }
@@ -178,7 +196,7 @@ impl Parser<'_> {
     }
 
     /// The line the next token is on, counted from one.
-    fn line_here(&self) -> u32 {
+    pub(super) fn line_here(&self) -> u32 {
         self.lines.position(self.offset()).line
     }
 

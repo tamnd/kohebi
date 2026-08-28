@@ -91,6 +91,44 @@ fn binary_operator(kind: TokenKind) -> Option<(Operator, u8)> {
     Some((op, precedence))
 }
 
+/// Which of the two parameter lists is being read.
+///
+/// They are one walk with two small differences. A lambda's list ends at the
+/// colon that starts its body and takes no annotations, because an annotation
+/// wants a colon of its own and there is no way to tell the two apart. A `def`
+/// list ends at its closing bracket and annotates freely.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ParamStyle {
+    Lambda,
+    Def,
+}
+
+impl ParamStyle {
+    /// The token the list runs up to, which the list itself never takes.
+    fn terminator(self) -> TokenKind {
+        match self {
+            Self::Lambda => TokenKind::Colon,
+            Self::Def => TokenKind::RParen,
+        }
+    }
+
+    /// What CPython calls a Python 2 style bracketed parameter list.
+    fn parenthesized(self) -> &'static str {
+        match self {
+            Self::Lambda => "Lambda expression parameters cannot be parenthesized",
+            Self::Def => "Function parameters cannot be parenthesized",
+        }
+    }
+}
+
+/// What was written between a pair of call brackets.
+struct CallArguments {
+    args: Vec<Expr>,
+    keywords: Vec<KwArg>,
+    /// Where the closing bracket ends, which is where the call ends.
+    end: u32,
+}
+
 /// The name CPython uses for a node in `cannot assign to ...`.
 ///
 /// Taken from `_PyPegen_get_expr_name`. The wording is not decoration: it is
@@ -458,7 +496,7 @@ impl<'a> Parser<'a> {
     fn lambda(&mut self) -> Result<Expr> {
         let start = self.offset();
         self.bump();
-        let args = self.lambda_parameters()?;
+        let args = self.parameters(ParamStyle::Lambda)?;
         self.expect(TokenKind::Colon)?;
         let body = self.expression()?;
         let end = self.prev_end();
@@ -472,14 +510,14 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// The parameter list of a lambda, up to but not including the colon.
+    /// A parameter list, up to but not including the token that ends it.
     ///
-    /// CPython writes this as five alternatives of `lambda_parameters` plus a
-    /// parallel set of `invalid_` rules, and reading it that way is misleading.
-    /// It is one left to right walk with three pieces of state: whether `/` has
-    /// been seen, whether `*` has been seen, and whether a default has been
-    /// seen. Every message below is one of those three noticing something out
-    /// of order, and each is CPython's exact wording.
+    /// CPython writes this as five alternatives of `parameters` plus a parallel
+    /// set of `invalid_` rules, and reading it that way is misleading. It is
+    /// one left to right walk with three pieces of state: whether `/` has been
+    /// seen, whether `*` has been seen, and whether a default has been seen.
+    /// Every message below is one of those three noticing something out of
+    /// order, and each is CPython's exact wording.
     ///
     /// `arguments` is the awkward shape here rather than in the parser. A
     /// default belongs to `defaults`, which is a tail shared by `posonlyargs`
@@ -488,14 +526,16 @@ impl<'a> Parser<'a> {
     /// That is why a parameter without a default is an error before the star
     /// and is fine after it.
     ///
-    /// Nothing here is annotated. `lambda x: int: 1` is a syntax error, because
-    /// the first colon ends the parameter list, and only `def` takes types.
-    fn lambda_parameters(&mut self) -> Result<Arguments> {
+    /// A lambda and a `def` share every one of those rules, so `style` is the
+    /// only thing that separates them and it decides three points: where the
+    /// list ends, whether an annotation may follow a name, and which of the two
+    /// wordings a bracketed list gets.
+    fn parameters(&mut self, style: ParamStyle) -> Result<Arguments> {
         let mut args = Arguments::default();
         let mut seen_slash = false;
         let mut seen_star = false;
 
-        while !self.at(TokenKind::Colon) {
+        while !self.at(style.terminator()) {
             // A `**kwargs` closes the list, so anything after it is out of
             // place whatever it is.
             if args.kwarg.is_some() {
@@ -517,8 +557,8 @@ impl<'a> Parser<'a> {
                     if args.args.is_empty() {
                         // CPython only offers the helpful message when a comma
                         // follows, because the rule that produces it is written
-                        // as `'/' ','`. A lone `lambda /:` falls through to the
-                        // catch-all instead.
+                        // as `'/' ','`. A lone `lambda /:` or `def f(/)` falls
+                        // through to the catch-all instead.
                         if self.at(TokenKind::Comma) {
                             return Err(Self::error("at least one argument must precede /", slash));
                         }
@@ -533,31 +573,23 @@ impl<'a> Parser<'a> {
                         return Err(Self::error("* argument may appear only once", star));
                     }
                     seen_star = true;
-                    if self.at(TokenKind::Comma) || self.at(TokenKind::Colon) {
-                        self.bare_star_needs_names()?;
+                    if self.at(TokenKind::Comma) || self.at(style.terminator()) {
+                        self.bare_star_needs_names(style, star)?;
                     } else {
-                        args.vararg = Some(Box::new(self.lambda_parameter()?));
+                        args.vararg = Some(Box::new(self.parameter(style, true)?));
+                        self.no_default_after_star("positional")?;
                     }
                 }
                 TokenKind::DoubleStar => {
                     self.bump();
-                    args.kwarg = Some(Box::new(self.lambda_parameter()?));
-                    if self.at(TokenKind::Equal) {
-                        return Err(Self::error(
-                            "var-keyword argument cannot have default value",
-                            self.current().span,
-                        ));
-                    }
+                    args.kwarg = Some(Box::new(self.parameter(style, false)?));
+                    self.no_default_after_star("keyword")?;
                 }
-                TokenKind::LParen => return Err(self.parenthesized_parameters()),
+                TokenKind::LParen => return Err(self.parenthesized_parameters(style)),
                 _ => {
                     let span = self.current().span;
-                    let parameter = self.lambda_parameter()?;
-                    let default = if self.eat(TokenKind::Equal) {
-                        Some(self.expression()?)
-                    } else {
-                        None
-                    };
+                    let parameter = self.parameter(style, false)?;
+                    let default = self.parameter_default()?;
                     if seen_star {
                         args.kwonlyargs.push(parameter);
                         args.kw_defaults.push(default);
@@ -586,46 +618,101 @@ impl<'a> Parser<'a> {
 
     /// A bare `*` has to be followed by the names it makes keyword-only.
     ///
-    /// The position CPython reports is the token that should have been a name,
-    /// which is the colon in `lambda *:` and the `**` in `lambda *, **k:`, so
-    /// this looks one token past the comma rather than raising where the star
-    /// is.
-    fn bare_star_needs_names(&self) -> Result<()> {
-        let offender = if self.at(TokenKind::Colon) {
-            Some(self.current())
-        } else if matches!(self.peek_at(1), TokenKind::Colon | TokenKind::DoubleStar) {
-            Some(self.tokens[(self.pos + 1).min(self.tokens.len() - 1)])
+    /// Both rules that say so are spelled the same and report different
+    /// places, because only the `def` one pins its location. That one names the
+    /// star. The lambda one takes whatever the failure left behind, which is
+    /// the token that should have been a name: the colon in `lambda *:` and the
+    /// `**` in `lambda *, **k:`.
+    fn bare_star_needs_names(&self, style: ParamStyle, star: Span) -> Result<()> {
+        let next = self.peek_at(1);
+        let offender = if self.at(style.terminator()) {
+            Some(self.current().span)
+        } else if next == style.terminator() || next == TokenKind::DoubleStar {
+            Some(self.tokens[(self.pos + 1).min(self.tokens.len() - 1)].span)
         } else {
             None
         };
-        match offender {
-            Some(token) => Err(Self::error(
-                "named arguments must follow bare *",
-                token.span,
-            )),
-            None => Ok(()),
-        }
+        let Some(offender) = offender else {
+            return Ok(());
+        };
+        let span = match style {
+            ParamStyle::Lambda => offender,
+            ParamStyle::Def => star,
+        };
+        Err(Self::error("named arguments must follow bare *", span))
     }
 
-    /// One parameter name. No annotation, no default, just the name.
-    fn lambda_parameter(&mut self) -> Result<Arg> {
+    /// `*args=1` and `**kwargs=1`, which put a default where none can go.
+    fn no_default_after_star(&self, what: &str) -> Result<()> {
+        if self.at(TokenKind::Equal) {
+            return Err(Self::error(
+                format!("var-{what} argument cannot have default value"),
+                self.current().span,
+            ));
+        }
+        Ok(())
+    }
+
+    /// The `= value` after a parameter, if it has one.
+    ///
+    /// CPython names the `=` when the value is missing, but only when a comma
+    /// or a bracket follows it, because that is the lookahead its rule is
+    /// written with. `lambda a=: 1` misses by one token and gets the catch-all.
+    fn parameter_default(&mut self) -> Result<Option<Expr>> {
+        if !self.at(TokenKind::Equal) {
+            return Ok(None);
+        }
+        let equal = self.bump().span;
+        if self.at(TokenKind::Comma) || self.at(TokenKind::RParen) {
+            return Err(Self::error("expected default value expression", equal));
+        }
+        Ok(Some(self.expression()?))
+    }
+
+    /// One parameter: a name, and for a `def` the annotation after it.
+    ///
+    /// `star_annotation` is the `*args` slot and nothing else. PEP 646 lets
+    /// that one be written `*args: *Ts`, and no other parameter may have a
+    /// starred annotation.
+    fn parameter(&mut self, style: ParamStyle, star_annotation: bool) -> Result<Arg> {
         let name = self.expect(TokenKind::Name)?;
+        let mut annotation = None;
+        if style == ParamStyle::Def && self.at(TokenKind::Colon) {
+            self.bump();
+            annotation = Some(if star_annotation && self.at(TokenKind::Star) {
+                let start = self.offset();
+                self.bump();
+                let value = self.binary(1)?;
+                let end = self.prev_end();
+                self.expr(
+                    ExprKind::Starred {
+                        value: Box::new(value),
+                        ctx: ExprContext::Load,
+                    },
+                    start,
+                    end,
+                )
+            } else {
+                self.expression()?
+            });
+        }
+        let end = self.prev_end();
         Ok(Arg {
             arg: self.ident(name.span),
-            annotation: None,
+            annotation,
             type_comment: None,
-            attrs: self.attributes(name.span.start, name.span.end),
+            attrs: self.attributes(name.span.start, end),
         })
     }
 
-    /// `lambda (x, y): 1`, which is Python 2 muscle memory and gets its own
-    /// message.
+    /// `lambda (x, y): 1` and `def f((x, y)): pass`, which are Python 2 muscle
+    /// memory and get their own message.
     ///
     /// Only when the brackets hold a plain list of names, because that is what
     /// CPython's rule matches. `lambda ((x)): 1` is ordinary invalid syntax,
     /// and so is `lambda [x]: 1`, since neither is what someone porting from
     /// Python 2 would have written.
-    fn parenthesized_parameters(&self) -> SyntaxError {
+    fn parenthesized_parameters(&self, style: ParamStyle) -> SyntaxError {
         let open = self.current().span;
         let mut index = self.pos + 1;
         loop {
@@ -643,10 +730,7 @@ impl<'a> Parser<'a> {
             }
         }
         let close = self.tokens[index].span;
-        Self::error(
-            "Lambda expression parameters cannot be parenthesized",
-            Span::new(open.start, close.end),
-        )
+        Self::error(style.parenthesized(), Span::new(open.start, close.end))
     }
 
     /// `named_expression`: `x := 1`, or an ordinary expression.
@@ -917,6 +1001,27 @@ impl<'a> Parser<'a> {
     /// brackets of its own.
     fn call(&mut self, func: Expr, start: u32) -> Result<Expr> {
         let open = self.bump().span;
+        let call = self.call_arguments(open, true)?;
+        Ok(self.expr(
+            ExprKind::Call {
+                func: Box::new(func),
+                args: call.args,
+                keywords: call.keywords,
+            },
+            start,
+            call.end,
+        ))
+    }
+
+    /// What is between a pair of call brackets, from just past the `(` to just
+    /// past the `)`.
+    ///
+    /// A class header's bases and keywords are this same rule, which is why it
+    /// is written apart from `call`. The one thing they do not share is the
+    /// generator expression that borrows the brackets it is already inside, so
+    /// `f(x for x in y)` is a call of one generator and `class C(x for x in y)`
+    /// is invalid syntax at the `for`.
+    fn call_arguments(&mut self, open: Span, genexp: bool) -> Result<CallArguments> {
         let mut args: Vec<Expr> = Vec::new();
         let mut keywords: Vec<KwArg> = Vec::new();
         let mut seen_keyword = false;
@@ -959,7 +1064,7 @@ impl<'a> Parser<'a> {
                 seen_keyword = true;
             } else {
                 let value = self.named_expression()?;
-                if self.at_comprehension() {
+                if genexp && self.at_comprehension() {
                     // `f(x for x in y)` is a generator expression that borrows
                     // the call's own brackets, and it is only legal when it is
                     // the whole argument list.
@@ -979,15 +1084,11 @@ impl<'a> Parser<'a> {
                         open.start,
                         close.span.end,
                     );
-                    return Ok(self.expr(
-                        ExprKind::Call {
-                            func: Box::new(func),
-                            args: vec![generator],
-                            keywords,
-                        },
-                        start,
-                        close.span.end,
-                    ));
+                    return Ok(CallArguments {
+                        args: vec![generator],
+                        keywords,
+                        end: close.span.end,
+                    });
                 }
                 if seen_unpacking {
                     return Err(Self::error(
@@ -1008,15 +1109,11 @@ impl<'a> Parser<'a> {
             }
         }
         let close = self.expect(TokenKind::RParen)?;
-        Ok(self.expr(
-            ExprKind::Call {
-                func: Box::new(func),
-                args,
-                keywords,
-            },
-            start,
-            close.span.end,
-        ))
+        Ok(CallArguments {
+            args,
+            keywords,
+            end: close.span.end,
+        })
     }
 
     // ----- subscripts ------------------------------------------------------
@@ -1563,7 +1660,7 @@ impl<'a> Parser<'a> {
             format!("{label}: expecting a valid expression after '{{'"),
             lambda,
         );
-        if self.lambda_parameters().is_err() || !self.at(TokenKind::Colon) {
+        if self.parameters(ParamStyle::Lambda).is_err() || !self.at(TokenKind::Colon) {
             return no_expression;
         }
         Self::error(
