@@ -155,6 +155,21 @@ pub fn string(text: &str, prefix: StringPrefix, span: Span) -> Result<Value, Syn
     }
 }
 
+/// The value of one run of literal text inside an f-string or a t-string.
+///
+/// Same escape rules as a plain string, minus the quotes, because the lexer has
+/// already taken those off and split the body at every brace. A doubled brace is
+/// already one brace by the time it gets here: the lexer ends a chunk after the
+/// first of the pair and starts the next one after the second, so joining the
+/// spans of two adjacent chunks is how `{{` becomes `{`.
+///
+/// # Errors
+///
+/// The same as `string`, for the same reasons.
+pub fn interpolated_text(text: &str, raw: bool, span: Span) -> Result<String, SyntaxError> {
+    unicode(text, raw, span, 0)
+}
+
 /// The text between the quotes, and where it starts inside the token.
 fn body_of(text: &str, span: Span) -> Result<(&str, u32), SyntaxError> {
     // The prefix is letters, so the first quote is where the prefix ends.

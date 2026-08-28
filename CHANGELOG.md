@@ -4,9 +4,17 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads an expression and builds the tree CPython builds.
 
-## 0.0.3
+## Unreleased
 
-Seven merged pull requests since 0.0.2. The lexer closed its last gap and now agrees with CPython on the whole standard library, the AST and its printer are written down, literals evaluate to real Python values, and there is a parser.
+f-strings and t-strings in the parser, which closes the last gap in the expression grammar. Every expression shape Python has now builds the tree CPython builds.
+
+The replacement field is the sub-grammar it looked like, but the awkward part turned out to be the literal text around it. It becomes one `Constant` however many tokens and however many separate string literals it came from, so `'a' 'b' f'{x}'` is a single `Constant('ab')` spanning both quoted pieces. A doubled brace is one character to the reader and two in the source, and the lexer stops the chunk between them, so the second one has to be added back or the node ends a column early.
+
+Debug fields are stranger than they look. `f'a {x=}'` is not a `Constant` for `a ` followed by another for `x=`, it is one `Constant` reading `a x=`, and the echoed source is the text as written rather than the expression printed back. A comment inside the field is dropped from the echo while the whitespace around it stays, so `f"{1+2 = # note\n}"` echoes `1+2 = ` and then the newline. Comments are not tokens, so that text has to be rebuilt from the tokens with the gaps between them cleaned out.
+
+Every message about a field is prefixed with the literal it was written in, and the prefix follows the literal rather than the node being built, so a field in the format spec of a t-string still says `t-string` even though a spec is always formatted rather than templated. There are two messages for a field that will not parse, and which one you get depends on whether an expression was there at all: `f"{*}"` says there is no valid expression after the brace while `f"{x;}"` says it expected one of `=`, `!`, `:` or `}`. CPython tells the two apart by backtracking, since its parser accepts the shorter expression and then complains about what follows. Nothing here backtracks, so the question is asked of the tokens instead.
+
+All 404 hand-written cases pass, and the sweep of 552966 expressions out of CPython 3.14.7's standard library now has zero shape or position mismatches and refuses only 834, which are the two literal gaps and nothing else: 750 lone surrogates and 84 uses of `\N{...}`. That is down from 7530 refusals before this landed. The sweep earned its keep again, since it found both the debug field merging and the comment rule, neither of which any of the hand-written cases had.
 
 `lambda`, which needed the parameter list grammar rather than anything about lambdas. CPython writes that grammar as five alternatives plus a parallel set of rules that exist only to produce error messages, and reading it that way is misleading. It is one walk left to right with three pieces of state: whether `/` has been seen, whether `*` has been seen, and whether a default has been seen. Every message is one of those three noticing something out of order.
 
@@ -15,6 +23,10 @@ The messages are worth having exactly because they are specific. `lambda /, x: 1
 One difference turned up that is not about lambdas at all. CPython tokenizes lazily, so `lambda (: 1` fails at the `(` with `invalid syntax` before anything notices the bracket is never closed, while we tokenize the whole file first and our lexer says `'(' was never closed`. Both errors exist on both sides and it is only a question of which is found first, so it belongs to the error message pass rather than here.
 
 All 2682 lambdas in CPython 3.14.7's standard library now parse, and the sweep of 552966 expressions still has zero shape or position mismatches and zero refusals outside the declared gaps.
+
+## 0.0.3
+
+Seven merged pull requests since 0.0.2. The lexer closed its last gap and now agrees with CPython on the whole standard library, the AST and its printer are written down, literals evaluate to real Python values, and there is a parser.
 
 The expression parser, which is the first code in the project that turns tokens into a tree. Recursive descent with a precedence loop for the binary operators, covering names, literals, every operator, comparison chains, calls, subscripts, attributes, slices, tuples, lists, dicts, sets, all four comprehension forms, conditional expressions, the walrus, `await`, and `yield`. Two things are deliberately not in it: `lambda`, because a parameter list is its own grammar, and f-strings, because a replacement field is too. Both are refused as unsupported rather than half-parsed, and there is a test that fails if either ever starts reporting itself as the user's mistake instead of as our gap.
 
