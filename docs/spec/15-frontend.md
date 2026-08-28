@@ -61,7 +61,9 @@ Three things about the shape that are easy to get wrong and expensive to fix lat
 
 The four soft keywords (`match`, `case`, `type`, `_`) are ordinary names to the lexer and are resolved by the parser from position alone. `match = 1` is an assignment, `match x:` is a statement, and both have to work in the same file.
 
-The Rust representation is arena-allocated with typed indices rather than `Box`. Trees are built once, walked many times, and dropped all at once, which is the allocation pattern an arena exists for, and an index is four bytes where a pointer is eight. The AST is not the runtime representation of anything, so nothing outside the crate holds a reference into it.
+The Rust representation is owned enums with `Box` for single children and `Vec` for sequences, not an arena of indices. An arena is the more fashionable answer and it is the one this section originally gave, and the argument against it is that ruff parses Python with boxed enums and is the fastest Python parser that exists, so the allocation cost is evidently affordable. Against that, an arena costs an explicit context parameter on every function that touches a node, across 133 node types, a parser, a lowering pass, and every tool built on either. The tree also does not outlive lowering, so its footprint is not part of the memory claim the project is judged on.
+
+Revisit if a profile of the parser shows allocation dominating, which is a measurement rather than a prediction, and `tamnd/kohebi-bench` will have the number.
 
 ## The parser
 
