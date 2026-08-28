@@ -1,0 +1,38 @@
+[package]
+name = "m03"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "M0.3: Cranelift and TPDE on Python-shaped SSA"
+
+# Its own workspace. M0 experiments are measurement rigs, not product code, and
+# `cargo build --workspace` at the repo root must never compile them.
+[workspace]
+
+[[bin]]
+name = "m03"
+path = "src/main.rs"
+
+[dependencies]
+# Verified against crates.io on 2026-08-28. Same versions the root workspace
+# pins, so a number measured here is a number about the Cranelift we would ship.
+cranelift-codegen = "0.135.1"
+cranelift-frontend = "0.135.1"
+cranelift-jit = "0.135.1"
+cranelift-module = "0.135.1"
+cranelift-native = "0.135.1"
+
+[profile.release]
+opt-level = 3
+lto = false
+codegen-units = 16
+
+[lints.clippy]
+# Negative priority so the individual allows below win against the group.
+all = { level = "warn", priority = -1 }
+
+# The trace builder threads a lot of small integers around, and naming every
+# offset would make the emitters harder to compare against each other than the
+# literals are to read.
+cast_possible_truncation = "allow"

@@ -1,0 +1,6 @@
+rust/target/
+__pycache__/
+.pytest_cache/
+# Progress chatter from a sweep. The JSON and the rendered table next to it are
+# the results; this is just what the driver said on the way there.
+results/*.log
