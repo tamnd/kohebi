@@ -93,11 +93,19 @@ So 10x is not "PyPy but better." It requires everything PyPy and GraalPy do, plu
 | --- | --- | --- |
 | Register bytecode, shapes, inline caches, copy-and-patch baseline | 2.0x | High. This is a well-understood engineering exercise. |
 | Optimizing tier: profile-guided speculation, inlining, method-at-a-time SSA | 2.2x | High. Gets us to ~4.4x, which is PyPy and GraalPy territory. |
-| Unboxing, escape analysis, scalar replacement | 1.4x | Medium. Allocation is a large share of Python's time and both PyPy and GraalPy already do some of this. |
-| AOT whole-program sealing: devirtualization, frozen layouts, guards removed rather than checked | 1.7x | Low. This is the part nobody has done with full semantics preserved. |
-| **Product** | **~10.5x** | |
+| Unboxing, escape analysis, scalar replacement | 1.4x | Medium as a multiplier, but see below. M0.4 found this is not really one factor among four. |
+| AOT whole-program sealing: devirtualization, frozen layouts, guards removed rather than checked | 1.16x | Measured, and lower than the 1.7x this table used to claim. See M0.4. |
+| **Product** | **~7.1x** | |
 
-Every factor has to land. Miss the last one and we are at 6x, which is still the fastest compatible Python ever built but is not the stated goal.
+That product used to read 10.5x, on a sealing factor of 1.7x that was flagged here as the least-supported number in the spec. M0.4 measured it at 1.16x across three operating systems: nothing at all on a numeric loop, and 1.34x on polymorphic dispatch, which is the only place it earns anything. The full result is in `experiments/m0.4-sealing-factor/`.
+
+Two corrections follow from that, and they point in opposite directions.
+
+The first is that 10x is not currently budgeted. At 7.1x the arithmetic no longer reaches the headline, and the missing 1.5x has to come from somewhere identified rather than from optimism. The honest position until then is that this design is budgeted for roughly 7x, which would still be comfortably the fastest compatible Python ever built, and that 10x is a target rather than a projection.
+
+The second is that unboxing is worth far more than the 1.4x on its line. M0.4 measured boxing floats at 22x on a float-heavy loop in the most favourable configuration and 116x in the least, and found that a build which boxes every intermediate loses to CPython outright, because CPython has had a float free list since 2.3. Unboxing is not one of four multiplicative factors. It is the difference between beating CPython on numeric code and losing to it, and a path where escape analysis fails is a path where this runtime is slower than the thing it replaces.
+
+So the risk in this table is not spread evenly across four rows. It is concentrated almost entirely in one.
 
 Two consequences we should be upfront about:
 

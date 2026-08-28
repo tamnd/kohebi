@@ -58,6 +58,16 @@ This is Cinder's Strict Modules idea, generalized. The difference is that Cinder
 
 `--frozen` is the one place in the whole design where we deliberately break the "unmodified Python" promise, it requires the user to ask for it by name, and it should be documented as a distinct execution mode rather than an optimization flag.
 
+### What sealing is actually worth
+
+M0.4 built the two ends of that range by hand, an inline-cached open version and a fully sealed one, and timed them on two workloads. The answer is 1.16x geometric mean across macOS, Linux and Windows, not the 1.7x that `00-README.md` used to budget for.
+
+It splits by workload in a way that makes sense once you see it. On a numeric loop over a handful of objects, sealing is worth nothing at all, 1.0x. The open version checks a shape on loop entry and then holds base pointers in registers for the rest of the run, so it is doing the same work as the sealed one. On a tree-walking interpreter, where dispatch is genuinely polymorphic and no guard can be hoisted out of anything, sealing is worth 1.34x. That is the honest shape of the win: `--frozen` over `--open` buys something real on dispatch-heavy code and close to nothing on code where the guards were hoistable anyway.
+
+The mechanism that recovers most of the gap for `--open` is guard hoisting, worth 2.9x to 4.6x on its own in that experiment. Nothing about it requires a closed world. A JIT can hoist a guard speculatively with a deopt edge and get the same code, which is the reason `--open` lands where it does. Sealing removes the guard entirely rather than moving it, and once it has been moved out of the loop, removing it is a small further win.
+
+None of this changes the case for the three levels. It changes what they should be advertised as. `--frozen` is a modest win on the kind of program that dispatches a lot, not a headline multiplier, and the numbers in `00-README.md` now say so. Question 5 in the open questions below is answered.
+
 ## The profile handoff
 
 ```
@@ -177,7 +187,7 @@ A traceback from a compiled binary has to look like a Python traceback, with Pyt
 
 1. ~~What are real `rustc` build times for realistically-sized emitted Rust?~~ Answered by M0.1. Fine, linear, and about 20x inside the gate. See `experiments/m0.1-rustc-build-times/`. The follow-on question is the one that experiment could not answer: how much does specialization multiply emitted volume in practice? A 5x expansion over the model used there still passes, a 50x one does not.
 2. Is the two-phase build (global sealing summary, then per-module codegen) sound? Specifically, can a sealing summary be made stable enough that one module's change does not invalidate everything?
-3. Does `--frozen` justify existing, given it is the one thing here that breaks the compatibility promise? Or should the highest performance level be reachable purely through profile-guided speculation with deopt?
+3. Does `--frozen` justify existing, given it is the one thing here that breaks the compatibility promise? Or should the highest performance level be reachable purely through profile-guided speculation with deopt? M0.4 sharpened this rather than settling it. At 1.16x geomean over `--open`, the price of breaking the promise buys less than the earlier budget assumed, which makes the case for `--frozen` weaker than it was. It is still worth 1.34x on dispatch-heavy code, so it is not nothing.
 4. Should `kohebi build --fast` exist, skipping `rustc` and emitting through the T2 backend? It might be more useful than the `rustc` path for most users.
-5. How much of the 1.7x sealing factor from `00-README.md` survives on real programs rather than benchmarks? This is the least-supported number in the whole speed budget and it should be tested early with a hand-written prototype on one real workload.
+5. ~~How much of the 1.7x sealing factor from `00-README.md` survives on real programs rather than benchmarks?~~ Answered by M0.4. About 1.16x geometric mean over two workloads on three operating systems, ranging from 1.0x on a numeric loop to 1.34x on a tree-walking interpreter. See `experiments/m0.4-sealing-factor/`. The question that replaces it is a bigger one, and it is not about sealing: unboxing came out at 22x to 116x on the same experiment, so the speed budget rests on one row rather than four.
 6. Can Python-level line information survive `rustc` well enough for usable tracebacks and profiler output?
