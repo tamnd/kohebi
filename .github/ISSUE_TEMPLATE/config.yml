@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Design discussion
+    url: https://github.com/tamnd/kohebi/discussions
+    about: Questions about the design, or arguments that it is wrong.
+  - name: Compatibility results
+    url: https://github.com/tamnd/kohebi-compat
+    about: CPython compatibility suite and published pass rates.
+  - name: Benchmark results
+    url: https://github.com/tamnd/kohebi-bench
+    about: Measurements against CPython, PyPy, and GraalPy.

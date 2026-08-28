@@ -1,0 +1,32 @@
+[package]
+name = "kohebi"
+description = "A Python runtime written in Rust, with a tiered JIT and an ahead-of-time compiler that emits Rust"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme = "../../README.md"
+keywords = ["python", "runtime", "jit", "interpreter", "compiler"]
+categories = ["compilers", "development-tools"]
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "kohebi"
+path = "src/main.rs"
+
+[dependencies]
+kohebi-aot.workspace = true
+kohebi-core.workspace = true
+kohebi-interp.workspace = true
+kohebi-jit.workspace = true
+kohebi-parse.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

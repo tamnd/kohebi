@@ -1,0 +1,17 @@
+[package]
+name = "kohebi-cir"
+description = "CIR: the single inline-cache IR shared by every execution tier and the AOT compiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kohebi-core.workspace = true
+smallvec.workspace = true
