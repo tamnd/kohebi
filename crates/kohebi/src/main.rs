@@ -12,7 +12,7 @@
 
 use std::fmt::Write as _;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -42,6 +42,8 @@ enum Command {
     Build(BuildArgs),
     /// Print the token stream for a Python file and exit.
     Tokenize(TokenizeArgs),
+    /// Print the syntax tree for a Python file and exit.
+    Ast(AstArgs),
     /// Print the resolved configuration and exit.
     Config,
 }
@@ -126,6 +128,31 @@ struct TokenizeArgs {
     format: TokenFormat,
 }
 
+#[derive(Debug, Args)]
+struct AstArgs {
+    /// The Python file to parse. `-` reads standard input.
+    #[arg(required_unless_present = "files_from", conflicts_with = "files_from")]
+    file: Option<PathBuf>,
+
+    /// Parse every file named in this list, one path per line.
+    #[arg(long, value_name = "FILE")]
+    files_from: Option<PathBuf>,
+
+    /// How to print the tree.
+    #[arg(long, value_enum, default_value_t = AstFormat::Dump)]
+    format: AstFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum AstFormat {
+    /// One line, exactly what `ast.dump(tree)` prints.
+    Dump,
+    /// The same with positions, as `ast.dump(tree, include_attributes=True)`.
+    Attributes,
+    /// One line per file, as `<statements> <path>`. For measuring, not reading.
+    Count,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum TokenFormat {
     /// One token per line, as `NAME 1,0-1,1 'x'`.
@@ -164,6 +191,7 @@ fn main() -> ExitCode {
         Command::Run(_) => "kohebi run",
         Command::Build(_) => "kohebi build",
         Command::Tokenize(args) => return tokenize(args),
+        Command::Ast(args) => return ast(args),
         Command::Config => {
             println!("kohebi {}", env!("CARGO_PKG_VERSION"));
             println!("rustc target: {}", std::env::consts::ARCH);
@@ -193,7 +221,7 @@ fn main() -> ExitCode {
 /// CPython's `tokenize` module over a corpus. Timing one file per process
 /// would measure process startup, so the whole corpus goes through one run.
 fn tokenize(args: &TokenizeArgs) -> ExitCode {
-    let files = match files(args) {
+    let files = match files(args.file.as_ref(), args.files_from.as_ref()) {
         Ok(files) => files,
         Err(error) => {
             eprintln!("kohebi: {error}");
@@ -219,26 +247,11 @@ fn tokenize(args: &TokenizeArgs) -> ExitCode {
     let mut out = String::new();
     for file in &files {
         let name = file.display().to_string();
-        let bytes = if file.as_os_str() == "-" {
-            let mut buffer = Vec::new();
-            io::Read::read_to_end(&mut io::stdin(), &mut buffer).map(|_| buffer)
-        } else {
-            std::fs::read(file)
-        };
-        let bytes = match bytes {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                eprintln!("kohebi: cannot read {name}: {error}");
-                return ExitCode::FAILURE;
-            }
-        };
-        // What encoding those bytes are in is the file's own business to
-        // declare, which is PEP 263 and lives in `kohebi_parse::source`.
-        let source = match kohebi_parse::decode(&bytes) {
-            Ok(source) => source.text,
-            Err(error) => {
+        let source = match read(file, &name) {
+            Ok(source) => source,
+            Err(report) => {
                 print!("{out}");
-                eprint!("{}", error.error.report(&error.text, &name));
+                eprint!("{report}");
                 return ExitCode::FAILURE;
             }
         };
@@ -265,12 +278,95 @@ fn tokenize(args: &TokenizeArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// The files to tokenize, from the argument or from the list.
+/// Print the syntax tree for one file, or count the statements in many.
+///
+/// The other half of the comparison surface. `kohebi tokenize` is diffed
+/// against CPython's `tokenize` module and this is diffed against `ast.dump`,
+/// which is why the default format is what `ast.dump(tree)` prints and
+/// `--format attributes` is what `ast.dump(tree, include_attributes=True)`
+/// prints. A tree that agrees on shape and disagrees on positions is a tree
+/// that will draw someone's error squiggle in the wrong place, so the second
+/// one is the one that matters and the first is the one that is readable.
+///
+/// A file we cannot parse prints the traceback CPython would print and stops
+/// the run, the same as `kohebi tokenize`, because a corpus we cannot parse is
+/// a result rather than something to average over.
+fn ast(args: &AstArgs) -> ExitCode {
+    let files = match files(args.file.as_ref(), args.files_from.as_ref()) {
+        Ok(files) => files,
+        Err(error) => {
+            eprintln!("kohebi: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if files.len() > 1 && args.format != AstFormat::Count {
+        let name = match args.format {
+            AstFormat::Dump => "dump",
+            AstFormat::Attributes => "attributes",
+            AstFormat::Count => unreachable!(),
+        };
+        eprintln!(
+            "kohebi: --format {name} describes one file, and {} were given. \
+             Use --format count.",
+            files.len()
+        );
+        return ExitCode::FAILURE;
+    }
+
+    let mut out = String::new();
+    for file in &files {
+        let name = file.display().to_string();
+        let source = match read(file, &name) {
+            Ok(source) => source,
+            Err(report) => {
+                print!("{out}");
+                eprint!("{report}");
+                return ExitCode::FAILURE;
+            }
+        };
+
+        match kohebi_parse::parse_module(&source) {
+            Ok(tree) => match args.format {
+                AstFormat::Dump => {
+                    let _ = writeln!(out, "{}", kohebi_parse::dump(&tree));
+                }
+                AstFormat::Attributes => {
+                    let _ = writeln!(out, "{}", kohebi_parse::dump_with_attributes(&tree));
+                }
+                AstFormat::Count => {
+                    let _ = writeln!(out, "{} {name}", statements(&tree));
+                }
+            },
+            Err(error) => {
+                print!("{out}");
+                eprint!("{}", error.report(&source, &name));
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    print!("{out}");
+    ExitCode::SUCCESS
+}
+
+/// How many statements are in the body of a parsed module.
+///
+/// Only the top level, which is enough for `--format count`: the number is
+/// there so that the parse has to finish and so that a run over a corpus
+/// leaves a trace of having happened, not so that anyone reads it.
+fn statements(tree: &kohebi_parse::ast::Mod) -> usize {
+    use kohebi_parse::ast::Mod;
+    match tree {
+        Mod::Module { body, .. } | Mod::Interactive { body } => body.len(),
+        Mod::Expression { .. } | Mod::FunctionType { .. } => 1,
+    }
+}
+
+/// The files to work on, from the argument or from the list.
 ///
 /// Blank lines in a list are skipped, because a file of paths that a shell
 /// wrote almost always ends with one.
-fn files(args: &TokenizeArgs) -> Result<Vec<PathBuf>, String> {
-    match (&args.file, &args.files_from) {
+fn files(file: Option<&PathBuf>, list: Option<&PathBuf>) -> Result<Vec<PathBuf>, String> {
+    match (file, list) {
         (Some(file), _) => Ok(vec![file.clone()]),
         (None, Some(list)) => {
             let text = std::fs::read_to_string(list)
@@ -283,8 +379,27 @@ fn files(args: &TokenizeArgs) -> Result<Vec<PathBuf>, String> {
                 .collect())
         }
         // clap requires one of the two, so this is unreachable in practice.
-        (None, None) => Err("nothing to tokenize".to_owned()),
+        (None, None) => Err("nothing to read".to_owned()),
     }
+}
+
+/// The text of one file, in whatever encoding the file says it is in.
+///
+/// `-` is standard input. What encoding the bytes are in is the file's own
+/// business to declare, which is PEP 263 and lives in `kohebi_parse::source`,
+/// so a failure here is a `SyntaxError` with a position in it like any other
+/// and gets printed the same way.
+fn read(file: &Path, name: &str) -> Result<String, String> {
+    let bytes = if file.as_os_str() == "-" {
+        let mut buffer = Vec::new();
+        io::Read::read_to_end(&mut io::stdin(), &mut buffer).map(|_| buffer)
+    } else {
+        std::fs::read(file)
+    };
+    let bytes = bytes.map_err(|error| format!("kohebi: cannot read {name}: {error}\n"))?;
+    kohebi_parse::decode(&bytes)
+        .map(|source| source.text)
+        .map_err(|error| error.error.report(&error.text, name))
 }
 
 fn init_tracing(filter: Option<&str>) {

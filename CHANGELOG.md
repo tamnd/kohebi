@@ -6,6 +6,12 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+`kohebi ast`, which prints the tree for a file the way `kohebi tokenize` prints its tokens. The default format is what `ast.dump(tree)` prints and `--format attributes` is what `ast.dump(tree, include_attributes=True)` prints, so the two can be diffed against each other with no translation on either side. `--format count` exists for the same reason it does on `tokenize`: timing one file per process measures process startup, so a whole corpus goes through one run.
+
+The format that matters is `attributes`. A tree that agrees on shape and disagrees on positions is a tree that will draw someone's error squiggle in the wrong place, and the shape is the half that is easy to get right.
+
+Reading a file and deciding what encoding it is in is now one function shared by both commands, which is how `kohebi ast` came to honour a `# coding:` declaration without anything being written twice.
+
 ## 0.0.4
 
 Eight merged pull requests since 0.0.3, and the whole of it is the parser. Every statement Python has is read now, from `lambda` and f-strings through to `match` and its pattern grammar, and a file's encoding declaration is honoured before any of it is text. The frontend reads all 1870 files in CPython 3.14.7's standard library and builds the same tree CPython builds for every one of them.
