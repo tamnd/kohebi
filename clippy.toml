@@ -1,0 +1,15 @@
+# Names that read as prose, not as code. `doc_markdown` wants every one of these
+# in backticks, which turns a paragraph about CPython into a paragraph about
+# `CPython`. The `..` keeps clippy's own default list.
+doc-valid-idents = [
+    "..",
+    "CPython",
+    "PyPy",
+    "GraalPy",
+    "PyO3",
+    "SpiderMonkey",
+    "Cranelift",
+    "TPDE",
+    "MicroPython",
+    "RustPython",
+]
