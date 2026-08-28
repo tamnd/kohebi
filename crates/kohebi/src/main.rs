@@ -10,6 +10,7 @@
 //! shape of the tool is reviewable before any of it works, and so the flags
 //! named throughout the spec have exactly one definition.
 
+use std::fmt::Write as _;
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -109,7 +110,16 @@ struct BuildArgs {
 #[derive(Debug, Args)]
 struct TokenizeArgs {
     /// The Python file to tokenize. `-` reads standard input.
-    file: PathBuf,
+    #[arg(required_unless_present = "files_from", conflicts_with = "files_from")]
+    file: Option<PathBuf>,
+
+    /// Tokenize every file named in this list, one path per line.
+    ///
+    /// Only `--format count` makes sense with more than one file, and reading
+    /// the list from a file rather than the command line keeps a corpus of any
+    /// size out of the argument limit.
+    #[arg(long, value_name = "FILE")]
+    files_from: Option<PathBuf>,
 
     /// How to print the tokens.
     #[arg(long, value_enum, default_value_t = TokenFormat::Text)]
@@ -122,6 +132,8 @@ enum TokenFormat {
     Text,
     /// One JSON object per line.
     Json,
+    /// One line per file, as `<tokens> <path>`. For measuring, not reading.
+    Count,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -171,42 +183,98 @@ fn main() -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// Print the token stream for one file.
+/// Print the token stream for one file, or count the tokens in many.
 ///
 /// This is a debugging command, and it is also the interface `kohebi-compat`
 /// uses to diff us against CPython's `tokenize` module token for token. That
 /// makes the output format a contract, described in `kohebi_parse::view`.
+///
+/// `--format count` exists for `kohebi-bench`, which times us against
+/// CPython's `tokenize` module over a corpus. Timing one file per process
+/// would measure process startup, so the whole corpus goes through one run.
 fn tokenize(args: &TokenizeArgs) -> ExitCode {
-    let name = args.file.display().to_string();
-    let source = if args.file.as_os_str() == "-" {
-        io::read_to_string(io::stdin())
-    } else {
-        std::fs::read_to_string(&args.file)
-    };
-    let source = match source {
-        Ok(source) => source,
+    let files = match files(args) {
+        Ok(files) => files,
         Err(error) => {
-            // Not valid UTF-8 counts here. Source encoding declarations are a
-            // separate job, tracked in docs/spec/03-frontend.md.
-            eprintln!("kohebi: cannot read {name}: {error}");
+            eprintln!("kohebi: {error}");
             return ExitCode::FAILURE;
         }
     };
+    if files.len() > 1 && args.format != TokenFormat::Count {
+        let name = match args.format {
+            TokenFormat::Text => "text",
+            TokenFormat::Json => "json",
+            TokenFormat::Count => unreachable!(),
+        };
+        eprintln!(
+            "kohebi: --format {name} describes one file, and {} were given. \
+             Use --format count.",
+            files.len()
+        );
+        return ExitCode::FAILURE;
+    }
 
-    match kohebi_parse::view::view(&source) {
-        Ok(tokens) => {
-            let out = match args.format {
-                TokenFormat::Text => kohebi_parse::view::render_text(&tokens),
-                TokenFormat::Json => kohebi_parse::view::render_json(&tokens),
-            };
-            print!("{out}");
-            ExitCode::SUCCESS
+    // One buffer for the whole run. Printing per token through a locked stdout
+    // makes the count format spend more time in write than in the lexer.
+    let mut out = String::new();
+    for file in &files {
+        let name = file.display().to_string();
+        let source = if file.as_os_str() == "-" {
+            io::read_to_string(io::stdin())
+        } else {
+            std::fs::read_to_string(file)
+        };
+        let source = match source {
+            Ok(source) => source,
+            Err(error) => {
+                // Not valid UTF-8 counts here. Source encoding declarations are
+                // a separate job, tracked in docs/spec/03-frontend.md.
+                eprintln!("kohebi: cannot read {name}: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+
+        match kohebi_parse::view::view(&source) {
+            Ok(tokens) => match args.format {
+                TokenFormat::Text => out.push_str(&kohebi_parse::view::render_text(&tokens)),
+                TokenFormat::Json => out.push_str(&kohebi_parse::view::render_json(&tokens)),
+                TokenFormat::Count => {
+                    let _ = writeln!(out, "{} {name}", tokens.len());
+                }
+            },
+            Err(error) => {
+                print!("{out}");
+                // The same shape CPython prints, so the text itself is
+                // comparable. The first failure stops the run: a corpus we
+                // cannot lex is a result, not something to average over.
+                eprint!("{}", error.report(&source, &name));
+                return ExitCode::FAILURE;
+            }
         }
-        Err(error) => {
-            // The same shape CPython prints, so the text itself is comparable.
-            eprint!("{}", error.report(&source, &name));
-            ExitCode::FAILURE
+    }
+    print!("{out}");
+    ExitCode::SUCCESS
+}
+
+/// The files to tokenize, from the argument or from the list.
+///
+/// Blank lines in a list are skipped, because a file of paths that a shell
+/// wrote almost always ends with one.
+fn files(args: &TokenizeArgs) -> Result<Vec<PathBuf>, String> {
+    match (&args.file, &args.files_from) {
+        (Some(file), _) => Ok(vec![file.clone()]),
+        (None, Some(list)) => {
+            let text = std::fs::read_to_string(list)
+                .map_err(|e| format!("cannot read {}: {e}", list.display()))?;
+            Ok(text
+                .lines()
+                .map(str::trim_end)
+                .filter(|line| !line.is_empty())
+                .map(PathBuf::from)
+                .collect())
         }
+        // clap requires one of the two, so this is unreachable in practice.
+        (None, None) => Err("nothing to tokenize".to_owned()),
     }
 }
 
