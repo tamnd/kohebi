@@ -2,9 +2,25 @@
 
 Patch release every few merged PRs, so there is always a recent tag to bisect from and a built binary to hand someone. A `0.x.0` when a milestone finishes.
 
-Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for everything in it except `def`, `class`, and `match`.
+Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for everything in it except `match`.
 
 ## Unreleased
+
+`def` and `class`, with decorators, parameter lists, return annotations, PEP 695 type parameters, and the `async def` form. The parser now reads a whole real file end to end, which is the first time it has been possible to point it at something someone actually wrote.
+
+The parameter list is shared with `lambda` rather than written twice. It is the same left to right walk over the same three pieces of state, whether `/` has been seen, whether `*` has been seen, and whether a default has been seen, and the only differences are the token the list stops at and whether a name may be annotated. That is why `def f(a, b=1, /, c, d=2, *, e, f=3, **g)` is refused and `lambda a, b=1, /, c: 1` is refused for the same reason and with the same words: `defaults` is a tail shared by `posonlyargs` and `args` together, so a parameter without a default cannot follow one with a default until the star has gone past.
+
+The same message can come out of two rules and land in two places. `def f(*)` and `lambda *: 1` both say `named arguments must follow bare *`, but CPython pins the `def` one to the star and lets the lambda one fall where the failure left it, which is the colon in `lambda *:` and the `**` in `lambda *, **k:`. Both are reproduced, because a position that moves is a position someone's editor is drawing a squiggle under.
+
+A decorator is not part of the node it decorates. `@d` above a `def` goes into `decorator_list`, and the `FunctionDef` still starts at the word `def` on the line below. A decorator with nothing under it is two different errors depending on where it is: at the end of an indented block the tokenizer notices first and it is an `IndentationError`, and anywhere else it is `invalid syntax` at whatever was written instead.
+
+The return annotation sits inside an optional group in the grammar, and that shows in the error. `def f() -> *int: pass` does not complain about the star. The group fails, matches nothing, and the forced colon then reports `expected ':'` back at the `->`, so the annotation is parsed speculatively and the position is put back when it does not work out. The colon after a `def` is forced and the colon after a `class` is not, which is why `def f() pass` says `expected ':'` and `class C(B) pass` says `invalid syntax`.
+
+A class header holds exactly what a call's brackets hold, so bases and keywords come from the same code, with one thing taken away: a generator expression may borrow a call's brackets and write itself without its own, and `class C(x for x in y)` may not.
+
+There are 581 hand-written cases, and then a sweep of 1832 whole modules out of CPython 3.14.7's standard library, each one parsed from the first byte to the last and required to print the same `ast.dump` with attributes included. No shape mismatches and no position mismatches. The 73 files it still refuses are the two literal gaps from the expression work, `\N{...}` and lone surrogates, and not a statement between them.
+
+`match` is the last statement left, and it still reports itself as a gap.
 
 Compound statements: `if` and its `elif` chain, `while`, `for`, `with`, `try`, and the `async` forms of the last two. Blocks in both shapes, so `if x: pass` and an indented body underneath the header are the same rule, and nesting works to whatever depth the file goes.
 
@@ -22,7 +38,7 @@ A missing block raises an `IndentationError` rather than a `SyntaxError`, and it
 
 There are 449 hand-written cases, and then a sweep of every `if`, `while`, `for`, `with`, and `try` in CPython 3.14.7's standard library that does not contain a definition, 22057 of them after duplicates, each one lifted out, dedented, re-parsed on its own, and required to print the same `ast.dump` with attributes included. No shape mismatches, no position mismatches, and no refusals.
 
-`def` and `class` are held back for their own change, because a parameter list is a grammar of its own. They still report themselves as a gap, and so does `match`.
+`def` and `class` were held back for their own change at this point, because a parameter list is a grammar of its own. They still reported themselves as a gap, and so did `match`.
 
 Simple statements, which is the first time `parse_module` exists and the first time a whole file goes through the parser rather than a single expression. Assignment in all four of its forms, `del`, `return`, `raise`, `assert`, `global`, `nonlocal`, `import`, `from ... import`, `type` aliases with their PEP 695 parameter lists, and `pass`, `break`, `continue`.
 
