@@ -3,8 +3,9 @@
 //! A simple statement is one that fits on a logical line and has no indented
 //! body, which is the whole of assignment, `del`, `return`, `raise`, `assert`,
 //! `global`, `nonlocal`, `import`, `type`, and the three one word ones. Those
-//! are here. The ones with a body are in `compound`, and the two of those that
-//! carry a parameter list are in `definition`.
+//! are here. The ones with a body are in `compound`, the two of those that
+//! carry a parameter list are in `definition`, and `match` is in `pattern`
+//! because a pattern is a grammar of its own.
 //!
 //! ## Where the fiddly parts are
 //!
@@ -26,13 +27,14 @@
 //!
 //! `type` is a soft keyword, so `type = 1` and `type(x)` still mean what they
 //! always did. A type alias is recognised by looking two tokens ahead for the
-//! `=` or the `[` that no other reading of `type NAME` can have.
+//! `=` or the `[` that no other reading of `type NAME` can have. That is the
+//! cheap end of the same problem `match` has, and `pattern` has the expensive
+//! end of it.
 
 use crate::ast::{
     Alias, Expr, ExprContext, ExprKind, Ident, Mod, Operator, Stmt, StmtKind, TypeParam,
     TypeParamKind, UnaryOp,
 };
-use crate::error::{ErrorClass, SyntaxError};
 use crate::token::{Keyword, Span, TokenKind};
 use crate::value::Value;
 
@@ -40,14 +42,13 @@ use super::{Parser, Result, assignment_target_name};
 
 mod compound;
 mod definition;
+mod pattern;
 
 /// Parse a whole file, the way `ast.parse(source)` does.
 ///
 /// # Errors
 ///
-/// A `SyntaxError` for source CPython also rejects, or an `Unsupported` error
-/// for a construct that is valid Python and is not written yet, which for now
-/// is `match`.
+/// A `SyntaxError` for source CPython also rejects.
 pub fn parse_module(source: &str) -> Result<Mod> {
     let tokens = crate::tokenize(source)?;
     let mut parser = Parser::new(source, &tokens);
@@ -160,10 +161,6 @@ impl Parser<'_> {
         }
     }
 
-    fn unsupported(&self, message: impl Into<std::borrow::Cow<'static, str>>) -> SyntaxError {
-        SyntaxError::new(ErrorClass::Unsupported, message, self.current().span)
-    }
-
     fn simple_statement(&mut self) -> Result<Stmt> {
         let start = self.offset();
         if let TokenKind::Keyword(keyword) = self.peek() {
@@ -183,9 +180,6 @@ impl Parser<'_> {
         }
         if self.at_type_alias() {
             return self.type_alias(start);
-        }
-        if self.at_match_statement() {
-            return Err(self.unsupported("'match' statements are not parsed yet"));
         }
         self.expression_statement(start)
     }
@@ -230,7 +224,7 @@ impl Parser<'_> {
     ///
     /// Returns whether a tuple was built out of commas rather than brackets,
     /// which the annotation error needs and nothing else does.
-    fn star_expressions(&mut self) -> Result<(Expr, bool)> {
+    pub(super) fn star_expressions(&mut self) -> Result<(Expr, bool)> {
         let start = self.offset();
         let first = self.star_expression()?;
         if !self.at(TokenKind::Comma) {
@@ -682,8 +676,7 @@ impl Parser<'_> {
     /// formed. Looking for the `=` or the `[` as well keeps `type x` reported
     /// as the syntax error it is rather than as an unfinished alias.
     fn at_type_alias(&self) -> bool {
-        self.at(TokenKind::Name)
-            && self.current().span.slice(self.source) == "type"
+        self.at_soft_keyword("type")
             && self.peek_at(1) == TokenKind::Name
             && matches!(self.peek_at(2), TokenKind::Equal | TokenKind::LBracket)
     }
@@ -786,28 +779,5 @@ impl Parser<'_> {
             },
         };
         Ok(TypeParam::new(kind, self.attributes(start, end)))
-    }
-
-    // ----- the gap ---------------------------------------------------------
-
-    /// Whether `match` here starts a match statement rather than being a name.
-    ///
-    /// `match` is a soft keyword and `match(x)` is a call, so the two readings
-    /// are told apart by the colon that ends the header line. This is a
-    /// stand-in until match patterns are written, and it exists so that a
-    /// program using the statement is told the statement is missing rather than
-    /// told it is wrong.
-    fn at_match_statement(&self) -> bool {
-        if !self.at(TokenKind::Name) || self.current().span.slice(self.source) != "match" {
-            return false;
-        }
-        let mut ahead = self.pos + 1;
-        while !matches!(
-            self.tokens[ahead].kind,
-            TokenKind::Newline | TokenKind::EndMarker
-        ) {
-            ahead += 1;
-        }
-        ahead > self.pos + 1 && self.tokens[ahead - 1].kind == TokenKind::Colon
     }
 }

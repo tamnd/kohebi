@@ -5,9 +5,9 @@
 //! `compile`, for the reason set out in `docs/spec/15-frontend.md`: a library
 //! that inspects a tree we refused to build is a library that does not run.
 //!
-//! Every expression is here, the statements are in `stmt`, and the ones with a
-//! body are in `stmt::compound`. `def` and `class` are next, and until they
-//! land they report themselves as a gap rather than as the user's mistake.
+//! Every expression is here, the statements are in `stmt`, the ones with a
+//! body are in `stmt::compound`, `def` and `class` are in `stmt::definition`,
+//! and `match` is in `stmt::pattern`.
 //!
 //! ## Where the fiddly parts are
 //!
@@ -167,13 +167,11 @@ fn assignment_target_name(kind: &ExprKind) -> &'static str {
         ExprKind::List { .. } => "list",
         ExprKind::Tuple { .. } => "tuple",
         ExprKind::Starred { .. } => "starred",
-        // `a + b` and `not a` are all just "expression", and so is a bare name,
-        // which never reaches here because the caller only asks for a name once
-        // it has decided the node is not a target.
-        ExprKind::Name { .. }
-        | ExprKind::BoolOp { .. }
-        | ExprKind::BinOp { .. }
-        | ExprKind::UnaryOp { .. } => "expression",
+        // A bare name is a target everywhere except after `case ... as`, where
+        // a `.` or an `=` after it is what disqualifies it.
+        ExprKind::Name { .. } => "name",
+        // `a + b` and `not a` are all just "expression".
+        ExprKind::BoolOp { .. } | ExprKind::BinOp { .. } | ExprKind::UnaryOp { .. } => "expression",
     }
 }
 
@@ -296,6 +294,16 @@ impl<'a> Parser<'a> {
 
     fn at_keyword(&self, keyword: Keyword) -> bool {
         self.peek() == TokenKind::Keyword(keyword)
+    }
+
+    /// A soft keyword: an ordinary name that the grammar treats as a word in
+    /// one position and as a name everywhere else.
+    ///
+    /// There are four of them, and `match`, `case`, and `_` are three. `type`
+    /// is the fourth and needs two more tokens of lookahead, which is in
+    /// `at_type_alias`.
+    fn at_soft_keyword(&self, word: &str) -> bool {
+        self.at(TokenKind::Name) && self.current().span.slice(self.source) == word
     }
 
     fn current(&self) -> Token {
@@ -1773,10 +1781,12 @@ impl<'a> Parser<'a> {
                 end,
             ));
         }
+        // `star_expressions` rather than `expressions`, so `yield 1, *rest`
+        // is one tuple and not a syntax error.
         let value = if self.at(TokenKind::RParen) || self.at_expression_end() {
             None
         } else {
-            Some(Box::new(self.expressions()?))
+            Some(Box::new(self.star_expressions()?.0))
         };
         let end = self.prev_end();
         Ok(self.expr(ExprKind::Yield { value }, start, end))

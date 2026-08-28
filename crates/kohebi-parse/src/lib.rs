@@ -6,9 +6,8 @@
 //! near miss there is a compatibility bug that only shows up in someone else's
 //! library. The design lives in `docs/spec/15-frontend.md`.
 //!
-//! The lexer is complete, and so is the expression half of the parser. Every
-//! statement is in except `match`, which is next and says so rather than
-//! reporting a valid program as a syntax error. Four supporting pieces sit alongside: `value` for
+//! The lexer is complete, and so is the parser: every expression and every
+//! statement, `match` included. Four supporting pieces sit alongside: `value` for
 //! what a literal denotes and how `repr` prints it, `literal` for turning the
 //! source text of a literal token into one of those values, `ast` for the tree
 //! CPython's `ast` module describes, and `dump` for printing that tree the way
