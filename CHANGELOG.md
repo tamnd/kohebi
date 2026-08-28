@@ -6,6 +6,12 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+Lone surrogates in string literals, which was the larger of the two gaps the parser had left. A Python string is a sequence of code points and not of characters, so `'\ud800'` is a perfectly ordinary one character string that a Rust `str` cannot hold, and until now we refused it rather than mangling it. `Value::Str` is now two cases: a `Box<str>` for the ordinary string and a boxed slice of code points for a string with a surrogate in it. Nothing reaches the second case until a surrogate actually turns up, so every other string costs what it did before.
+
+That takes the standard library from 1797 of 1870 files parsing to an identical tree to 1850 of 1870, with no wrong answers on either side of the change. All 20 files still refused want `\N{...}`, which is the last thing between the parser and the whole corpus.
+
+Two escapes that look like a surrogate pair stay two code points. `'\ud83d\ude00'` is not an emoji in Python, it is a two character string holding two lone surrogates, and joining them into the character they would encode in UTF-16 is the obvious wrong thing to do here.
+
 `kohebi ast`, which prints the tree for a file the way `kohebi tokenize` prints its tokens. The default format is what `ast.dump(tree)` prints and `--format attributes` is what `ast.dump(tree, include_attributes=True)` prints, so the two can be diffed against each other with no translation on either side. `--format count` exists for the same reason it does on `tokenize`: timing one file per process measures process startup, so a whole corpus goes through one run.
 
 The format that matters is `attributes`. A tree that agrees on shape and disagrees on positions is a tree that will draw someone's error squiggle in the wrong place, and the shape is the half that is easy to get right.

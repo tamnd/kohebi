@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use kohebi_parse::value::{Int, Value};
+use kohebi_parse::value::{Int, StrBuf, Value};
 
 #[test]
 fn every_recorded_repr_matches() {
@@ -61,17 +61,15 @@ fn every_recorded_repr_matches() {
 fn parse(kind: &str, input: &str) -> Value {
     match kind {
         // Code points in hex, so that a string holding a tab or a newline
-        // still occupies exactly one line of the fixture.
-        "str" => Value::Str(
-            input
-                .split_whitespace()
-                .map(|cp| {
-                    let cp = u32::from_str_radix(cp, 16).expect("a hex code point");
-                    char::from_u32(cp).expect("the generator leaves out surrogates")
-                })
-                .collect::<String>()
-                .into(),
-        ),
+        // still occupies exactly one line of the fixture, and so that a lone
+        // surrogate can be written down at all.
+        "str" => {
+            let mut out = StrBuf::new();
+            for cp in input.split_whitespace() {
+                out.push_code_point(u32::from_str_radix(cp, 16).expect("a hex code point"));
+            }
+            Value::Str(out.finish())
+        }
         "bytes" => Value::Bytes(
             input
                 .as_bytes()

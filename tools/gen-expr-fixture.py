@@ -45,6 +45,12 @@ OK = [
     "'a' u'b'",
     "b'a' b'b'",
     "'a' 'b' 'c'",
+    # A lone surrogate, which is a code point a Rust `str` cannot hold, in each
+    # of the three places the parser builds a string: on its own, in a run of
+    # concatenated literals, and in the literal text of an f-string.
+    r"'\ud800'",
+    r"'a' '\ud800' 'b'",
+    r"f'a\ud800{x}b'",
     # Unary and binary.
     "-1",
     "+1",

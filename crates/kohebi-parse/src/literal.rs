@@ -17,13 +17,14 @@
 //! U+0100 in a string and is `b'\x00'` in bytes, because the byte version wraps
 //! and the text version does not.
 //!
-//! The fixture next to this module has 144 cases picked by hand to hit every
+//! The fixture next to this module has 148 cases picked by hand to hit every
 //! shape. That is the readable check. The one that actually convinced me was
 //! pulling every distinct string and number token out of CPython 3.14.7's
 //! standard library, 97604 of them, and requiring our value to print as
 //! `ast.literal_eval` prints it. Nothing decoded to the wrong answer. The 259
-//! that did not pass are the two gaps below and nothing else, 227 lone
-//! surrogates and 32 uses of `\N{...}`.
+//! that did not pass were two gaps rather than two bugs, 227 lone surrogates
+//! and 32 uses of `\N{...}`, and the surrogates are gone now that `Str` can
+//! hold a code point that is not a character.
 //!
 //! ## What is not done here yet
 //!
@@ -31,11 +32,6 @@
 //! about two megabytes of names and is its own piece of work. It is refused as
 //! unsupported rather than guessed at. Twenty six files in CPython 3.14.7's
 //! standard library use one, all but a handful of them tests.
-//!
-//! A lone surrogate, which `'\ud800'` produces, is a valid Python string and
-//! cannot be held in a Rust `str`. Refused for now, for the reason set out in
-//! `docs/spec/15-frontend.md`: closing it means the runtime owning its own
-//! string representation.
 //!
 //! Error messages are the other gap and it is deliberate. CPython's are of the
 //! form `(unicode error) 'unicodeescape' codec can't decode bytes in position
@@ -45,7 +41,7 @@
 
 use crate::error::SyntaxError;
 use crate::token::{NumberKind, Span, StringPrefix};
-use crate::value::{Int, Value};
+use crate::value::{Int, Str, StrBuf, Value};
 
 /// The value of a numeric literal.
 ///
@@ -150,8 +146,7 @@ pub fn string(text: &str, prefix: StringPrefix, span: Span) -> Result<Value, Syn
         let raw = bytes(body, prefix.raw, span, offset)?;
         Ok(Value::Bytes(raw.into_boxed_slice()))
     } else {
-        let decoded = unicode(body, prefix.raw, span, offset)?;
-        Ok(Value::Str(decoded.into_boxed_str()))
+        Ok(Value::Str(unicode(body, prefix.raw, span, offset)?))
     }
 }
 
@@ -166,7 +161,7 @@ pub fn string(text: &str, prefix: StringPrefix, span: Span) -> Result<Value, Syn
 /// # Errors
 ///
 /// The same as `string`, for the same reasons.
-pub fn interpolated_text(text: &str, raw: bool, span: Span) -> Result<String, SyntaxError> {
+pub fn interpolated_text(text: &str, raw: bool, span: Span) -> Result<Str, SyntaxError> {
     unicode(text, raw, span, 0)
 }
 
@@ -200,16 +195,16 @@ fn span_at(span: Span, offset: u32, at: usize, len: usize) -> Span {
 ///
 /// Both halves are kept. CPython warns and does the same thing, and a file full
 /// of `'\d'` inside a regular expression depends on it.
-fn keep(out: &mut String, ch: char) {
+fn keep(out: &mut StrBuf, ch: char) {
     out.push('\\');
     out.push(ch);
 }
 
-fn unicode(body: &str, raw: bool, span: Span, offset: u32) -> Result<String, SyntaxError> {
+fn unicode(body: &str, raw: bool, span: Span, offset: u32) -> Result<Str, SyntaxError> {
     if raw {
-        return Ok(body.to_owned());
+        return Ok(Str::from(body));
     }
-    let mut out = String::with_capacity(body.len());
+    let mut out = StrBuf::new();
     let mut chars = body.char_indices();
     while let Some((at, ch)) = chars.next() {
         if ch != '\\' {
@@ -259,7 +254,7 @@ fn unicode(body: &str, raw: bool, span: Span, offset: u32) -> Result<String, Syn
             other => keep(&mut out, other),
         }
     }
-    Ok(out)
+    Ok(out.finish())
 }
 
 fn bytes(body: &str, raw: bool, span: Span, offset: u32) -> Result<Vec<u8>, SyntaxError> {
@@ -349,7 +344,7 @@ fn hex(chars: &mut std::str::CharIndices<'_>, count: usize) -> Option<u32> {
 }
 
 fn push_hex(
-    out: &mut String,
+    out: &mut StrBuf,
     chars: &mut std::str::CharIndices<'_>,
     count: usize,
     span: Span,
@@ -367,25 +362,16 @@ fn push_hex(
             span_at(span, offset, at, count + 2),
         )
     })?;
-    match char::from_u32(value) {
-        Some(ch) => out.push(ch),
-        // Two different failures share this arm and they are not the same
-        // thing. Above U+10FFFF is a Python error too. A lone surrogate is
-        // valid Python that a Rust `str` cannot hold, and saying so out loud is
-        // the rule this project runs under.
-        None if (0xD800..0xE000).contains(&value) => {
-            return Err(SyntaxError::new(
-                crate::error::ErrorClass::Unsupported,
-                "a lone surrogate in a string literal needs a string representation kohebi does not have yet",
-                span_at(span, offset, at, count + 2),
-            ));
-        }
-        None => {
-            return Err(SyntaxError::syntax(
-                "illegal Unicode character",
-                span_at(span, offset, at, count + 2),
-            ));
-        }
+    // A surrogate is not a Rust `char` and is a perfectly good Python string,
+    // so it goes in as a code point and widens the buffer. Above U+10FFFF is
+    // not a code point at all and is an error in Python too, which is the only
+    // case left here.
+    if value > 0x10_FFFF {
+        return Err(SyntaxError::syntax(
+            "illegal Unicode character",
+            span_at(span, offset, at, count + 2),
+        ));
     }
+    out.push_code_point(value);
     Ok(())
 }
