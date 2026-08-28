@@ -2,9 +2,27 @@
 
 Patch release every few merged PRs, so there is always a recent tag to bisect from and a built binary to hand someone. A `0.x.0` when a milestone finishes.
 
-Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for everything in it except the compound statements.
+Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for everything in it except `def`, `class`, and `match`.
 
 ## Unreleased
+
+Compound statements: `if` and its `elif` chain, `while`, `for`, `with`, `try`, and the `async` forms of the last two. Blocks in both shapes, so `if x: pass` and an indented body underneath the header are the same rule, and nesting works to whatever depth the file goes.
+
+An `elif` chain is not a list. Each one is an `If` node sitting in the previous one's `orelse`, and the inner node starts at the word `elif` and ends where the whole chain ends, which is what a tool walking the tree will expect to find.
+
+A `with` line does not know its own shape until its closing bracket has been read. `with (a, b):` is two context managers written inside brackets while `with (a, b) as c:` is one tuple, and the only difference between them is what comes after the `)`. CPython tries the bracketed reading first and falls back when it does not reach a colon, so we do the same: remember the position, try, and rewind. That is also how `with (x for x in y):` ends up being one generator expression rather than a list of managers that will not parse.
+
+A statement ends where its body ends, not where its last token is. A block finishes with a newline and one or more dedents that nobody typed, so counting those would put the end of `if x:\n    pass\n` on the line after the `pass`. The end is taken from the last token that was actually written.
+
+The colon has two messages. CPython says `expected ':'` when the header ran to the end of its line and `invalid syntax` when something else is sitting where the colon belongs, so `if x` and `if x\n    pass` say the first and `if x y: pass` says the second. `try`, `else`, and `finally` are the exception: their colon follows the keyword directly, the grammar marks it as forced, and `try x: pass` says `expected ':'` too.
+
+A missing block raises an `IndentationError` rather than a `SyntaxError`, and it names the keyword that wanted the block along with the line that keyword is on. The fixture now records which exception class CPython raises for every refused case, because a `TabError` reported as a `SyntaxError` is a different thing to catch and a different thing to read.
+
+`except` and `except*` build different node types and a `try` may not mix them. An unparenthesized tuple of exception types is allowed, but not together with an `as`, which is the shape that meant something else in Python 2 and has a message of its own. The name after `as` is a bare name and nothing else, and the refusal says what was written there instead, so `except E as a[0]` says `subscript`.
+
+There are 449 hand-written cases, and then a sweep of every `if`, `while`, `for`, `with`, and `try` in CPython 3.14.7's standard library that does not contain a definition, 22057 of them after duplicates, each one lifted out, dedented, re-parsed on its own, and required to print the same `ast.dump` with attributes included. No shape mismatches, no position mismatches, and no refusals.
+
+`def` and `class` are held back for their own change, because a parameter list is a grammar of its own. They still report themselves as a gap, and so does `match`.
 
 Simple statements, which is the first time `parse_module` exists and the first time a whole file goes through the parser rather than a single expression. Assignment in all four of its forms, `del`, `return`, `raise`, `assert`, `global`, `nonlocal`, `import`, `from ... import`, `type` aliases with their PEP 695 parameter lists, and `pass`, `break`, `continue`.
 
@@ -16,7 +34,7 @@ The other messages have their own shapes. An augmented assignment calls a tuple 
 
 `type` is a soft keyword, so `type = 1` and `type(x)` still mean what they always did, and a type alias is told apart by looking two tokens ahead for the `=` or the `[` that no other reading can have.
 
-The compound statements are not written yet and say so. Meeting `if` or `def` or a decorator raises our own unsupported error rather than a `SyntaxError`, because reporting a working program as broken would be a lie and would hide the gap from anyone measuring coverage. `match` is caught by the colon that ends its header line, which is a stand-in until match patterns are written.
+The compound statements were not written yet at this point and said so. Meeting `if` or `def` or a decorator raised our own unsupported error rather than a `SyntaxError`, because reporting a working program as broken would be a lie and would hide the gap from anyone measuring coverage. `match` is caught by the colon that ends its header line, which is a stand-in until match patterns are written.
 
 There are 276 hand-written cases, and then a sweep of every simple statement in CPython 3.14.7's standard library, 76524 of them after duplicates, each one re-parsed on its own and required to print the same `ast.dump` with attributes included. No shape mismatches, no position mismatches, and no refusals.
 

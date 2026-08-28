@@ -5,9 +5,9 @@
 //! `compile`, for the reason set out in `docs/spec/15-frontend.md`: a library
 //! that inspects a tree we refused to build is a library that does not run.
 //!
-//! Every expression is here, and the simple statements are in `stmt`. The
-//! compound statements are next, and until they land they report themselves as
-//! a gap rather than as the user's mistake.
+//! Every expression is here, the statements are in `stmt`, and the ones with a
+//! body are in `stmt::compound`. `def` and `class` are next, and until they
+//! land they report themselves as a gap rather than as the user's mistake.
 //!
 //! ## Where the fiddly parts are
 //!
@@ -122,16 +122,17 @@ fn assignment_target_name(kind: &ExprKind) -> &'static str {
         ExprKind::JoinedStr { .. } | ExprKind::FormattedValue { .. } => "f-string expression",
         ExprKind::TemplateStr { .. } | ExprKind::Interpolation { .. } => "t-string expression",
         ExprKind::Slice { .. } => "slice",
+        // These two can be assigned to, so an assignment never names them, but
+        // an `except ... as` target can only be a bare name and does.
+        ExprKind::Attribute { .. } => "attribute",
+        ExprKind::Subscript { .. } => "subscript",
         ExprKind::List { .. } => "list",
         ExprKind::Tuple { .. } => "tuple",
         ExprKind::Starred { .. } => "starred",
-        // `a + b` and `not a` are all just "expression", and so are the three
-        // that can always be assigned to, which never reach here because the
-        // caller only asks for a name once it has decided the node is not a
-        // target.
+        // `a + b` and `not a` are all just "expression", and so is a bare name,
+        // which never reaches here because the caller only asks for a name once
+        // it has decided the node is not a target.
         ExprKind::Name { .. }
-        | ExprKind::Attribute { .. }
-        | ExprKind::Subscript { .. }
         | ExprKind::BoolOp { .. }
         | ExprKind::BinOp { .. }
         | ExprKind::UnaryOp { .. } => "expression",
@@ -273,6 +274,28 @@ impl<'a> Parser<'a> {
     /// ending here ends.
     fn prev_end(&self) -> u32 {
         self.tokens[self.pos.saturating_sub(1)].span.end
+    }
+
+    /// Byte offset just past the last token that was written by hand.
+    ///
+    /// A compound statement ends where its body ends, and a body ends with a
+    /// newline and one or more dedents that nobody typed. `prev_end` would
+    /// count those, and would put the end of `if x:\n    pass\n` on the line
+    /// after the `pass`.
+    fn typed_end(&self) -> u32 {
+        self.tokens[..self.pos]
+            .iter()
+            .rev()
+            .find(|token| {
+                !matches!(
+                    token.kind,
+                    TokenKind::Newline
+                        | TokenKind::Indent
+                        | TokenKind::Dedent
+                        | TokenKind::EndMarker
+                )
+            })
+            .map_or(0, |token| token.span.end)
     }
 
     fn bump(&mut self) -> Token {

@@ -147,130 +147,303 @@ ok	type	Module(body=[Expr(value=Name(id='type', ctx=Load()))])	Module(body=[Expr
 ok	match = 1	Module(body=[Assign(targets=[Name(id='match', ctx=Store())], value=Constant(value=1))])	Module(body=[Assign(targets=[Name(id='match', ctx=Store(), lineno=1, col_offset=0, end_lineno=1, end_col_offset=5)], value=Constant(value=1, lineno=1, col_offset=8, end_lineno=1, end_col_offset=9), lineno=1, col_offset=0, end_lineno=1, end_col_offset=9)])
 ok	case = 1	Module(body=[Assign(targets=[Name(id='case', ctx=Store())], value=Constant(value=1))])	Module(body=[Assign(targets=[Name(id='case', ctx=Store(), lineno=1, col_offset=0, end_lineno=1, end_col_offset=4)], value=Constant(value=1, lineno=1, col_offset=7, end_lineno=1, end_col_offset=8), lineno=1, col_offset=0, end_lineno=1, end_col_offset=8)])
 ok	match(x)	Module(body=[Expr(value=Call(func=Name(id='match', ctx=Load()), args=[Name(id='x', ctx=Load())]))])	Module(body=[Expr(value=Call(func=Name(id='match', ctx=Load(), lineno=1, col_offset=0, end_lineno=1, end_col_offset=5), args=[Name(id='x', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=8), lineno=1, col_offset=0, end_lineno=1, end_col_offset=8)])
-error	1 = 2	cannot assign to literal here. Maybe you meant '==' instead of '='?	
-error	'a' = 1	cannot assign to literal here. Maybe you meant '==' instead of '='?	
-error	... = 1	cannot assign to ellipsis here. Maybe you meant '==' instead of '='?	
-error	a + b = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
-error	-x = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
-error	~x = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
-error	f() = 1	cannot assign to function call here. Maybe you meant '==' instead of '='?	
-error	x.y() = 1	cannot assign to function call here. Maybe you meant '==' instead of '='?	
-error	await x = 1	cannot assign to await expression here. Maybe you meant '==' instead of '='?	
-error	(await x) = 1	cannot assign to await expression here. Maybe you meant '==' instead of '='?	
-error	{1} = 2	cannot assign to set display here. Maybe you meant '==' instead of '='?	
-error	{*a} = 1	cannot assign to set display here. Maybe you meant '==' instead of '='?	
-error	{1: 2} = 3	cannot assign to dict literal here. Maybe you meant '==' instead of '='?	
-error	{**a} = 1	cannot assign to dict literal here. Maybe you meant '==' instead of '='?	
-error	f'{x}' = 1	cannot assign to f-string expression here. Maybe you meant '==' instead of '='?	
-error	t'{x}' = 1	cannot assign to t-string expression here. Maybe you meant '==' instead of '='?	
-error	(yield) = 1	cannot assign to yield expression here. Maybe you meant '==' instead of '='?	
-error	(a := 1) = 2	cannot assign to named expression here. Maybe you meant '==' instead of '='?	
-error	(a if b else c) = 1	cannot assign to conditional expression here. Maybe you meant '==' instead of '='?	
-error	(not x) = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
-error	(-x) = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
-error	(lambda: 1) = 2	cannot assign to lambda here. Maybe you meant '==' instead of '='?	
-error	(None) = 1	cannot assign to None here. Maybe you meant '==' instead of '='?	
-error	(True) = 1	cannot assign to True here. Maybe you meant '==' instead of '='?	
-error	([1]) = 2	cannot assign to list here. Maybe you meant '==' instead of '='?	
-error	((a, 1)) = 2	cannot assign to tuple here. Maybe you meant '==' instead of '='?	
-error	None = 1	cannot assign to None	
-error	a and b = 1	cannot assign to expression	
-error	a < b = 1	cannot assign to comparison	
-error	a if b else c = 1	cannot assign to conditional expression	
-error	not x = 1	cannot assign to expression	
-error	lambda: 1 = 2	cannot assign to lambda	
-error	(x for x in y) = 1	cannot assign to generator expression	
-error	[1] = 2	cannot assign to literal	
-error	1, = 2	cannot assign to literal	
-error	(a, 1) = 2	cannot assign to literal	
-error	x = 1 = 2	cannot assign to literal	
-error	1 = 2 = 3	cannot assign to literal	
-error	x = 1 = 2 = 3	cannot assign to literal	
-error	1 = yield	cannot assign to literal	
-error	yield = 1	assignment to yield expression not possible	
-error	x = yield = 1	assignment to yield expression not possible	
-error	1 += 2	'literal' is an illegal expression for augmented assignment	
-error	None += 1	'None' is an illegal expression for augmented assignment	
-error	f() += 2	'function call' is an illegal expression for augmented assignment	
-error	a, b += 1	'tuple' is an illegal expression for augmented assignment	
-error	a.b, c += 1	'tuple' is an illegal expression for augmented assignment	
-error	(a, b) += 1	'tuple' is an illegal expression for augmented assignment	
-error	[a] += 1	'list' is an illegal expression for augmented assignment	
-error	*a += 1	'starred' is an illegal expression for augmented assignment	
-error	(x for x in y) += 1	'generator expression' is an illegal expression for augmented assignment	
-error	yield += 1	invalid syntax	
-error	x += y = 1	invalid syntax	
-error	x = 1 += 2	invalid syntax	
-error	a, b: int	only single target (not tuple) can be annotated	
-error	(a, b): int	only single target (not tuple) can be annotated	
-error	(a,): int	only single target (not tuple) can be annotated	
-error	((a,b)): int	only single target (not tuple) can be annotated	
-error	(((a, b))): int	only single target (not tuple) can be annotated	
-error	[a]: int	only single target (not list) can be annotated	
-error	[a, b]: int	only single target (not list) can be annotated	
-error	([a]): int	only single target (not list) can be annotated	
-error	[a, b], c: int	only single target (not tuple) can be annotated	
-error	(a, b), c: int	only single target (not tuple) can be annotated	
-error	1: int	illegal target for annotation	
-error	f(): int	illegal target for annotation	
-error	*a: int	invalid syntax	
-error	a: *b	invalid syntax	
-error	a: b: c	invalid syntax	
-error	x: int, y = 1	invalid syntax	
-error	x: yield	invalid syntax	
-error	del	invalid syntax	
-error	del 1	cannot delete literal	
-error	del None	cannot delete None	
-error	del *a	cannot delete starred	
-error	del a, *b	cannot delete starred	
-error	del a + b	cannot delete expression	
-error	del f()	cannot delete function call	
-error	del a.b()	cannot delete function call	
-error	del (a, 1)	cannot delete literal	
-error	del (a for a in b)	cannot delete generator expression	
-error	del x if y else z	cannot delete conditional expression	
-error	del lambda: 1	cannot delete lambda	
-error	del a,,	invalid syntax	
-error	del a b	invalid syntax	
-error	return 1 2	invalid syntax	
-error	return yield	invalid syntax	
-error	raise from X	invalid syntax	
-error	raise X from	invalid syntax	
-error	raise X,	invalid syntax	
-error	raise X from Y from Z	invalid syntax	
-error	assert	invalid syntax	
-error	assert x,	invalid syntax	
-error	assert x, y, z	invalid syntax	
-error	global	invalid syntax	
-error	global 1	invalid syntax	
-error	global a,	invalid syntax	
-error	global a.b	invalid syntax	
-error	nonlocal	invalid syntax	
-error	import	Expected one or more names after 'import'	
-error	import *	invalid syntax	
-error	import a as	invalid syntax	
-error	import .a	invalid syntax	
-error	import a.b as c.d	cannot use attribute as import target	
-error	import a.b.c as d.e	cannot use attribute as import target	
-error	from a import	Expected one or more names after 'import'	
-error	from import b	invalid syntax	
-error	from a import b,	trailing comma not allowed without surrounding parentheses	
-error	from a import b.c	invalid syntax	
-error	from a import *, b	invalid syntax	
-error	from a import (*)	invalid syntax	
-error	from a import b as *	invalid syntax	
-error	type X	invalid syntax	
-error	type X = 	invalid syntax	
-error	type X[T]	invalid syntax	
-error	type 1 = int	invalid syntax	
-error	type X[] = int	Type parameter list cannot be empty	
-error	type X = int, str	invalid syntax	
-error	type X = yield	invalid syntax	
-error	type X, Y = 1	invalid syntax	
-error	type X[**P: int] = int	cannot use bound with ParamSpec	
-error	type X[*Ts: int] = int	cannot use bound with TypeVarTuple	
-error	a b	invalid syntax	
-error	x;;	invalid syntax	
-error	pass pass	invalid syntax	
-error	x := 1	invalid syntax	
-error	a := 1	invalid syntax	
+ok	if x: pass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=1, col_offset=6, end_lineno=1, end_col_offset=10)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=10)])
+ok	if x:\n    pass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=8)])
+ok	if x: a; b	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Expr(value=Name(id='a', ctx=Load())), Expr(value=Name(id='b', ctx=Load()))])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Expr(value=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), Expr(value=Name(id='b', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=10)])
+ok	if x:\n    a; b	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Expr(value=Name(id='a', ctx=Load())), Expr(value=Name(id='b', ctx=Load()))])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Expr(value=Name(id='a', ctx=Load(), lineno=2, col_offset=4, end_lineno=2, end_col_offset=5), lineno=2, col_offset=4, end_lineno=2, end_col_offset=5), Expr(value=Name(id='b', ctx=Load(), lineno=2, col_offset=7, end_lineno=2, end_col_offset=8), lineno=2, col_offset=7, end_lineno=2, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=8)])
+ok	if x:\n    pass\n	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=8)])
+ok	if x:\n\n    # a comment\n    pass\n	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	if x:\n    \n    pass\n	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=3, col_offset=4, end_lineno=3, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=3, end_col_offset=8)])
+ok	if x:\n    if y:\n        pass\n    pass\npass\n	Module(body=[If(test=Name(id='x', ctx=Load()), body=[If(test=Name(id='y', ctx=Load()), body=[Pass()]), Pass()]), Pass()])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[If(test=Name(id='y', ctx=Load(), lineno=2, col_offset=7, end_lineno=2, end_col_offset=8), body=[Pass(lineno=3, col_offset=8, end_lineno=3, end_col_offset=12)], lineno=2, col_offset=4, end_lineno=3, end_col_offset=12), Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8), Pass(lineno=5, col_offset=0, end_lineno=5, end_col_offset=4)])
+ok	if x:\n    pass\nelse:\n    pass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()], orelse=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], orelse=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	if x: pass\nelse: pass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()], orelse=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=1, col_offset=6, end_lineno=1, end_col_offset=10)], orelse=[Pass(lineno=2, col_offset=6, end_lineno=2, end_col_offset=10)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=10)])
+ok	if x:\n    pass\nelif y:\n    pass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()], orelse=[If(test=Name(id='y', ctx=Load()), body=[Pass()])])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], orelse=[If(test=Name(id='y', ctx=Load(), lineno=3, col_offset=5, end_lineno=3, end_col_offset=6), body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	if x:\n    pass\nelif y:\n    pass\nelse:\n    pass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()], orelse=[If(test=Name(id='y', ctx=Load()), body=[Pass()], orelse=[Pass()])])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], orelse=[If(test=Name(id='y', ctx=Load(), lineno=3, col_offset=5, end_lineno=3, end_col_offset=6), body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], orelse=[Pass(lineno=6, col_offset=4, end_lineno=6, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=6, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=6, end_col_offset=8)])
+ok	if x: pass\nelif y: pass\nelif z: pass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()], orelse=[If(test=Name(id='y', ctx=Load()), body=[Pass()], orelse=[If(test=Name(id='z', ctx=Load()), body=[Pass()])])])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=1, col_offset=6, end_lineno=1, end_col_offset=10)], orelse=[If(test=Name(id='y', ctx=Load(), lineno=2, col_offset=5, end_lineno=2, end_col_offset=6), body=[Pass(lineno=2, col_offset=8, end_lineno=2, end_col_offset=12)], orelse=[If(test=Name(id='z', ctx=Load(), lineno=3, col_offset=5, end_lineno=3, end_col_offset=6), body=[Pass(lineno=3, col_offset=8, end_lineno=3, end_col_offset=12)], lineno=3, col_offset=0, end_lineno=3, end_col_offset=12)], lineno=2, col_offset=0, end_lineno=3, end_col_offset=12)], lineno=1, col_offset=0, end_lineno=3, end_col_offset=12)])
+ok	if x:\n    pass\n# a comment at the margin\nelse:\n    pass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()], orelse=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], orelse=[Pass(lineno=5, col_offset=4, end_lineno=5, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=5, end_col_offset=8)])
+ok	if x:\n    pass\n\nelse:\n    pass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()], orelse=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], orelse=[Pass(lineno=5, col_offset=4, end_lineno=5, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=5, end_col_offset=8)])
+ok	if x := 1: pass	Module(body=[If(test=NamedExpr(target=Name(id='x', ctx=Store()), value=Constant(value=1)), body=[Pass()])])	Module(body=[If(test=NamedExpr(target=Name(id='x', ctx=Store(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), value=Constant(value=1, lineno=1, col_offset=8, end_lineno=1, end_col_offset=9), lineno=1, col_offset=3, end_lineno=1, end_col_offset=9), body=[Pass(lineno=1, col_offset=11, end_lineno=1, end_col_offset=15)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=15)])
+ok	if x and y: pass	Module(body=[If(test=BoolOp(op=And(), values=[Name(id='x', ctx=Load()), Name(id='y', ctx=Load())]), body=[Pass()])])	Module(body=[If(test=BoolOp(op=And(), values=[Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), Name(id='y', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10)], lineno=1, col_offset=3, end_lineno=1, end_col_offset=10), body=[Pass(lineno=1, col_offset=12, end_lineno=1, end_col_offset=16)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=16)])
+ok	while x: pass	Module(body=[While(test=Name(id='x', ctx=Load()), body=[Pass()])])	Module(body=[While(test=Name(id='x', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), body=[Pass(lineno=1, col_offset=9, end_lineno=1, end_col_offset=13)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=13)])
+ok	while x:\n    pass\nelse:\n    y	Module(body=[While(test=Name(id='x', ctx=Load()), body=[Pass()], orelse=[Expr(value=Name(id='y', ctx=Load()))])])	Module(body=[While(test=Name(id='x', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], orelse=[Expr(value=Name(id='y', ctx=Load(), lineno=4, col_offset=4, end_lineno=4, end_col_offset=5), lineno=4, col_offset=4, end_lineno=4, end_col_offset=5)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=5)])
+ok	while 1:\n    if x:\n        break\n    else:\n        continue\nelse:\n    pass\n	Module(body=[While(test=Constant(value=1), body=[If(test=Name(id='x', ctx=Load()), body=[Break()], orelse=[Continue()])], orelse=[Pass()])])	Module(body=[While(test=Constant(value=1, lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), body=[If(test=Name(id='x', ctx=Load(), lineno=2, col_offset=7, end_lineno=2, end_col_offset=8), body=[Break(lineno=3, col_offset=8, end_lineno=3, end_col_offset=13)], orelse=[Continue(lineno=5, col_offset=8, end_lineno=5, end_col_offset=16)], lineno=2, col_offset=4, end_lineno=5, end_col_offset=16)], orelse=[Pass(lineno=7, col_offset=4, end_lineno=7, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=7, end_col_offset=8)])
+ok	while x := f(): pass	Module(body=[While(test=NamedExpr(target=Name(id='x', ctx=Store()), value=Call(func=Name(id='f', ctx=Load()))), body=[Pass()])])	Module(body=[While(test=NamedExpr(target=Name(id='x', ctx=Store(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), value=Call(func=Name(id='f', ctx=Load(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12), lineno=1, col_offset=11, end_lineno=1, end_col_offset=14), lineno=1, col_offset=6, end_lineno=1, end_col_offset=14), body=[Pass(lineno=1, col_offset=16, end_lineno=1, end_col_offset=20)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=20)])
+ok	for x in y: pass	Module(body=[For(target=Name(id='x', ctx=Store()), iter=Name(id='y', ctx=Load()), body=[Pass()])])	Module(body=[For(target=Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10), body=[Pass(lineno=1, col_offset=12, end_lineno=1, end_col_offset=16)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=16)])
+ok	for x, in y: pass	Module(body=[For(target=Tuple(elts=[Name(id='x', ctx=Store())], ctx=Store()), iter=Name(id='y', ctx=Load()), body=[Pass()])])	Module(body=[For(target=Tuple(elts=[Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5)], ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=6), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11), body=[Pass(lineno=1, col_offset=13, end_lineno=1, end_col_offset=17)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=17)])
+ok	for x, z in y: pass	Module(body=[For(target=Tuple(elts=[Name(id='x', ctx=Store()), Name(id='z', ctx=Store())], ctx=Store()), iter=Name(id='y', ctx=Load()), body=[Pass()])])	Module(body=[For(target=Tuple(elts=[Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), Name(id='z', ctx=Store(), lineno=1, col_offset=7, end_lineno=1, end_col_offset=8)], ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=8), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=12, end_lineno=1, end_col_offset=13), body=[Pass(lineno=1, col_offset=15, end_lineno=1, end_col_offset=19)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=19)])
+ok	for (x, y) in z: pass	Module(body=[For(target=Tuple(elts=[Name(id='x', ctx=Store()), Name(id='y', ctx=Store())], ctx=Store()), iter=Name(id='z', ctx=Load()), body=[Pass()])])	Module(body=[For(target=Tuple(elts=[Name(id='x', ctx=Store(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6), Name(id='y', ctx=Store(), lineno=1, col_offset=8, end_lineno=1, end_col_offset=9)], ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=10), iter=Name(id='z', ctx=Load(), lineno=1, col_offset=14, end_lineno=1, end_col_offset=15), body=[Pass(lineno=1, col_offset=17, end_lineno=1, end_col_offset=21)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=21)])
+ok	for [x] in y: pass	Module(body=[For(target=List(elts=[Name(id='x', ctx=Store())], ctx=Store()), iter=Name(id='y', ctx=Load()), body=[Pass()])])	Module(body=[For(target=List(elts=[Name(id='x', ctx=Store(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6)], ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=7), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12), body=[Pass(lineno=1, col_offset=14, end_lineno=1, end_col_offset=18)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=18)])
+ok	for x.y in z: pass	Module(body=[For(target=Attribute(value=Name(id='x', ctx=Load()), attr='y', ctx=Store()), iter=Name(id='z', ctx=Load()), body=[Pass()])])	Module(body=[For(target=Attribute(value=Name(id='x', ctx=Load(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), attr='y', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=7), iter=Name(id='z', ctx=Load(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12), body=[Pass(lineno=1, col_offset=14, end_lineno=1, end_col_offset=18)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=18)])
+ok	for x[0] in z: pass	Module(body=[For(target=Subscript(value=Name(id='x', ctx=Load()), slice=Constant(value=0), ctx=Store()), iter=Name(id='z', ctx=Load()), body=[Pass()])])	Module(body=[For(target=Subscript(value=Name(id='x', ctx=Load(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), slice=Constant(value=0, lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=8), iter=Name(id='z', ctx=Load(), lineno=1, col_offset=12, end_lineno=1, end_col_offset=13), body=[Pass(lineno=1, col_offset=15, end_lineno=1, end_col_offset=19)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=19)])
+ok	for f(x).y in z: pass	Module(body=[For(target=Attribute(value=Call(func=Name(id='f', ctx=Load()), args=[Name(id='x', ctx=Load())]), attr='y', ctx=Store()), iter=Name(id='z', ctx=Load()), body=[Pass()])])	Module(body=[For(target=Attribute(value=Call(func=Name(id='f', ctx=Load(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), args=[Name(id='x', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7)], lineno=1, col_offset=4, end_lineno=1, end_col_offset=8), attr='y', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=10), iter=Name(id='z', ctx=Load(), lineno=1, col_offset=14, end_lineno=1, end_col_offset=15), body=[Pass(lineno=1, col_offset=17, end_lineno=1, end_col_offset=21)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=21)])
+ok	for *x, in y: pass	Module(body=[For(target=Tuple(elts=[Starred(value=Name(id='x', ctx=Store()), ctx=Store())], ctx=Store()), iter=Name(id='y', ctx=Load()), body=[Pass()])])	Module(body=[For(target=Tuple(elts=[Starred(value=Name(id='x', ctx=Store(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6), ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=6)], ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=7), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12), body=[Pass(lineno=1, col_offset=14, end_lineno=1, end_col_offset=18)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=18)])
+ok	for x in y, z: pass	Module(body=[For(target=Name(id='x', ctx=Store()), iter=Tuple(elts=[Name(id='y', ctx=Load()), Name(id='z', ctx=Load())], ctx=Load()), body=[Pass()])])	Module(body=[For(target=Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Tuple(elts=[Name(id='y', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10), Name(id='z', ctx=Load(), lineno=1, col_offset=12, end_lineno=1, end_col_offset=13)], ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=13), body=[Pass(lineno=1, col_offset=15, end_lineno=1, end_col_offset=19)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=19)])
+ok	for x in y,: pass	Module(body=[For(target=Name(id='x', ctx=Store()), iter=Tuple(elts=[Name(id='y', ctx=Load())], ctx=Load()), body=[Pass()])])	Module(body=[For(target=Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Tuple(elts=[Name(id='y', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10)], ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=11), body=[Pass(lineno=1, col_offset=13, end_lineno=1, end_col_offset=17)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=17)])
+ok	for x in *a: pass	Module(body=[For(target=Name(id='x', ctx=Store()), iter=Starred(value=Name(id='a', ctx=Load()), ctx=Load()), body=[Pass()])])	Module(body=[For(target=Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Starred(value=Name(id='a', ctx=Load(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11), ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=11), body=[Pass(lineno=1, col_offset=13, end_lineno=1, end_col_offset=17)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=17)])
+ok	for x in *a,: pass	Module(body=[For(target=Name(id='x', ctx=Store()), iter=Tuple(elts=[Starred(value=Name(id='a', ctx=Load()), ctx=Load())], ctx=Load()), body=[Pass()])])	Module(body=[For(target=Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Tuple(elts=[Starred(value=Name(id='a', ctx=Load(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11), ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=11)], ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=12), body=[Pass(lineno=1, col_offset=14, end_lineno=1, end_col_offset=18)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=18)])
+ok	for x in (yield): pass	Module(body=[For(target=Name(id='x', ctx=Store()), iter=Yield(), body=[Pass()])])	Module(body=[For(target=Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Yield(lineno=1, col_offset=10, end_lineno=1, end_col_offset=15), body=[Pass(lineno=1, col_offset=18, end_lineno=1, end_col_offset=22)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=22)])
+ok	for x in y:\n    pass\nelse:\n    z	Module(body=[For(target=Name(id='x', ctx=Store()), iter=Name(id='y', ctx=Load()), body=[Pass()], orelse=[Expr(value=Name(id='z', ctx=Load()))])])	Module(body=[For(target=Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], orelse=[Expr(value=Name(id='z', ctx=Load(), lineno=4, col_offset=4, end_lineno=4, end_col_offset=5), lineno=4, col_offset=4, end_lineno=4, end_col_offset=5)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=5)])
+ok	for x in y: break\nelse: continue	Module(body=[For(target=Name(id='x', ctx=Store()), iter=Name(id='y', ctx=Load()), body=[Break()], orelse=[Continue()])])	Module(body=[For(target=Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10), body=[Break(lineno=1, col_offset=12, end_lineno=1, end_col_offset=17)], orelse=[Continue(lineno=2, col_offset=6, end_lineno=2, end_col_offset=14)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=14)])
+ok	async for x in y: pass	Module(body=[AsyncFor(target=Name(id='x', ctx=Store()), iter=Name(id='y', ctx=Load()), body=[Pass()])])	Module(body=[AsyncFor(target=Name(id='x', ctx=Store(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=15, end_lineno=1, end_col_offset=16), body=[Pass(lineno=1, col_offset=18, end_lineno=1, end_col_offset=22)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=22)])
+ok	async for x in y:\n    pass\nelse:\n    pass	Module(body=[AsyncFor(target=Name(id='x', ctx=Store()), iter=Name(id='y', ctx=Load()), body=[Pass()], orelse=[Pass()])])	Module(body=[AsyncFor(target=Name(id='x', ctx=Store(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=15, end_lineno=1, end_col_offset=16), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], orelse=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	with a: pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6))], body=[Pass(lineno=1, col_offset=8, end_lineno=1, end_col_offset=12)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=12)])
+ok	with a as b: pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=Name(id='b', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6), optional_vars=Name(id='b', ctx=Store(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11))], body=[Pass(lineno=1, col_offset=13, end_lineno=1, end_col_offset=17)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=17)])
+ok	with a, b: pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load())), withitem(context_expr=Name(id='b', ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6)), withitem(context_expr=Name(id='b', ctx=Load(), lineno=1, col_offset=8, end_lineno=1, end_col_offset=9))], body=[Pass(lineno=1, col_offset=11, end_lineno=1, end_col_offset=15)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=15)])
+ok	with a as b, c as d: pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=Name(id='b', ctx=Store())), withitem(context_expr=Name(id='c', ctx=Load()), optional_vars=Name(id='d', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6), optional_vars=Name(id='b', ctx=Store(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11)), withitem(context_expr=Name(id='c', ctx=Load(), lineno=1, col_offset=13, end_lineno=1, end_col_offset=14), optional_vars=Name(id='d', ctx=Store(), lineno=1, col_offset=18, end_lineno=1, end_col_offset=19))], body=[Pass(lineno=1, col_offset=21, end_lineno=1, end_col_offset=25)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=25)])
+ok	with (a, b): pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load())), withitem(context_expr=Name(id='b', ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7)), withitem(context_expr=Name(id='b', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10))], body=[Pass(lineno=1, col_offset=13, end_lineno=1, end_col_offset=17)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=17)])
+ok	with (a): pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7))], body=[Pass(lineno=1, col_offset=10, end_lineno=1, end_col_offset=14)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=14)])
+ok	with (a,): pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7))], body=[Pass(lineno=1, col_offset=11, end_lineno=1, end_col_offset=15)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=15)])
+ok	with (a, b,): pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load())), withitem(context_expr=Name(id='b', ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7)), withitem(context_expr=Name(id='b', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10))], body=[Pass(lineno=1, col_offset=14, end_lineno=1, end_col_offset=18)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=18)])
+ok	with (a as b, c as d): pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=Name(id='b', ctx=Store())), withitem(context_expr=Name(id='c', ctx=Load()), optional_vars=Name(id='d', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), optional_vars=Name(id='b', ctx=Store(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12)), withitem(context_expr=Name(id='c', ctx=Load(), lineno=1, col_offset=14, end_lineno=1, end_col_offset=15), optional_vars=Name(id='d', ctx=Store(), lineno=1, col_offset=19, end_lineno=1, end_col_offset=20))], body=[Pass(lineno=1, col_offset=23, end_lineno=1, end_col_offset=27)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=27)])
+ok	with (a as b,): pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=Name(id='b', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), optional_vars=Name(id='b', ctx=Store(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12))], body=[Pass(lineno=1, col_offset=16, end_lineno=1, end_col_offset=20)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=20)])
+ok	with (a as b, c): pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=Name(id='b', ctx=Store())), withitem(context_expr=Name(id='c', ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), optional_vars=Name(id='b', ctx=Store(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12)), withitem(context_expr=Name(id='c', ctx=Load(), lineno=1, col_offset=14, end_lineno=1, end_col_offset=15))], body=[Pass(lineno=1, col_offset=18, end_lineno=1, end_col_offset=22)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=22)])
+ok	with (a, b) as c: pass	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load()), Name(id='b', ctx=Load())], ctx=Load()), optional_vars=Name(id='c', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), Name(id='b', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10)], ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=11), optional_vars=Name(id='c', ctx=Store(), lineno=1, col_offset=15, end_lineno=1, end_col_offset=16))], body=[Pass(lineno=1, col_offset=18, end_lineno=1, end_col_offset=22)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=22)])
+ok	with (a, b) as c, d: pass	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load()), Name(id='b', ctx=Load())], ctx=Load()), optional_vars=Name(id='c', ctx=Store())), withitem(context_expr=Name(id='d', ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), Name(id='b', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10)], ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=11), optional_vars=Name(id='c', ctx=Store(), lineno=1, col_offset=15, end_lineno=1, end_col_offset=16)), withitem(context_expr=Name(id='d', ctx=Load(), lineno=1, col_offset=18, end_lineno=1, end_col_offset=19))], body=[Pass(lineno=1, col_offset=21, end_lineno=1, end_col_offset=25)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=25)])
+ok	with (a,) as b: pass	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load())], ctx=Load()), optional_vars=Name(id='b', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7)], ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=9), optional_vars=Name(id='b', ctx=Store(), lineno=1, col_offset=13, end_lineno=1, end_col_offset=14))], body=[Pass(lineno=1, col_offset=16, end_lineno=1, end_col_offset=20)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=20)])
+ok	with ((a, b) as c): pass	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load()), Name(id='b', ctx=Load())], ctx=Load()), optional_vars=Name(id='c', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load(), lineno=1, col_offset=7, end_lineno=1, end_col_offset=8), Name(id='b', ctx=Load(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11)], ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=12), optional_vars=Name(id='c', ctx=Store(), lineno=1, col_offset=16, end_lineno=1, end_col_offset=17))], body=[Pass(lineno=1, col_offset=20, end_lineno=1, end_col_offset=24)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=24)])
+ok	with a as (b, c): pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=Tuple(elts=[Name(id='b', ctx=Store()), Name(id='c', ctx=Store())], ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6), optional_vars=Tuple(elts=[Name(id='b', ctx=Store(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12), Name(id='c', ctx=Store(), lineno=1, col_offset=14, end_lineno=1, end_col_offset=15)], ctx=Store(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=16))], body=[Pass(lineno=1, col_offset=18, end_lineno=1, end_col_offset=22)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=22)])
+ok	with a as [b]: pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=List(elts=[Name(id='b', ctx=Store())], ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6), optional_vars=List(elts=[Name(id='b', ctx=Store(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12)], ctx=Store(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=13))], body=[Pass(lineno=1, col_offset=15, end_lineno=1, end_col_offset=19)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=19)])
+ok	with a as b.c: pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=Attribute(value=Name(id='b', ctx=Load()), attr='c', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6), optional_vars=Attribute(value=Name(id='b', ctx=Load(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11), attr='c', ctx=Store(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=13))], body=[Pass(lineno=1, col_offset=15, end_lineno=1, end_col_offset=19)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=19)])
+ok	with a as b[0]: pass	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=Subscript(value=Name(id='b', ctx=Load()), slice=Constant(value=0), ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=6), optional_vars=Subscript(value=Name(id='b', ctx=Load(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11), slice=Constant(value=0, lineno=1, col_offset=12, end_lineno=1, end_col_offset=13), ctx=Store(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=14))], body=[Pass(lineno=1, col_offset=16, end_lineno=1, end_col_offset=20)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=20)])
+ok	with (): pass	Module(body=[With(items=[withitem(context_expr=Tuple(ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Tuple(ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=7))], body=[Pass(lineno=1, col_offset=9, end_lineno=1, end_col_offset=13)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=13)])
+ok	with (a, *b): pass	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load()), Starred(value=Name(id='b', ctx=Load()), ctx=Load())], ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Tuple(elts=[Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), Starred(value=Name(id='b', ctx=Load(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11), ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=11)], ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=12))], body=[Pass(lineno=1, col_offset=14, end_lineno=1, end_col_offset=18)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=18)])
+ok	with (yield): pass	Module(body=[With(items=[withitem(context_expr=Yield())], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Yield(lineno=1, col_offset=6, end_lineno=1, end_col_offset=11))], body=[Pass(lineno=1, col_offset=14, end_lineno=1, end_col_offset=18)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=18)])
+ok	with (a := 1): pass	Module(body=[With(items=[withitem(context_expr=NamedExpr(target=Name(id='a', ctx=Store()), value=Constant(value=1)))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=NamedExpr(target=Name(id='a', ctx=Store(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), value=Constant(value=1, lineno=1, col_offset=11, end_lineno=1, end_col_offset=12), lineno=1, col_offset=6, end_lineno=1, end_col_offset=12))], body=[Pass(lineno=1, col_offset=15, end_lineno=1, end_col_offset=19)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=19)])
+ok	with (a := 1) as b: pass	Module(body=[With(items=[withitem(context_expr=NamedExpr(target=Name(id='a', ctx=Store()), value=Constant(value=1)), optional_vars=Name(id='b', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=NamedExpr(target=Name(id='a', ctx=Store(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), value=Constant(value=1, lineno=1, col_offset=11, end_lineno=1, end_col_offset=12), lineno=1, col_offset=6, end_lineno=1, end_col_offset=12), optional_vars=Name(id='b', ctx=Store(), lineno=1, col_offset=17, end_lineno=1, end_col_offset=18))], body=[Pass(lineno=1, col_offset=20, end_lineno=1, end_col_offset=24)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=24)])
+ok	with (x for x in y): pass	Module(body=[With(items=[withitem(context_expr=GeneratorExp(elt=Name(id='x', ctx=Load()), generators=[comprehension(target=Name(id='x', ctx=Store()), iter=Name(id='y', ctx=Load()), is_async=0)]))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=GeneratorExp(elt=Name(id='x', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), generators=[comprehension(target=Name(id='x', ctx=Store(), lineno=1, col_offset=12, end_lineno=1, end_col_offset=13), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=17, end_lineno=1, end_col_offset=18), is_async=0)], lineno=1, col_offset=5, end_lineno=1, end_col_offset=19))], body=[Pass(lineno=1, col_offset=21, end_lineno=1, end_col_offset=25)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=25)])
+ok	with (a for a in b), c: pass	Module(body=[With(items=[withitem(context_expr=GeneratorExp(elt=Name(id='a', ctx=Load()), generators=[comprehension(target=Name(id='a', ctx=Store()), iter=Name(id='b', ctx=Load()), is_async=0)])), withitem(context_expr=Name(id='c', ctx=Load()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=GeneratorExp(elt=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), generators=[comprehension(target=Name(id='a', ctx=Store(), lineno=1, col_offset=12, end_lineno=1, end_col_offset=13), iter=Name(id='b', ctx=Load(), lineno=1, col_offset=17, end_lineno=1, end_col_offset=18), is_async=0)], lineno=1, col_offset=5, end_lineno=1, end_col_offset=19)), withitem(context_expr=Name(id='c', ctx=Load(), lineno=1, col_offset=21, end_lineno=1, end_col_offset=22))], body=[Pass(lineno=1, col_offset=24, end_lineno=1, end_col_offset=28)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=28)])
+ok	with (a for a in b) as c: pass	Module(body=[With(items=[withitem(context_expr=GeneratorExp(elt=Name(id='a', ctx=Load()), generators=[comprehension(target=Name(id='a', ctx=Store()), iter=Name(id='b', ctx=Load()), is_async=0)]), optional_vars=Name(id='c', ctx=Store()))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=GeneratorExp(elt=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), generators=[comprehension(target=Name(id='a', ctx=Store(), lineno=1, col_offset=12, end_lineno=1, end_col_offset=13), iter=Name(id='b', ctx=Load(), lineno=1, col_offset=17, end_lineno=1, end_col_offset=18), is_async=0)], lineno=1, col_offset=5, end_lineno=1, end_col_offset=19), optional_vars=Name(id='c', ctx=Store(), lineno=1, col_offset=23, end_lineno=1, end_col_offset=24))], body=[Pass(lineno=1, col_offset=26, end_lineno=1, end_col_offset=30)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=30)])
+ok	with (a, b) if c else d: pass	Module(body=[With(items=[withitem(context_expr=IfExp(test=Name(id='c', ctx=Load()), body=Tuple(elts=[Name(id='a', ctx=Load()), Name(id='b', ctx=Load())], ctx=Load()), orelse=Name(id='d', ctx=Load())))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=IfExp(test=Name(id='c', ctx=Load(), lineno=1, col_offset=15, end_lineno=1, end_col_offset=16), body=Tuple(elts=[Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), Name(id='b', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10)], ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=11), orelse=Name(id='d', ctx=Load(), lineno=1, col_offset=22, end_lineno=1, end_col_offset=23), lineno=1, col_offset=5, end_lineno=1, end_col_offset=23))], body=[Pass(lineno=1, col_offset=25, end_lineno=1, end_col_offset=29)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=29)])
+ok	with (lambda: 1): pass	Module(body=[With(items=[withitem(context_expr=Lambda(args=arguments(), body=Constant(value=1)))], body=[Pass()])])	Module(body=[With(items=[withitem(context_expr=Lambda(args=arguments(), body=Constant(value=1, lineno=1, col_offset=14, end_lineno=1, end_col_offset=15), lineno=1, col_offset=6, end_lineno=1, end_col_offset=15))], body=[Pass(lineno=1, col_offset=18, end_lineno=1, end_col_offset=22)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=22)])
+ok	with open(f) as g:\n    g.read()\n	Module(body=[With(items=[withitem(context_expr=Call(func=Name(id='open', ctx=Load()), args=[Name(id='f', ctx=Load())]), optional_vars=Name(id='g', ctx=Store()))], body=[Expr(value=Call(func=Attribute(value=Name(id='g', ctx=Load()), attr='read', ctx=Load())))])])	Module(body=[With(items=[withitem(context_expr=Call(func=Name(id='open', ctx=Load(), lineno=1, col_offset=5, end_lineno=1, end_col_offset=9), args=[Name(id='f', ctx=Load(), lineno=1, col_offset=10, end_lineno=1, end_col_offset=11)], lineno=1, col_offset=5, end_lineno=1, end_col_offset=12), optional_vars=Name(id='g', ctx=Store(), lineno=1, col_offset=16, end_lineno=1, end_col_offset=17))], body=[Expr(value=Call(func=Attribute(value=Name(id='g', ctx=Load(), lineno=2, col_offset=4, end_lineno=2, end_col_offset=5), attr='read', ctx=Load(), lineno=2, col_offset=4, end_lineno=2, end_col_offset=10), lineno=2, col_offset=4, end_lineno=2, end_col_offset=12), lineno=2, col_offset=4, end_lineno=2, end_col_offset=12)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=12)])
+ok	async with a: pass	Module(body=[AsyncWith(items=[withitem(context_expr=Name(id='a', ctx=Load()))], body=[Pass()])])	Module(body=[AsyncWith(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12))], body=[Pass(lineno=1, col_offset=14, end_lineno=1, end_col_offset=18)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=18)])
+ok	async with a as b, c: pass	Module(body=[AsyncWith(items=[withitem(context_expr=Name(id='a', ctx=Load()), optional_vars=Name(id='b', ctx=Store())), withitem(context_expr=Name(id='c', ctx=Load()))], body=[Pass()])])	Module(body=[AsyncWith(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=1, col_offset=11, end_lineno=1, end_col_offset=12), optional_vars=Name(id='b', ctx=Store(), lineno=1, col_offset=16, end_lineno=1, end_col_offset=17)), withitem(context_expr=Name(id='c', ctx=Load(), lineno=1, col_offset=19, end_lineno=1, end_col_offset=20))], body=[Pass(lineno=1, col_offset=22, end_lineno=1, end_col_offset=26)], lineno=1, col_offset=0, end_lineno=1, end_col_offset=26)])
+ok	try:\n    pass\nexcept:\n    pass	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(body=[Pass()])])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	try:\n    pass\nexcept E:\n    pass	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(type=Name(id='E', ctx=Load()), body=[Pass()])])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(type=Name(id='E', ctx=Load(), lineno=3, col_offset=7, end_lineno=3, end_col_offset=8), body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	try:\n    pass\nexcept E as e:\n    pass	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(type=Name(id='E', ctx=Load()), name='e', body=[Pass()])])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(type=Name(id='E', ctx=Load(), lineno=3, col_offset=7, end_lineno=3, end_col_offset=8), name='e', body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	try:\n    pass\nexcept (E, F) as e:\n    pass	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(type=Tuple(elts=[Name(id='E', ctx=Load()), Name(id='F', ctx=Load())], ctx=Load()), name='e', body=[Pass()])])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(type=Tuple(elts=[Name(id='E', ctx=Load(), lineno=3, col_offset=8, end_lineno=3, end_col_offset=9), Name(id='F', ctx=Load(), lineno=3, col_offset=11, end_lineno=3, end_col_offset=12)], ctx=Load(), lineno=3, col_offset=7, end_lineno=3, end_col_offset=13), name='e', body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	try:\n    pass\nexcept E, F:\n    pass	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(type=Tuple(elts=[Name(id='E', ctx=Load()), Name(id='F', ctx=Load())], ctx=Load()), body=[Pass()])])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(type=Tuple(elts=[Name(id='E', ctx=Load(), lineno=3, col_offset=7, end_lineno=3, end_col_offset=8), Name(id='F', ctx=Load(), lineno=3, col_offset=10, end_lineno=3, end_col_offset=11)], ctx=Load(), lineno=3, col_offset=7, end_lineno=3, end_col_offset=11), body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	try:\n    pass\nexcept E,:\n    pass	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(type=Tuple(elts=[Name(id='E', ctx=Load())], ctx=Load()), body=[Pass()])])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(type=Tuple(elts=[Name(id='E', ctx=Load(), lineno=3, col_offset=7, end_lineno=3, end_col_offset=8)], ctx=Load(), lineno=3, col_offset=7, end_lineno=3, end_col_offset=9), body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	try:\n    pass\nexcept ():\n    pass	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(type=Tuple(ctx=Load()), body=[Pass()])])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(type=Tuple(ctx=Load(), lineno=3, col_offset=7, end_lineno=3, end_col_offset=9), body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	try:\n    pass\nexcept* E:\n    pass	Module(body=[TryStar(body=[Pass()], handlers=[ExceptHandler(type=Name(id='E', ctx=Load()), body=[Pass()])])])	Module(body=[TryStar(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(type=Name(id='E', ctx=Load(), lineno=3, col_offset=8, end_lineno=3, end_col_offset=9), body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	try:\n    pass\nexcept* E as e:\n    pass\nexcept* F:\n    pass	Module(body=[TryStar(body=[Pass()], handlers=[ExceptHandler(type=Name(id='E', ctx=Load()), name='e', body=[Pass()]), ExceptHandler(type=Name(id='F', ctx=Load()), body=[Pass()])])])	Module(body=[TryStar(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(type=Name(id='E', ctx=Load(), lineno=3, col_offset=8, end_lineno=3, end_col_offset=9), name='e', body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8), ExceptHandler(type=Name(id='F', ctx=Load(), lineno=5, col_offset=8, end_lineno=5, end_col_offset=9), body=[Pass(lineno=6, col_offset=4, end_lineno=6, end_col_offset=8)], lineno=5, col_offset=0, end_lineno=6, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=6, end_col_offset=8)])
+ok	try:\n    pass\nfinally:\n    pass	Module(body=[Try(body=[Pass()], finalbody=[Pass()])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], finalbody=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=4, end_col_offset=8)])
+ok	try:\n    pass\nexcept:\n    pass\nelse:\n    pass	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(body=[Pass()])], orelse=[Pass()])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(body=[Pass(lineno=4, col_offset=4, end_lineno=4, end_col_offset=8)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=8)], orelse=[Pass(lineno=6, col_offset=4, end_lineno=6, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=6, end_col_offset=8)])
+ok	try:\n    pass\nexcept E as e:\n    a\nexcept:\n    b\nelse:\n    c\nfinally:\n    d\n	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(type=Name(id='E', ctx=Load()), name='e', body=[Expr(value=Name(id='a', ctx=Load()))]), ExceptHandler(body=[Expr(value=Name(id='b', ctx=Load()))])], orelse=[Expr(value=Name(id='c', ctx=Load()))], finalbody=[Expr(value=Name(id='d', ctx=Load()))])])	Module(body=[Try(body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], handlers=[ExceptHandler(type=Name(id='E', ctx=Load(), lineno=3, col_offset=7, end_lineno=3, end_col_offset=8), name='e', body=[Expr(value=Name(id='a', ctx=Load(), lineno=4, col_offset=4, end_lineno=4, end_col_offset=5), lineno=4, col_offset=4, end_lineno=4, end_col_offset=5)], lineno=3, col_offset=0, end_lineno=4, end_col_offset=5), ExceptHandler(body=[Expr(value=Name(id='b', ctx=Load(), lineno=6, col_offset=4, end_lineno=6, end_col_offset=5), lineno=6, col_offset=4, end_lineno=6, end_col_offset=5)], lineno=5, col_offset=0, end_lineno=6, end_col_offset=5)], orelse=[Expr(value=Name(id='c', ctx=Load(), lineno=8, col_offset=4, end_lineno=8, end_col_offset=5), lineno=8, col_offset=4, end_lineno=8, end_col_offset=5)], finalbody=[Expr(value=Name(id='d', ctx=Load(), lineno=10, col_offset=4, end_lineno=10, end_col_offset=5), lineno=10, col_offset=4, end_lineno=10, end_col_offset=5)], lineno=1, col_offset=0, end_lineno=10, end_col_offset=5)])
+ok	try: pass\nexcept: pass	Module(body=[Try(body=[Pass()], handlers=[ExceptHandler(body=[Pass()])])])	Module(body=[Try(body=[Pass(lineno=1, col_offset=5, end_lineno=1, end_col_offset=9)], handlers=[ExceptHandler(body=[Pass(lineno=2, col_offset=8, end_lineno=2, end_col_offset=12)], lineno=2, col_offset=0, end_lineno=2, end_col_offset=12)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=12)])
+ok	try: pass\nfinally: pass	Module(body=[Try(body=[Pass()], finalbody=[Pass()])])	Module(body=[Try(body=[Pass(lineno=1, col_offset=5, end_lineno=1, end_col_offset=9)], finalbody=[Pass(lineno=2, col_offset=9, end_lineno=2, end_col_offset=13)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=13)])
+ok	for x in y:\n    with a:\n        try:\n            pass\n        except:\n            pass\n	Module(body=[For(target=Name(id='x', ctx=Store()), iter=Name(id='y', ctx=Load()), body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load()))], body=[Try(body=[Pass()], handlers=[ExceptHandler(body=[Pass()])])])])])	Module(body=[For(target=Name(id='x', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Name(id='y', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10), body=[With(items=[withitem(context_expr=Name(id='a', ctx=Load(), lineno=2, col_offset=9, end_lineno=2, end_col_offset=10))], body=[Try(body=[Pass(lineno=4, col_offset=12, end_lineno=4, end_col_offset=16)], handlers=[ExceptHandler(body=[Pass(lineno=6, col_offset=12, end_lineno=6, end_col_offset=16)], lineno=5, col_offset=8, end_lineno=6, end_col_offset=16)], lineno=3, col_offset=8, end_lineno=6, end_col_offset=16)], lineno=2, col_offset=4, end_lineno=6, end_col_offset=16)], lineno=1, col_offset=0, end_lineno=6, end_col_offset=16)])
+ok	if a:\n    if b:\n        if c:\n            pass\nelse:\n    pass\n	Module(body=[If(test=Name(id='a', ctx=Load()), body=[If(test=Name(id='b', ctx=Load()), body=[If(test=Name(id='c', ctx=Load()), body=[Pass()])])], orelse=[Pass()])])	Module(body=[If(test=Name(id='a', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[If(test=Name(id='b', ctx=Load(), lineno=2, col_offset=7, end_lineno=2, end_col_offset=8), body=[If(test=Name(id='c', ctx=Load(), lineno=3, col_offset=11, end_lineno=3, end_col_offset=12), body=[Pass(lineno=4, col_offset=12, end_lineno=4, end_col_offset=16)], lineno=3, col_offset=8, end_lineno=4, end_col_offset=16)], lineno=2, col_offset=4, end_lineno=4, end_col_offset=16)], orelse=[Pass(lineno=6, col_offset=4, end_lineno=6, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=6, end_col_offset=8)])
+ok	while a:\n    for b in c:\n        pass\n    else:\n        pass\nelse:\n    pass\n	Module(body=[While(test=Name(id='a', ctx=Load()), body=[For(target=Name(id='b', ctx=Store()), iter=Name(id='c', ctx=Load()), body=[Pass()], orelse=[Pass()])], orelse=[Pass()])])	Module(body=[While(test=Name(id='a', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), body=[For(target=Name(id='b', ctx=Store(), lineno=2, col_offset=8, end_lineno=2, end_col_offset=9), iter=Name(id='c', ctx=Load(), lineno=2, col_offset=13, end_lineno=2, end_col_offset=14), body=[Pass(lineno=3, col_offset=8, end_lineno=3, end_col_offset=12)], orelse=[Pass(lineno=5, col_offset=8, end_lineno=5, end_col_offset=12)], lineno=2, col_offset=4, end_lineno=5, end_col_offset=12)], orelse=[Pass(lineno=7, col_offset=4, end_lineno=7, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=7, end_col_offset=8)])
+ok	if a:\n    if b:\n        pass	Module(body=[If(test=Name(id='a', ctx=Load()), body=[If(test=Name(id='b', ctx=Load()), body=[Pass()])])])	Module(body=[If(test=Name(id='a', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[If(test=Name(id='b', ctx=Load(), lineno=2, col_offset=7, end_lineno=2, end_col_offset=8), body=[Pass(lineno=3, col_offset=8, end_lineno=3, end_col_offset=12)], lineno=2, col_offset=4, end_lineno=3, end_col_offset=12)], lineno=1, col_offset=0, end_lineno=3, end_col_offset=12)])
+ok	if a:\n    if b:\n        pass\n    else:\n        pass	Module(body=[If(test=Name(id='a', ctx=Load()), body=[If(test=Name(id='b', ctx=Load()), body=[Pass()], orelse=[Pass()])])])	Module(body=[If(test=Name(id='a', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[If(test=Name(id='b', ctx=Load(), lineno=2, col_offset=7, end_lineno=2, end_col_offset=8), body=[Pass(lineno=3, col_offset=8, end_lineno=3, end_col_offset=12)], orelse=[Pass(lineno=5, col_offset=8, end_lineno=5, end_col_offset=12)], lineno=2, col_offset=4, end_lineno=5, end_col_offset=12)], lineno=1, col_offset=0, end_lineno=5, end_col_offset=12)])
+ok	for a in b:\n    with c:\n        d	Module(body=[For(target=Name(id='a', ctx=Store()), iter=Name(id='b', ctx=Load()), body=[With(items=[withitem(context_expr=Name(id='c', ctx=Load()))], body=[Expr(value=Name(id='d', ctx=Load()))])])])	Module(body=[For(target=Name(id='a', ctx=Store(), lineno=1, col_offset=4, end_lineno=1, end_col_offset=5), iter=Name(id='b', ctx=Load(), lineno=1, col_offset=9, end_lineno=1, end_col_offset=10), body=[With(items=[withitem(context_expr=Name(id='c', ctx=Load(), lineno=2, col_offset=9, end_lineno=2, end_col_offset=10))], body=[Expr(value=Name(id='d', ctx=Load(), lineno=3, col_offset=8, end_lineno=3, end_col_offset=9), lineno=3, col_offset=8, end_lineno=3, end_col_offset=9)], lineno=2, col_offset=4, end_lineno=3, end_col_offset=9)], lineno=1, col_offset=0, end_lineno=3, end_col_offset=9)])
+ok	while x:\n    pass\n# a comment after the end	Module(body=[While(test=Name(id='x', ctx=Load()), body=[Pass()])])	Module(body=[While(test=Name(id='x', ctx=Load(), lineno=1, col_offset=6, end_lineno=1, end_col_offset=7), body=[Pass(lineno=2, col_offset=4, end_lineno=2, end_col_offset=8)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=8)])
+ok	if x:\n\tpass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[Pass()])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[Pass(lineno=2, col_offset=1, end_lineno=2, end_col_offset=5)], lineno=1, col_offset=0, end_lineno=2, end_col_offset=5)])
+ok	if x:\n\tif y:\n\t\tpass	Module(body=[If(test=Name(id='x', ctx=Load()), body=[If(test=Name(id='y', ctx=Load()), body=[Pass()])])])	Module(body=[If(test=Name(id='x', ctx=Load(), lineno=1, col_offset=3, end_lineno=1, end_col_offset=4), body=[If(test=Name(id='y', ctx=Load(), lineno=2, col_offset=4, end_lineno=2, end_col_offset=5), body=[Pass(lineno=3, col_offset=2, end_lineno=3, end_col_offset=6)], lineno=2, col_offset=1, end_lineno=3, end_col_offset=6)], lineno=1, col_offset=0, end_lineno=3, end_col_offset=6)])
+SyntaxError	1 = 2	cannot assign to literal here. Maybe you meant '==' instead of '='?	
+SyntaxError	'a' = 1	cannot assign to literal here. Maybe you meant '==' instead of '='?	
+SyntaxError	... = 1	cannot assign to ellipsis here. Maybe you meant '==' instead of '='?	
+SyntaxError	a + b = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	-x = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	~x = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	f() = 1	cannot assign to function call here. Maybe you meant '==' instead of '='?	
+SyntaxError	x.y() = 1	cannot assign to function call here. Maybe you meant '==' instead of '='?	
+SyntaxError	await x = 1	cannot assign to await expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	(await x) = 1	cannot assign to await expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	{1} = 2	cannot assign to set display here. Maybe you meant '==' instead of '='?	
+SyntaxError	{*a} = 1	cannot assign to set display here. Maybe you meant '==' instead of '='?	
+SyntaxError	{1: 2} = 3	cannot assign to dict literal here. Maybe you meant '==' instead of '='?	
+SyntaxError	{**a} = 1	cannot assign to dict literal here. Maybe you meant '==' instead of '='?	
+SyntaxError	f'{x}' = 1	cannot assign to f-string expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	t'{x}' = 1	cannot assign to t-string expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	(yield) = 1	cannot assign to yield expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	(a := 1) = 2	cannot assign to named expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	(a if b else c) = 1	cannot assign to conditional expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	(not x) = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	(-x) = 1	cannot assign to expression here. Maybe you meant '==' instead of '='?	
+SyntaxError	(lambda: 1) = 2	cannot assign to lambda here. Maybe you meant '==' instead of '='?	
+SyntaxError	(None) = 1	cannot assign to None here. Maybe you meant '==' instead of '='?	
+SyntaxError	(True) = 1	cannot assign to True here. Maybe you meant '==' instead of '='?	
+SyntaxError	([1]) = 2	cannot assign to list here. Maybe you meant '==' instead of '='?	
+SyntaxError	((a, 1)) = 2	cannot assign to tuple here. Maybe you meant '==' instead of '='?	
+SyntaxError	None = 1	cannot assign to None	
+SyntaxError	a and b = 1	cannot assign to expression	
+SyntaxError	a < b = 1	cannot assign to comparison	
+SyntaxError	a if b else c = 1	cannot assign to conditional expression	
+SyntaxError	not x = 1	cannot assign to expression	
+SyntaxError	lambda: 1 = 2	cannot assign to lambda	
+SyntaxError	(x for x in y) = 1	cannot assign to generator expression	
+SyntaxError	[1] = 2	cannot assign to literal	
+SyntaxError	1, = 2	cannot assign to literal	
+SyntaxError	(a, 1) = 2	cannot assign to literal	
+SyntaxError	x = 1 = 2	cannot assign to literal	
+SyntaxError	1 = 2 = 3	cannot assign to literal	
+SyntaxError	x = 1 = 2 = 3	cannot assign to literal	
+SyntaxError	1 = yield	cannot assign to literal	
+SyntaxError	yield = 1	assignment to yield expression not possible	
+SyntaxError	x = yield = 1	assignment to yield expression not possible	
+SyntaxError	1 += 2	'literal' is an illegal expression for augmented assignment	
+SyntaxError	None += 1	'None' is an illegal expression for augmented assignment	
+SyntaxError	f() += 2	'function call' is an illegal expression for augmented assignment	
+SyntaxError	a, b += 1	'tuple' is an illegal expression for augmented assignment	
+SyntaxError	a.b, c += 1	'tuple' is an illegal expression for augmented assignment	
+SyntaxError	(a, b) += 1	'tuple' is an illegal expression for augmented assignment	
+SyntaxError	[a] += 1	'list' is an illegal expression for augmented assignment	
+SyntaxError	*a += 1	'starred' is an illegal expression for augmented assignment	
+SyntaxError	(x for x in y) += 1	'generator expression' is an illegal expression for augmented assignment	
+SyntaxError	yield += 1	invalid syntax	
+SyntaxError	x += y = 1	invalid syntax	
+SyntaxError	x = 1 += 2	invalid syntax	
+SyntaxError	a, b: int	only single target (not tuple) can be annotated	
+SyntaxError	(a, b): int	only single target (not tuple) can be annotated	
+SyntaxError	(a,): int	only single target (not tuple) can be annotated	
+SyntaxError	((a,b)): int	only single target (not tuple) can be annotated	
+SyntaxError	(((a, b))): int	only single target (not tuple) can be annotated	
+SyntaxError	[a]: int	only single target (not list) can be annotated	
+SyntaxError	[a, b]: int	only single target (not list) can be annotated	
+SyntaxError	([a]): int	only single target (not list) can be annotated	
+SyntaxError	[a, b], c: int	only single target (not tuple) can be annotated	
+SyntaxError	(a, b), c: int	only single target (not tuple) can be annotated	
+SyntaxError	1: int	illegal target for annotation	
+SyntaxError	f(): int	illegal target for annotation	
+SyntaxError	*a: int	invalid syntax	
+SyntaxError	a: *b	invalid syntax	
+SyntaxError	a: b: c	invalid syntax	
+SyntaxError	x: int, y = 1	invalid syntax	
+SyntaxError	x: yield	invalid syntax	
+SyntaxError	del	invalid syntax	
+SyntaxError	del 1	cannot delete literal	
+SyntaxError	del None	cannot delete None	
+SyntaxError	del *a	cannot delete starred	
+SyntaxError	del a, *b	cannot delete starred	
+SyntaxError	del a + b	cannot delete expression	
+SyntaxError	del f()	cannot delete function call	
+SyntaxError	del a.b()	cannot delete function call	
+SyntaxError	del (a, 1)	cannot delete literal	
+SyntaxError	del (a for a in b)	cannot delete generator expression	
+SyntaxError	del x if y else z	cannot delete conditional expression	
+SyntaxError	del lambda: 1	cannot delete lambda	
+SyntaxError	del a,,	invalid syntax	
+SyntaxError	del a b	invalid syntax	
+SyntaxError	return 1 2	invalid syntax	
+SyntaxError	return yield	invalid syntax	
+SyntaxError	raise from X	invalid syntax	
+SyntaxError	raise X from	invalid syntax	
+SyntaxError	raise X,	invalid syntax	
+SyntaxError	raise X from Y from Z	invalid syntax	
+SyntaxError	assert	invalid syntax	
+SyntaxError	assert x,	invalid syntax	
+SyntaxError	assert x, y, z	invalid syntax	
+SyntaxError	global	invalid syntax	
+SyntaxError	global 1	invalid syntax	
+SyntaxError	global a,	invalid syntax	
+SyntaxError	global a.b	invalid syntax	
+SyntaxError	nonlocal	invalid syntax	
+SyntaxError	import	Expected one or more names after 'import'	
+SyntaxError	import *	invalid syntax	
+SyntaxError	import a as	invalid syntax	
+SyntaxError	import .a	invalid syntax	
+SyntaxError	import a.b as c.d	cannot use attribute as import target	
+SyntaxError	import a.b.c as d.e	cannot use attribute as import target	
+SyntaxError	from a import	Expected one or more names after 'import'	
+SyntaxError	from import b	invalid syntax	
+SyntaxError	from a import b,	trailing comma not allowed without surrounding parentheses	
+SyntaxError	from a import b.c	invalid syntax	
+SyntaxError	from a import *, b	invalid syntax	
+SyntaxError	from a import (*)	invalid syntax	
+SyntaxError	from a import b as *	invalid syntax	
+SyntaxError	type X	invalid syntax	
+SyntaxError	type X = 	invalid syntax	
+SyntaxError	type X[T]	invalid syntax	
+SyntaxError	type 1 = int	invalid syntax	
+SyntaxError	type X[] = int	Type parameter list cannot be empty	
+SyntaxError	type X = int, str	invalid syntax	
+SyntaxError	type X = yield	invalid syntax	
+SyntaxError	type X, Y = 1	invalid syntax	
+SyntaxError	type X[**P: int] = int	cannot use bound with ParamSpec	
+SyntaxError	type X[*Ts: int] = int	cannot use bound with TypeVarTuple	
+SyntaxError	a b	invalid syntax	
+SyntaxError	x;;	invalid syntax	
+SyntaxError	pass pass	invalid syntax	
+SyntaxError	x := 1	invalid syntax	
+SyntaxError	a := 1	invalid syntax	
+IndentationError	if x:\npass	expected an indented block after 'if' statement on line 1	
+IndentationError	if x:\n	expected an indented block after 'if' statement on line 1	
+IndentationError	if x:	expected an indented block after 'if' statement on line 1	
+IndentationError	if x:\n    pass\nelif y:\npass	expected an indented block after 'elif' statement on line 3	
+IndentationError	if x:\n    pass\nelse:\npass	expected an indented block after 'else' statement on line 3	
+IndentationError	while x:\npass	expected an indented block after 'while' statement on line 1	
+IndentationError	for x in y:\npass	expected an indented block after 'for' statement on line 1	
+IndentationError	with a:\npass	expected an indented block after 'with' statement on line 1	
+IndentationError	try:\npass\nexcept:\n    pass	expected an indented block after 'try' statement on line 1	
+IndentationError	try:\n    pass\nexcept:\npass	expected an indented block after 'except' statement on line 3	
+IndentationError	try:\n    pass\nexcept* E:\npass	expected an indented block after 'except*' statement on line 3	
+IndentationError	try:\n    pass\nfinally:\npass	expected an indented block after 'finally' statement on line 3	
+IndentationError	try:\n    pass\nexcept:\n    pass\nelse:\npass	expected an indented block after 'else' statement on line 5	
+IndentationError	    x = 1	unexpected indent	
+IndentationError	x = 1\n    y = 2	unexpected indent	
+IndentationError	if x: pass\n    pass	unexpected indent	
+IndentationError	if x:\n    pass\n  pass	unindent does not match any outer indentation level	
+IndentationError	if x:\n        pass\n    pass	unindent does not match any outer indentation level	
+SyntaxError	if x	expected ':'	
+SyntaxError	if x\n    pass	expected ':'	
+SyntaxError	if x pass	invalid syntax	
+SyntaxError	if x y: pass	invalid syntax	
+SyntaxError	while x	expected ':'	
+SyntaxError	while x\n    pass	expected ':'	
+SyntaxError	while x y: pass	invalid syntax	
+SyntaxError	for x in y	expected ':'	
+SyntaxError	for x in y\n    pass	expected ':'	
+SyntaxError	for x in y z: pass	invalid syntax	
+SyntaxError	with a	expected ':'	
+SyntaxError	with a\n    pass	expected ':'	
+SyntaxError	with a b: pass	invalid syntax	
+SyntaxError	with a as b\n    pass	expected ':'	
+SyntaxError	try	expected ':'	
+SyntaxError	try x: pass	expected ':'	
+SyntaxError	if x:\n    pass\nelse\n    pass	expected ':'	
+SyntaxError	if x:\n    pass\nelse y:\n    pass	expected ':'	
+SyntaxError	try:\n    pass\nexcept E\n    pass	expected ':'	
+SyntaxError	try:\n    pass\nfinally x:\n    pass	expected ':'	
+SyntaxError	else: pass	invalid syntax	
+SyntaxError	elif x: pass	invalid syntax	
+SyntaxError	except: pass	invalid syntax	
+SyntaxError	finally: pass	invalid syntax	
+SyntaxError	for x in y: pass\nelse:\n    pass\nelse:\n    pass	invalid syntax	
+SyntaxError	with a: pass\nelse: pass	invalid syntax	
+SyntaxError	try:\n    pass\nexcept:\n    pass\nfinally:\n    pass\nelse:\n    pass	invalid syntax	
+SyntaxError	try:\n    pass	expected 'except' or 'finally' block	
+SyntaxError	try:\n    pass\nelse:\n    pass	expected 'except' or 'finally' block	
+SyntaxError	try:\n    pass\nexcept:\n    pass\nexcept* E:\n    pass	cannot have both 'except' and 'except*' on the same 'try'	
+SyntaxError	try:\n    pass\nexcept* E:\n    pass\nexcept F:\n    pass	cannot have both 'except' and 'except*' on the same 'try'	
+SyntaxError	try:\n    pass\nexcept*:\n    pass	expected one or more exception types	
+SyntaxError	try:\n    pass\nexcept as e:\n    pass	invalid syntax	
+SyntaxError	try:\n    pass\nexcept E as e.f:\n    pass	cannot use except statement with attribute	
+SyntaxError	try:\n    pass\nexcept E as a[0]:\n    pass	cannot use except statement with subscript	
+SyntaxError	try:\n    pass\nexcept E as (a, b):\n    pass	cannot use except statement with tuple	
+SyntaxError	try:\n    pass\nexcept E as [a]:\n    pass	cannot use except statement with list	
+SyntaxError	try:\n    pass\nexcept E as 1:\n    pass	cannot use except statement with literal	
+SyntaxError	try:\n    pass\nexcept* E as a.b:\n    pass	cannot use except* statement with attribute	
+SyntaxError	try:\n    pass\nexcept E, F as e:\n    pass	multiple exception types must be parenthesized when using 'as'	
+SyntaxError	try:\n    pass\nexcept E as e, F:\n    pass	invalid syntax	
+SyntaxError	try:\n    pass\nexcept (E, F) as e, G:\n    pass	invalid syntax	
+SyntaxError	for 1 in y: pass	cannot assign to literal	
+SyntaxError	for x = 1 in y: pass	invalid syntax	
+SyntaxError	for x y: pass	invalid syntax	
+SyntaxError	for in y: pass	invalid syntax	
+SyntaxError	for x in: pass	invalid syntax	
+SyntaxError	for x in yield y: pass	invalid syntax	
+SyntaxError	with a as 1: pass	cannot assign to literal	
+SyntaxError	with (a as 1): pass	cannot assign to literal	
+SyntaxError	with (a as 1,): pass	cannot assign to literal	
+SyntaxError	with a,: pass	invalid syntax	
+SyntaxError	with *a: pass	invalid syntax	
+SyntaxError	with a as b as c: pass	invalid syntax	
+SyntaxError	with (a as b), c: pass	invalid syntax	
+SyntaxError	with ((a as b), c): pass	invalid syntax	
+SyntaxError	async while x: pass	invalid syntax	
+SyntaxError	async if x: pass	invalid syntax	
+SyntaxError	async x = 1	invalid syntax	
+TabError	if x:\n  pass\n\tpass	inconsistent use of tabs and spaces in indentation	
+TabError	if x:\n\tpass\n        pass	inconsistent use of tabs and spaces in indentation	

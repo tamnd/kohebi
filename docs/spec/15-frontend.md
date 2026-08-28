@@ -9,7 +9,7 @@ Source text to tokens to a CPython-compatible AST. This is the first code in the
 | Stage | Input | Output | Crate | State |
 | --- | --- | --- | --- | --- |
 | Lexer | `&str` | `Vec<Token>` | `kohebi-parse` | Done |
-| Parser | `&[Token]` | AST | `kohebi-parse` | Expressions and simple statements done, compound statements next |
+| Parser | `&[Token]` | AST | `kohebi-parse` | Every statement but `def`, `class`, and `match` |
 | Lowering | AST | HIR | `kohebi-hir` | Not started |
 | Compilation | HIR | register bytecode | `kohebi-bc` | Not started |
 
@@ -89,11 +89,12 @@ The order of work, one pull request each, each one landing with the differential
 1. AST node types and an `ast.dump` compatible view, so there is something to compare against before there is a parser. Done, with 77 trees written by hand and checked against CPython 3.14.7.
 2. Literal evaluation, since `Constant` holds a value rather than a token and the expression parser needs somewhere to put one. Done, with 144 hand-written cases and a sweep of every literal in the standard library.
 3. Expressions: Pratt table, calls, subscripts, attributes, comprehensions, lambdas, conditional expressions, the walrus, f-strings and t-strings. Done, with 404 hand-written cases and a sweep of 552966 expressions out of the standard library that has no shape or position mismatches left. The only expressions the sweep still refuses are the two literal gaps, `\N{...}` and lone surrogates.
-4. Simple statements, imports, and assignment targets. Done, with 276 hand-written cases and a sweep of 76524 simple statements taken out of the standard library that has no shape or position mismatches and no refusals. `parse_module` exists from here on, and every compound statement it meets is reported as a gap rather than as a syntax error.
-5. Compound statements: `if`, `while`, `for`, `with`, `try`, `def`, `class`, and the `async` forms.
-6. `match`, which is its own grammar and its own eight node types.
-7. Encoding declarations, so the last three standard library files come into the corpus.
-8. Error messages, in a second pass.
+4. Simple statements, imports, and assignment targets. Done, with 276 hand-written cases and a sweep of 76524 simple statements taken out of the standard library that has no shape or position mismatches and no refusals. `parse_module` exists from here on.
+5. Compound statements: `if`, `while`, `for`, `with`, `try`, and the `async` forms. Done, with 449 hand-written cases and a sweep of 22057 compound statements taken out of the standard library that has no shape or position mismatches and no refusals.
+6. `def` and `class`, with decorators, parameter lists, and type parameters. Held back from the item above because a parameter list is a grammar of its own, and reported as a gap rather than as a syntax error until it lands.
+7. `match`, which is its own grammar and its own eight node types.
+8. Encoding declarations, so the last three standard library files come into the corpus.
+9. Error messages, in a second pass.
 
 ## Errors
 

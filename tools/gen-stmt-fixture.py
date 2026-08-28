@@ -5,9 +5,13 @@ Same shape and same reasoning as `gen-expr-fixture.py`, in exec mode rather
 than eval mode, so a case here is a whole module and not one expression. The
 Rust side parses the same source and has to print the same two strings.
 
-Only the simple statements are covered, because only the simple statements are
-parsed. The compound ones are reported as a gap rather than as an error, and a
-gap has nothing to compare against until it is filled.
+`def` and `class` are not covered, because they are not parsed. They are
+reported as a gap rather than as an error, and a gap has nothing to compare
+against until it is filled.
+
+The first field is the verdict: `ok`, or the name of the exception class, since
+a block that should have been indented raises an `IndentationError` and not a
+`SyntaxError`.
 
 Output goes to stdout, tab separated. Regenerate with:
 
@@ -178,6 +182,110 @@ OK = [
     "match = 1",
     "case = 1",
     "match(x)",
+    # Blocks, in both shapes: on the header line, and indented underneath.
+    "if x: pass",
+    "if x:\n    pass",
+    "if x: a; b",
+    "if x:\n    a; b",
+    "if x:\n    pass\n",
+    "if x:\n\n    # a comment\n    pass\n",
+    "if x:\n    \n    pass\n",
+    "if x:\n    if y:\n        pass\n    pass\npass\n",
+    "if x:\n    pass\nelse:\n    pass",
+    "if x: pass\nelse: pass",
+    "if x:\n    pass\nelif y:\n    pass",
+    "if x:\n    pass\nelif y:\n    pass\nelse:\n    pass",
+    "if x: pass\nelif y: pass\nelif z: pass",
+    "if x:\n    pass\n# a comment at the margin\nelse:\n    pass",
+    "if x:\n    pass\n\nelse:\n    pass",
+    "if x := 1: pass",
+    "if x and y: pass",
+    # while.
+    "while x: pass",
+    "while x:\n    pass\nelse:\n    y",
+    "while 1:\n    if x:\n        break\n    else:\n        continue\nelse:\n    pass\n",
+    "while x := f(): pass",
+    # for, whose target is the rule a comprehension uses and whose iterable is
+    # the one a bare comma turns into a tuple.
+    "for x in y: pass",
+    "for x, in y: pass",
+    "for x, z in y: pass",
+    "for (x, y) in z: pass",
+    "for [x] in y: pass",
+    "for x.y in z: pass",
+    "for x[0] in z: pass",
+    "for f(x).y in z: pass",
+    "for *x, in y: pass",
+    "for x in y, z: pass",
+    "for x in y,: pass",
+    "for x in *a: pass",
+    "for x in *a,: pass",
+    "for x in (yield): pass",
+    "for x in y:\n    pass\nelse:\n    z",
+    "for x in y: break\nelse: continue",
+    "async for x in y: pass",
+    "async for x in y:\n    pass\nelse:\n    pass",
+    # with, in both spellings. The bracketed one is a list of managers, unless
+    # what follows the bracket makes it a tuple instead.
+    "with a: pass",
+    "with a as b: pass",
+    "with a, b: pass",
+    "with a as b, c as d: pass",
+    "with (a, b): pass",
+    "with (a): pass",
+    "with (a,): pass",
+    "with (a, b,): pass",
+    "with (a as b, c as d): pass",
+    "with (a as b,): pass",
+    "with (a as b, c): pass",
+    "with (a, b) as c: pass",
+    "with (a, b) as c, d: pass",
+    "with (a,) as b: pass",
+    "with ((a, b) as c): pass",
+    "with a as (b, c): pass",
+    "with a as [b]: pass",
+    "with a as b.c: pass",
+    "with a as b[0]: pass",
+    "with (): pass",
+    "with (a, *b): pass",
+    "with (yield): pass",
+    "with (a := 1): pass",
+    "with (a := 1) as b: pass",
+    "with (x for x in y): pass",
+    "with (a for a in b), c: pass",
+    "with (a for a in b) as c: pass",
+    "with (a, b) if c else d: pass",
+    "with (lambda: 1): pass",
+    "with open(f) as g:\n    g.read()\n",
+    "async with a: pass",
+    "async with a as b, c: pass",
+    # try, and the two node types its handlers pick between.
+    "try:\n    pass\nexcept:\n    pass",
+    "try:\n    pass\nexcept E:\n    pass",
+    "try:\n    pass\nexcept E as e:\n    pass",
+    "try:\n    pass\nexcept (E, F) as e:\n    pass",
+    "try:\n    pass\nexcept E, F:\n    pass",
+    "try:\n    pass\nexcept E,:\n    pass",
+    "try:\n    pass\nexcept ():\n    pass",
+    "try:\n    pass\nexcept* E:\n    pass",
+    "try:\n    pass\nexcept* E as e:\n    pass\nexcept* F:\n    pass",
+    "try:\n    pass\nfinally:\n    pass",
+    "try:\n    pass\nexcept:\n    pass\nelse:\n    pass",
+    "try:\n    pass\nexcept E as e:\n    a\nexcept:\n    b\nelse:\n    c\nfinally:\n    d\n",
+    "try: pass\nexcept: pass",
+    "try: pass\nfinally: pass",
+    # Nesting, which is where the dedents have to come back in the right order.
+    "for x in y:\n    with a:\n        try:\n            pass\n        except:\n            pass\n",
+    "if a:\n    if b:\n        if c:\n            pass\nelse:\n    pass\n",
+    "while a:\n    for b in c:\n        pass\n    else:\n        pass\nelse:\n    pass\n",
+    "if a:\n    if b:\n        pass",
+    "if a:\n    if b:\n        pass\n    else:\n        pass",
+    "for a in b:\n    with c:\n        d",
+    "while x:\n    pass\n# a comment after the end",
+    # Tabs, which count as eight columns for the first measure and as one for
+    # the second, and both have to agree.
+    "if x:\n\tpass",
+    "if x:\n\tif y:\n\t\tpass",
 ]
 
 ERRORS = [
@@ -318,6 +426,97 @@ ERRORS = [
     "pass pass",
     "x := 1",
     "a := 1",
+    # A missing block, which is an `IndentationError` and names the keyword
+    # that wanted one along with the line that keyword is on.
+    "if x:\npass",
+    "if x:\n",
+    "if x:",
+    "if x:\n    pass\nelif y:\npass",
+    "if x:\n    pass\nelse:\npass",
+    "while x:\npass",
+    "for x in y:\npass",
+    "with a:\npass",
+    "try:\npass\nexcept:\n    pass",
+    "try:\n    pass\nexcept:\npass",
+    "try:\n    pass\nexcept* E:\npass",
+    "try:\n    pass\nfinally:\npass",
+    "try:\n    pass\nexcept:\n    pass\nelse:\npass",
+    # Indentation that belongs to nothing.
+    "    x = 1",
+    "x = 1\n    y = 2",
+    "if x: pass\n    pass",
+    "if x:\n    pass\n  pass",
+    "if x:\n        pass\n    pass",
+    # A missing colon, which has two wordings depending on whether the header
+    # ran to the end of its line.
+    "if x",
+    "if x\n    pass",
+    "if x pass",
+    "if x y: pass",
+    "while x",
+    "while x\n    pass",
+    "while x y: pass",
+    "for x in y",
+    "for x in y\n    pass",
+    "for x in y z: pass",
+    "with a",
+    "with a\n    pass",
+    "with a b: pass",
+    "with a as b\n    pass",
+    "try",
+    "try x: pass",
+    "if x:\n    pass\nelse\n    pass",
+    "if x:\n    pass\nelse y:\n    pass",
+    "try:\n    pass\nexcept E\n    pass",
+    "try:\n    pass\nfinally x:\n    pass",
+    # Clause keywords with no statement to belong to.
+    "else: pass",
+    "elif x: pass",
+    "except: pass",
+    "finally: pass",
+    "for x in y: pass\nelse:\n    pass\nelse:\n    pass",
+    "with a: pass\nelse: pass",
+    "try:\n    pass\nexcept:\n    pass\nfinally:\n    pass\nelse:\n    pass",
+    # try without a handler, and handlers that cannot be mixed.
+    "try:\n    pass",
+    "try:\n    pass\nelse:\n    pass",
+    "try:\n    pass\nexcept:\n    pass\nexcept* E:\n    pass",
+    "try:\n    pass\nexcept* E:\n    pass\nexcept F:\n    pass",
+    # except and its target.
+    "try:\n    pass\nexcept*:\n    pass",
+    "try:\n    pass\nexcept as e:\n    pass",
+    "try:\n    pass\nexcept E as e.f:\n    pass",
+    "try:\n    pass\nexcept E as a[0]:\n    pass",
+    "try:\n    pass\nexcept E as (a, b):\n    pass",
+    "try:\n    pass\nexcept E as [a]:\n    pass",
+    "try:\n    pass\nexcept E as 1:\n    pass",
+    "try:\n    pass\nexcept* E as a.b:\n    pass",
+    "try:\n    pass\nexcept E, F as e:\n    pass",
+    "try:\n    pass\nexcept E as e, F:\n    pass",
+    "try:\n    pass\nexcept (E, F) as e, G:\n    pass",
+    # for and with targets.
+    "for 1 in y: pass",
+    "for x = 1 in y: pass",
+    "for x y: pass",
+    "for in y: pass",
+    "for x in: pass",
+    "for x in yield y: pass",
+    "with a as 1: pass",
+    "with (a as 1): pass",
+    "with (a as 1,): pass",
+    "with a,: pass",
+    "with *a: pass",
+    "with a as b as c: pass",
+    "with (a as b), c: pass",
+    "with ((a as b), c): pass",
+    # async, which leads three statements and nothing else.
+    "async while x: pass",
+    "async if x: pass",
+    "async x = 1",
+    # Tabs and spaces that disagree, which is a `TabError` and not either of
+    # the other two.
+    "if x:\n  pass\n\tpass",
+    "if x:\n\tpass\n        pass",
     # Four shapes are missing above and are worth naming. `from a import (b`
     # is the lazy tokenizer difference already recorded for `lambda (: 1`:
     # CPython reaches the field and says `'(' was never closed`, while we
@@ -341,7 +540,10 @@ def main() -> int:
         try:
             ast.parse(source)
         except SyntaxError as exc:
-            emit("error", source, exc.msg, "")
+            # The class matters as much as the wording. An `IndentationError`
+            # reported as a plain `SyntaxError` is a different exception to
+            # catch and a different thing to read.
+            emit(type(exc).__name__, source, exc.msg, "")
         else:
             raise SystemExit(f"expected {source!r} to be refused")
     return 0
