@@ -41,7 +41,7 @@ The practical consequence is that `kohebi parse` and `kohebi run` will disagree 
 
 Finished. `tokenize`, `--format json`, and `--format count` are the views over it, and `tamnd/kohebi-compat` runs the token stream against `tokenize.generate_tokens` file by file.
 
-Where it stands as of 29 August 2026: 100% agreement over the 1870 Python files in CPython 3.14.7's standard library, 1867 matched and 3 not read because they are not UTF-8. Throughput is 3.6x CPython's `tokenize` on an M4 laptop and 5.05x on a CI runner, tokenizing the same corpus and counting the same tokens on both sides before either is timed.
+Where it stands as of 29 August 2026: 100% agreement over all 1870 Python files in CPython 3.14.7's standard library, with nothing set aside. The three that are not UTF-8 are compared like the rest now that the harness hands both sides bytes, so what a file says its encoding is has to be agreed on before either tokenizer has a token to show. Throughput is 3.6x CPython's `tokenize` on an M4 laptop and 5.05x on a CI runner, tokenizing the same corpus and counting the same tokens on both sides before either is timed.
 
 The parts that were hard are the parts nobody writes down. PEP 701 f-strings and PEP 750 t-strings are a stack of open strings each holding a stack of literal, expression, and format-spec parts, and the tokenizer never recurses. A doubled brace splits one character across two tokens. A format spec always emits an `FSTRING_MIDDLE` even when it is empty. `\N{...}` is a single escape that terminates its chunk. A stray closing bracket at field level leaves the field, because CPython's bracket counter is shared between the field and the string around it.
 
@@ -127,7 +127,7 @@ Speed is tracked from the first day the parser exists, in `tamnd/kohebi-bench`, 
 
 | | Target | Note |
 | --- | --- | --- |
-| Token agreement with `tokenize` | 100% | Met, 1867 of 1870 files, 3 not UTF-8 |
+| Token agreement with `tokenize` | 100% | Met, 1870 of 1870 files |
 | Tree agreement with `ast.parse` | 100% | Over the standard library, attributes included |
 | Error text agreement | 100% | Over a corpus of deliberately broken files |
 | Lexer throughput | 3x `tokenize` | Met, 3.6x |
