@@ -153,11 +153,16 @@ pub fn render_json(tokens: &[ViewToken<'_>]) -> String {
     out
 }
 
-/// Quote a string the way Python's `repr` does, so that our output and
-/// CPython's line up character for character.
+/// Quote a string roughly the way Python's `repr` does, so a stray tab or
+/// newline in the text stays visible.
 ///
 /// Python prefers single quotes, switches to double quotes if the value
-/// contains a single quote and no double quote, and escapes the rest.
+/// contains a single quote and no double quote, and escapes the rest. This is
+/// close enough to read and to diff against CPython by eye, and it is not
+/// exact: `repr` also escapes unprintable characters by Unicode category,
+/// which we pass through. Anything comparing us to CPython mechanically should
+/// use [`render_json`], where the text is carried literally and no quoting
+/// convention has to agree.
 fn py_repr(text: &str) -> String {
     let quote = if text.contains('\'') && !text.contains('"') {
         '"'
