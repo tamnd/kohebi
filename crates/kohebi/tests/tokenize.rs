@@ -185,3 +185,47 @@ fn a_missing_list_names_the_list_and_not_the_files() {
         out.stderr
     );
 }
+
+/// A file says what encoding it is in, and the command believes it.
+///
+/// The corpus this command is pointed at has files that are not UTF-8 on
+/// purpose, and until now they were read as bytes and refused as unreadable.
+/// A file that declares itself is now read, and a file that is not UTF-8 and
+/// declares nothing fails the way CPython fails it.
+#[test]
+fn a_file_is_read_in_the_encoding_it_declares() {
+    let dir = scratch("encoding");
+
+    let latin = dir.join("latin.py");
+    fs::write(&latin, b"# coding: latin-1\nx = 'caf\xe9'\n").expect("could not write a test file");
+    let out = run(&[
+        "tokenize",
+        latin.to_str().expect("scratch path is not UTF-8"),
+    ]);
+    assert!(out.ok, "{}", out.stderr);
+    assert!(out.stdout.contains("café"), "{}", out.stdout);
+
+    let bad = dir.join("bad.py");
+    fs::write(&bad, b"print(\"b\xf6se\")\n").expect("could not write a test file");
+    let out = run(&["tokenize", bad.to_str().expect("scratch path is not UTF-8")]);
+    assert!(!out.ok);
+    assert!(
+        out.stderr
+            .contains("Non-UTF-8 code starting with '\\xf6' on line 1"),
+        "{}",
+        out.stderr
+    );
+
+    let unknown = dir.join("unknown.py");
+    fs::write(&unknown, b"# coding: nosuch\nx = 1\n").expect("could not write a test file");
+    let out = run(&[
+        "tokenize",
+        unknown.to_str().expect("scratch path is not UTF-8"),
+    ]);
+    assert!(!out.ok);
+    assert!(
+        out.stderr.contains("unknown encoding: nosuch"),
+        "{}",
+        out.stderr
+    );
+}
