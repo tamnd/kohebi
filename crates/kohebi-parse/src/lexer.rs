@@ -45,6 +45,12 @@ const TAB_SIZE: u32 = 8;
 /// mix of tabs and spaces gets caught.
 const ALT_TAB_SIZE: u32 = 1;
 
+/// How many brackets may be open at once. CPython's `tokenizer.c` calls this
+/// `MAXLEVEL` and enforces it while lexing rather than while parsing, so the
+/// limit is on nesting in the text and not on recursion in the grammar. 200
+/// levels parse and the 201st is refused.
+const MAX_NESTING: usize = 200;
+
 /// What an open f-string is in the middle of reading.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Part {
@@ -1057,6 +1063,12 @@ impl<'src> Lexer<'src> {
         let span = self.span_from(start);
         match kind {
             TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                if self.brackets.len() >= MAX_NESTING {
+                    return Err(SyntaxError::syntax(
+                        "too many nested parentheses",
+                        Span::new(span.start, span.start),
+                    ));
+                }
                 self.brackets.push((kind, span));
             }
             TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {

@@ -948,3 +948,22 @@ fn four_nested_blocks_produce_four_dedents() {
         .count();
     assert_eq!(dedents, 4);
 }
+
+/// CPython bounds bracket nesting in the tokenizer rather than in the parser,
+/// so the limit is on the text and not on the grammar. 200 levels are fine and
+/// the 201st is refused, with the error pointing at the bracket that went over.
+#[test]
+fn two_hundred_brackets_are_fine_and_two_hundred_and_one_are_not() {
+    let ok = format!("{}1{}", "(".repeat(200), ")".repeat(200));
+    assert!(kohebi_parse::tokenize(&ok).is_ok());
+
+    for open in ['(', '[', '{'] {
+        let source = open.to_string().repeat(201);
+        let error = kohebi_parse::tokenize(&source).expect_err("201 levels is too many");
+        assert_eq!(error.message, "too many nested parentheses");
+        assert_eq!(error.class, kohebi_parse::ErrorClass::Syntax);
+        // CPython reports offset 201, one-based, which is the 201st bracket.
+        let lines = kohebi_parse::LineMap::new(&source);
+        assert_eq!(lines.position(error.span.start).error_offset(&source), 201);
+    }
+}

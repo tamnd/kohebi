@@ -22,6 +22,8 @@ Literal evaluation, which is the step between a token and the value `ast.Constan
 
 There is a fixture of 144 hand-picked cases, and then there is the check that actually settled it. Every distinct string and number token in CPython 3.14.7's standard library, 97604 of them, decoded and compared against `ast.literal_eval`. Nothing came out wrong. The 259 we refuse are two known gaps and nothing else: 227 lone surrogates, which a Rust `str` cannot hold until the runtime owns its own string representation, and 32 uses of `\N{...}`, which needs the two megabyte Unicode name database. Both are refused as unsupported rather than guessed at, and the fixture records what they should evaluate to so the answer is already sitting there when either gap closes.
 
+The lexer now refuses more than 200 open brackets with `too many nested parentheses`, which is where CPython draws the line and, surprisingly, it draws it in the tokenizer rather than in the parser. So the limit is on nesting in the text rather than on recursion in the grammar, and 200 levels parse while the 201st does not.
+
 The frontend finally has a design document, `docs/spec/15-frontend.md`. Three crates pointed at a `03-frontend.md` that never existed, and a test now walks the tree and fails if any spec document we reference is missing. Writing that sentence with the old path in it was the first thing the new test caught.
 
 ## 0.0.2
