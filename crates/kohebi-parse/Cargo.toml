@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 kohebi-core.workspace = true
 unicode-ident.workspace = true
+unicode-normalization.workspace = true
 memchr.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
