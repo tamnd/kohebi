@@ -1,0 +1,5 @@
+# The generator writes this and the driver deletes it. Nothing here is worth
+# keeping, and at the 100,000 line size it is a quarter of a million lines of
+# Rust plus a target directory to match.
+generated/
+target/
