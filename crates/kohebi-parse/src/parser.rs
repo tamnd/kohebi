@@ -1448,9 +1448,34 @@ impl<'a> Parser<'a> {
             return Ok(());
         }
         run.claim(span);
-        run.text
-            .push_string(&literal::interpolated_text(text, raw, span)?);
+        let decoded =
+            literal::interpolated_text(text, raw, span).map_err(|e| self.at_closing_quotes(e))?;
+        run.text.push_string(&decoded);
         Ok(())
+    }
+
+    /// Move an error found in literal text onto the quotes that close the
+    /// f-string it was found in.
+    ///
+    /// CPython points at the closing quotes rather than at the escape, which
+    /// reads like an accident of how its tokenizer hands the pieces to the
+    /// parser, and it is what a person running the program sees, so it is what
+    /// gets printed here too. The same escape in a plain literal is reported
+    /// against the whole literal instead.
+    fn at_closing_quotes(&self, mut error: SyntaxError) -> SyntaxError {
+        let mut depth = 0usize;
+        for token in &self.tokens[self.pos.min(self.tokens.len())..] {
+            match token.kind {
+                TokenKind::InterpolatedStart(..) => depth += 1,
+                TokenKind::InterpolatedEnd(_) if depth == 0 => {
+                    error.span = token.span;
+                    return error;
+                }
+                TokenKind::InterpolatedEnd(_) => depth -= 1,
+                _ => {}
+            }
+        }
+        error
     }
 
     /// Turn the literal text collected so far into a `Constant`, if there is

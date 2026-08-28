@@ -26,13 +26,28 @@
 //! and 32 uses of `\N{...}`, and both are closed now: `Str` holds a code point
 //! that is not a character, and `unicode_name` resolves the names.
 //!
-//! ## What is not done here yet
+//! ## How a refused escape reads
 //!
-//! Error messages, and it is deliberate. CPython's are of the
-//! form `(unicode error) 'unicodeescape' codec can't decode bytes in position
-//! 0-3: truncated \uXXXX escape`, with a byte range that follows rules worth
-//! getting right on purpose rather than by approximation. They land with the
-//! rest of the error work, which `docs/spec/15-frontend.md` schedules last.
+//! CPython does not report one of these against the escape. It hands the whole
+//! body to the `unicodeescape` codec and wraps what comes back, so the message
+//! is `(unicode error) 'unicodeescape' codec can't decode bytes in position
+//! 0-3: truncated \uXXXX escape` and the range counts characters of the body
+//! rather than of the file. Three rules come out of that, and all three are
+//! recorded in `tests/data/error.txt` rather than derived here.
+//!
+//! The body is expanded before the codec sees it, because a codec works on
+//! bytes and a body does not have to. Every non-ASCII character becomes a ten
+//! character `\U0001234` first, so a position counts ten for each one it passed.
+//!
+//! The range ends where the codec stopped reading and names the character
+//! before that, which is why `'\u1'` and `'\u12'` report different ranges for
+//! the same mistake, and why `'\N{BULLET'` reports one that runs to the end of
+//! the literal.
+//!
+//! The carets go under the whole literal and not under the escape, and inside
+//! an f-string they go under the closing quotes instead. That last one looks
+//! like an accident of how CPython's tokenizer hands the pieces over, but it is
+//! what a person sees, so `parser::at_closing_quotes` reproduces it.
 
 use crate::error::SyntaxError;
 use crate::token::{NumberKind, Span, StringPrefix};
@@ -136,12 +151,12 @@ fn float(text: &str, span: Span) -> Result<f64, SyntaxError> {
 /// On a malformed escape, on a non-ASCII byte in a bytes literal, and on the
 /// two things listed at the top of this module that are not supported yet.
 pub fn string(text: &str, prefix: StringPrefix, span: Span) -> Result<Value, SyntaxError> {
-    let (body, offset) = body_of(text, span)?;
+    let body = body_of(text, span)?;
     if prefix.bytes {
-        let raw = bytes(body, prefix.raw, span, offset)?;
+        let raw = bytes(body, prefix.raw, span)?;
         Ok(Value::Bytes(raw.into_boxed_slice()))
     } else {
-        Ok(Value::Str(unicode(body, prefix.raw, span, offset)?))
+        Ok(Value::Str(unicode(body, prefix.raw, span)?))
     }
 }
 
@@ -157,11 +172,11 @@ pub fn string(text: &str, prefix: StringPrefix, span: Span) -> Result<Value, Syn
 ///
 /// The same as `string`, for the same reasons.
 pub fn interpolated_text(text: &str, raw: bool, span: Span) -> Result<Str, SyntaxError> {
-    unicode(text, raw, span, 0)
+    unicode(text, raw, span)
 }
 
-/// The text between the quotes, and where it starts inside the token.
-fn body_of(text: &str, span: Span) -> Result<(&str, u32), SyntaxError> {
+/// The text between the quotes.
+fn body_of(text: &str, span: Span) -> Result<&str, SyntaxError> {
     // The prefix is letters, so the first quote is where the prefix ends.
     let quote_at = text
         .find(['"', '\''])
@@ -175,15 +190,43 @@ fn body_of(text: &str, span: Span) -> Result<(&str, u32), SyntaxError> {
     }
     let start = quote_at + fence;
     let end = text.len() - fence;
-    let offset = u32::try_from(start).expect("a literal is not four gigabytes long");
-    Ok((&text[start..end], offset))
+    Ok(&text[start..end])
 }
 
-/// Where in the source an escape starting at `at` bytes into the body is.
-fn span_at(span: Span, offset: u32, at: usize, len: usize) -> Span {
-    let start = span.start + offset + u32::try_from(at).unwrap_or(0);
-    let end = start + u32::try_from(len).unwrap_or(1);
-    Span::new(start, end)
+/// How far into the body CPython counts a position as being.
+///
+/// The body is handed to a codec that works on bytes, and to make that possible
+/// every non-ASCII character is first written out as a ten character
+/// `\U0001234` form. Positions in the message count the expansion rather than
+/// the source, so `'\u{1234}\u12'` reports 10 for an escape three characters in.
+fn expanded(body: &str, upto: usize) -> usize {
+    body[..upto]
+        .chars()
+        .map(|ch| if ch.is_ascii() { 1 } else { 10 })
+        .sum()
+}
+
+/// An escape CPython refuses, in the words CPython refuses it with.
+///
+/// The message names a codec because that is where it comes from: the compiler
+/// hands the literal's body to `unicodeescape` and wraps whatever comes back,
+/// which is also why the range is over the body and not over the file. `end` is
+/// one past the last character the codec had read when it gave up, and the
+/// message names the character before it, so an escape with nothing wrong after
+/// it still reports a range rather than a point.
+///
+/// The span is the whole literal, which is why the carets under one of these
+/// cover far more than the escape does.
+fn escape_error(body: &str, at: usize, end: usize, message: &str, span: Span) -> SyntaxError {
+    let start = expanded(body, at);
+    let last = expanded(body, end) - 1;
+    SyntaxError::syntax(
+        format!(
+            "(unicode error) 'unicodeescape' codec can't decode bytes in position \
+             {start}-{last}: {message}"
+        ),
+        span,
+    )
 }
 
 /// What a backslash means when the character after it is not special.
@@ -195,7 +238,7 @@ fn keep(out: &mut StrBuf, ch: char) {
     out.push(ch);
 }
 
-fn unicode(body: &str, raw: bool, span: Span, offset: u32) -> Result<Str, SyntaxError> {
+fn unicode(body: &str, raw: bool, span: Span) -> Result<Str, SyntaxError> {
     if raw {
         return Ok(Str::from(body));
     }
@@ -236,21 +279,21 @@ fn unicode(body: &str, raw: bool, span: Span, offset: u32) -> Result<Str, Syntax
                 // result is a code point rather than a wrapped one.
                 out.push(char::from_u32(value).expect("511 is a valid code point"));
             }
-            'x' => push_hex(&mut out, &mut chars, 2, span, offset, at)?,
-            'u' => push_hex(&mut out, &mut chars, 4, span, offset, at)?,
-            'U' => push_hex(&mut out, &mut chars, 8, span, offset, at)?,
-            'N' => named(&mut out, &mut chars, body, span, offset, at)?,
+            'x' => push_hex(&mut out, &mut chars, 2, body, span, at)?,
+            'u' => push_hex(&mut out, &mut chars, 4, body, span, at)?,
+            'U' => push_hex(&mut out, &mut chars, 8, body, span, at)?,
+            'N' => named(&mut out, &mut chars, body, span, at)?,
             other => keep(&mut out, other),
         }
     }
     Ok(out.finish())
 }
 
-fn bytes(body: &str, raw: bool, span: Span, offset: u32) -> Result<Vec<u8>, SyntaxError> {
-    if let Some(at) = body.find(|c: char| !c.is_ascii()) {
+fn bytes(body: &str, raw: bool, span: Span) -> Result<Vec<u8>, SyntaxError> {
+    if body.contains(|c: char| !c.is_ascii()) {
         return Err(SyntaxError::syntax(
             "bytes can only contain ASCII literal characters",
-            span_at(span, offset, at, 1),
+            span,
         ));
     }
     if raw {
@@ -287,9 +330,15 @@ fn bytes(body: &str, raw: bool, span: Span, offset: u32) -> Result<Vec<u8>, Synt
             // `b'\400'` is `b'\x00'`: the byte version wraps where the text
             // version widens.
             '0'..='7' => out.push(u8::try_from(octal(next, &mut chars) & 0xFF).expect("masked")),
+            // The bytes decoder is a different one, so its complaint about the
+            // same mistake is worded differently and carries a single position
+            // rather than a range.
             'x' => {
-                let value = hex(&mut chars, 2).ok_or_else(|| {
-                    SyntaxError::syntax("invalid \\x escape", span_at(span, offset, at, 2))
+                let value = hex(&mut chars, 2).map_err(|_| {
+                    SyntaxError::syntax(
+                        format!("(value error) invalid \\x escape at position {at}"),
+                        span,
+                    )
                 })?;
                 out.push(u8::try_from(value).expect("two hex digits are one byte"));
             }
@@ -334,22 +383,19 @@ fn named(
     chars: &mut std::str::CharIndices<'_>,
     body: &str,
     span: Span,
-    offset: u32,
     at: usize,
 ) -> Result<(), SyntaxError> {
-    let malformed = |len: usize| {
-        SyntaxError::syntax(
-            "malformed \\N character escape",
-            span_at(span, offset, at, len),
-        )
-    };
+    let malformed =
+        |end: usize| escape_error(body, at, end, "malformed \\N character escape", span);
     let mut lookahead = chars.clone();
     let Some((brace, '{')) = lookahead.next() else {
-        return Err(malformed(2));
+        return Err(malformed(at + 2));
     };
     let rest = &body[brace + 1..];
+    // With no closing brace the codec reads to the end of the body before it
+    // gives up, so that is where the range ends too.
     let Some(width) = rest.find('}') else {
-        return Err(malformed(3));
+        return Err(malformed(body.len()));
     };
     let name = &rest[..width];
     // The closing brace, whose index is what says how far to walk the
@@ -363,36 +409,49 @@ fn named(
         }
     }
     if name.is_empty() {
-        return Err(malformed(3));
+        // Nothing between the braces is malformed rather than unknown, and the
+        // range stops at the opening brace as though the closing one were not
+        // there at all.
+        return Err(malformed(brace + 1));
     }
     let Some(found) = crate::unicode_name::lookup(name) else {
-        return Err(SyntaxError::syntax(
+        return Err(escape_error(
+            body,
+            at,
+            close + 1,
             "unknown Unicode character name",
-            span_at(span, offset, at, close + 1 - at),
+            span,
         ));
     };
     out.push(found);
     Ok(())
 }
 
-/// Exactly `count` hex digits, or nothing.
-fn hex(chars: &mut std::str::CharIndices<'_>, count: usize) -> Option<u32> {
+/// Exactly `count` hex digits, or how many there were when there were not
+/// enough.
+///
+/// The count matters because the error message's range ends where the digits
+/// stopped rather than where the escape would have ended, so `'\u1'` and
+/// `'\u12'` report different ranges for the same mistake.
+fn hex(chars: &mut std::str::CharIndices<'_>, count: usize) -> Result<u32, usize> {
     let mut lookahead = chars.clone();
     let mut value = 0u32;
-    for _ in 0..count {
-        let (_, ch) = lookahead.next()?;
-        value = value * 16 + ch.to_digit(16)?;
+    for taken in 0..count {
+        match lookahead.next().and_then(|(_, ch)| ch.to_digit(16)) {
+            Some(digit) => value = value * 16 + digit,
+            None => return Err(taken),
+        }
     }
     *chars = lookahead;
-    Some(value)
+    Ok(value)
 }
 
 fn push_hex(
     out: &mut StrBuf,
     chars: &mut std::str::CharIndices<'_>,
     count: usize,
+    body: &str,
     span: Span,
-    offset: u32,
     at: usize,
 ) -> Result<(), SyntaxError> {
     let marker = match count {
@@ -400,20 +459,24 @@ fn push_hex(
         4 => "\\uXXXX",
         _ => "\\UXXXXXXXX",
     };
-    let value = hex(chars, count).ok_or_else(|| {
-        SyntaxError::syntax(
-            format!("truncated {marker} escape"),
-            span_at(span, offset, at, count + 2),
-        )
-    })?;
+    let value = match hex(chars, count) {
+        Ok(value) => value,
+        Err(taken) => {
+            let message = format!("truncated {marker} escape");
+            return Err(escape_error(body, at, at + 2 + taken, &message, span));
+        }
+    };
     // A surrogate is not a Rust `char` and is a perfectly good Python string,
     // so it goes in as a code point and widens the buffer. Above U+10FFFF is
     // not a code point at all and is an error in Python too, which is the only
     // case left here.
     if value > 0x10_FFFF {
-        return Err(SyntaxError::syntax(
+        return Err(escape_error(
+            body,
+            at,
+            at + 2 + count,
             "illegal Unicode character",
-            span_at(span, offset, at, count + 2),
+            span,
         ));
     }
     out.push_code_point(value);

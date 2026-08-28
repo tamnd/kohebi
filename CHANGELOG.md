@@ -6,6 +6,16 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+A refused string literal now reads the way CPython writes it, block for block. `'\u12'` was `SyntaxError: truncated \uXXXX escape` with carets under the escape, and is now `SyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \uXXXX escape` with carets under the whole literal, which is what someone pasting the message into a search engine needs it to say.
+
+That message has rules rather than text behind it, and the rules are the reason this took a fixture to get right instead of a guess. CPython does not report the escape at all. It hands the literal's body to the `unicodeescape` codec and wraps whatever comes back, so the position range counts the body and not the file. The body is expanded before the codec sees it, because a codec works on bytes and a body does not have to, and every non-ASCII character becomes a ten character `\U0001234` form on the way, which is why `'ሴ\u12'` reports position 10-13 for an escape three characters in. The range ends where the codec stopped reading rather than where the escape ends, so `'\u1'` and `'\u12'` report different ranges for the same mistake. An unterminated `\N{` runs its range to the end of the literal.
+
+Inside an f-string the carets go under the closing quotes rather than under the literal, which reads like an accident of how CPython's tokenizer hands the pieces to the parser. It is what a person sees, so it is what gets printed here.
+
+87 broken files are recorded by `tools/gen-error-fixture.py`, each one as the whole block `traceback.format_exception_only` prints for it, and `crates/kohebi-parse/tests/error.rs` compares that against what `SyntaxError::report` prints. Comparing the block rather than the fields is deliberate: the block is what a person reads, and it covers the message, the class, the line and both columns at once.
+
+One difference is recorded rather than matched. A bad escape inside a format spec, `f'{x:\u12}'`, comes out of CPython as a bare `UnicodeDecodeError` with no file and no line, so a script that has one prints a single line and nothing else. We report the same message as a `SyntaxError` with a position. Chasing that would mean carrying a second error type through the parser for three inputs.
+
 ## 0.0.5
 
 Four merged pull requests since 0.0.4, and between them they close the two gaps the parser had left. Every one of the 1870 files in CPython 3.14.7's standard library now parses to a tree whose dump is identical to CPython's, attributes and all, with nothing refused and no wrong answers. Both gaps were in the string literals rather than in the grammar, which is why the token comparison had been at 100% for a while without them showing up.

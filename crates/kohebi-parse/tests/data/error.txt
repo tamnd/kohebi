@@ -1,0 +1,87 @@
+SyntaxError	'\\x'	  File "<case>", line 1\n    '\\x'\n    ^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: truncated \\xXX escape
+SyntaxError	'\\x1'	  File "<case>", line 1\n    '\\x1'\n    ^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-2: truncated \\xXX escape
+SyntaxError	'\\xg'	  File "<case>", line 1\n    '\\xg'\n    ^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: truncated \\xXX escape
+SyntaxError	'\\x1g'	  File "<case>", line 1\n    '\\x1g'\n    ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-2: truncated \\xXX escape
+SyntaxError	'\\xg1'	  File "<case>", line 1\n    '\\xg1'\n    ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: truncated \\xXX escape
+SyntaxError	'\\x 12'	  File "<case>", line 1\n    '\\x 12'\n    ^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: truncated \\xXX escape
+SyntaxError	'\\u'	  File "<case>", line 1\n    '\\u'\n    ^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: truncated \\uXXXX escape
+SyntaxError	'\\u1'	  File "<case>", line 1\n    '\\u1'\n    ^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-2: truncated \\uXXXX escape
+SyntaxError	'\\u12'	  File "<case>", line 1\n    '\\u12'\n    ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	'\\u123'	  File "<case>", line 1\n    '\\u123'\n    ^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-4: truncated \\uXXXX escape
+SyntaxError	'\\u123g'	  File "<case>", line 1\n    '\\u123g'\n    ^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-4: truncated \\uXXXX escape
+SyntaxError	'\\U'	  File "<case>", line 1\n    '\\U'\n    ^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: truncated \\UXXXXXXXX escape
+SyntaxError	'\\U1'	  File "<case>", line 1\n    '\\U1'\n    ^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-2: truncated \\UXXXXXXXX escape
+SyntaxError	'\\U0001'	  File "<case>", line 1\n    '\\U0001'\n    ^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-5: truncated \\UXXXXXXXX escape
+SyntaxError	'\\U000110'	  File "<case>", line 1\n    '\\U000110'\n    ^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-7: truncated \\UXXXXXXXX escape
+SyntaxError	'\\U0001234g'	  File "<case>", line 1\n    '\\U0001234g'\n    ^^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-8: truncated \\UXXXXXXXX escape
+SyntaxError	'\\U00110000'	  File "<case>", line 1\n    '\\U00110000'\n    ^^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-9: illegal Unicode character
+SyntaxError	'\\Ud800abcd'	  File "<case>", line 1\n    '\\Ud800abcd'\n    ^^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-9: illegal Unicode character
+SyntaxError	'\\Uffffffff'	  File "<case>", line 1\n    '\\Uffffffff'\n    ^^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-9: illegal Unicode character
+SyntaxError	'\\N'	  File "<case>", line 1\n    '\\N'\n    ^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape
+SyntaxError	'\\Nx'	  File "<case>", line 1\n    '\\Nx'\n    ^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape
+SyntaxError	'\\N '	  File "<case>", line 1\n    '\\N '\n    ^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape
+SyntaxError	'\\N{'	  File "<case>", line 1\n    '\\N{'\n    ^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-2: malformed \\N character escape
+SyntaxError	'\\N{}'	  File "<case>", line 1\n    '\\N{}'\n    ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-2: malformed \\N character escape
+SyntaxError	'\\N{BULLET'	  File "<case>", line 1\n    '\\N{BULLET'\n    ^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-8: malformed \\N character escape
+SyntaxError	'\\N{NOPE}'	  File "<case>", line 1\n    '\\N{NOPE}'\n    ^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-7: unknown Unicode character name
+SyntaxError	'\\N{KEYCAP DIGIT ZERO}'	  File "<case>", line 1\n    '\\N{KEYCAP DIGIT ZERO}'\n    ^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-20: unknown Unicode character name
+SyntaxError	'\\N{HANGUL SYLLABLE GAX}'	  File "<case>", line 1\n    '\\N{HANGUL SYLLABLE GAX}'\n    ^^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-22: unknown Unicode character name
+SyntaxError	'\\N{CJK UNIFIED IDEOGRAPH-4E0}'	  File "<case>", line 1\n    '\\N{CJK UNIFIED IDEOGRAPH-4E0}'\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-28: unknown Unicode character name
+SyntaxError	'\\N{ }'	  File "<case>", line 1\n    '\\N{ }'\n    ^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-4: unknown Unicode character name
+SyntaxError	'\\N{BULLET' 'x'	  File "<case>", line 1\n    '\\N{BULLET' 'x'\n    ^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-8: malformed \\N character escape
+SyntaxError	b'\\x'	  File "<case>", line 1\n    b'\\x'\n    ^^^^^\nSyntaxError: (value error) invalid \\x escape at position 0
+SyntaxError	b'\\x1'	  File "<case>", line 1\n    b'\\x1'\n    ^^^^^^\nSyntaxError: (value error) invalid \\x escape at position 0
+SyntaxError	b'\\xg'	  File "<case>", line 1\n    b'\\xg'\n    ^^^^^^\nSyntaxError: (value error) invalid \\x escape at position 0
+SyntaxError	b'\\x1g'	  File "<case>", line 1\n    b'\\x1g'\n    ^^^^^^^\nSyntaxError: (value error) invalid \\x escape at position 0
+SyntaxError	'ሴ\\u12'	  File "<case>", line 1\n    'ሴ\\u12'\n    ^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 10-13: truncated \\uXXXX escape
+SyntaxError	'\\u12ሴ'	  File "<case>", line 1\n    '\\u12ሴ'\n    ^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	'😀\\x'	  File "<case>", line 1\n    '😀\\x'\n    ^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 10-11: truncated \\xXX escape
+SyntaxError	'éé\\x'	  File "<case>", line 1\n    'éé\\x'\n    ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 20-21: truncated \\xXX escape
+SyntaxError	'\\N{ሴ'	  File "<case>", line 1\n    '\\N{ሴ'\n    ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-12: malformed \\N character escape
+SyntaxError	'\\N{Aሴ}'	  File "<case>", line 1\n    '\\N{Aሴ}'\n    ^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-14: unknown Unicode character name
+SyntaxError	'ሴ\\N{NOPE}'	  File "<case>", line 1\n    'ሴ\\N{NOPE}'\n    ^^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 10-17: unknown Unicode character name
+SyntaxError	'\\xሴ'	  File "<case>", line 1\n    '\\xሴ'\n    ^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: truncated \\xXX escape
+SyntaxError	b'é'	  File "<case>", line 1\n    b'é'\n    ^^^^\nSyntaxError: bytes can only contain ASCII literal characters
+SyntaxError	b'''é'''	  File "<case>", line 1\n    b'''é'''\n    ^^^^^^^^\nSyntaxError: bytes can only contain ASCII literal characters
+SyntaxError	'a' '\\u12'	  File "<case>", line 1\n    'a' '\\u12'\n        ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	'\\u12' 'a'	  File "<case>", line 1\n    '\\u12' 'a'\n    ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	'a' 'b' '\\u12' 'c'	  File "<case>", line 1\n    'a' 'b' '\\u12' 'c'\n            ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	f'\\u12'	  File "<case>", line 1\n    f'\\u12'\n          ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	f'a\\u12'	  File "<case>", line 1\n    f'a\\u12'\n           ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 1-4: truncated \\uXXXX escape
+SyntaxError	f'{x}\\u12'	  File "<case>", line 1\n    f'{x}\\u12'\n             ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	f'\\u12{x}'	  File "<case>", line 1\n    f'\\u12{x}'\n             ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	f'a{x}b\\N{NOPE}'	  File "<case>", line 1\n    f'a{x}b\\N{NOPE}'\n                   ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 1-8: unknown Unicode character name
+SyntaxError	f'a{x}b\\N{NOPE}{y}c'	  File "<case>", line 1\n    f'a{x}b\\N{NOPE}{y}c'\n                       ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 1-8: unknown Unicode character name
+SyntaxError	f'\\N{BULLET'	  File "<case>", line 1\n    f'\\N{BULLET'\n               ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-8: malformed \\N character escape
+SyntaxError	f'ሴ\\u12'	  File "<case>", line 1\n    f'ሴ\\u12'\n           ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 10-13: truncated \\uXXXX escape
+SyntaxError	t'\\u12'	  File "<case>", line 1\n    t'\\u12'\n          ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	t'a{x}b\\N{NOPE}'	  File "<case>", line 1\n    t'a{x}b\\N{NOPE}'\n                   ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 1-8: unknown Unicode character name
+SyntaxError	f'''\\u12'''	  File "<case>", line 1\n    f'''\\u12'''\n            ^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	f"""\\u12"""	  File "<case>", line 1\n    f"""\\u12"""\n            ^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	f'''a{x}b\\u12'''	  File "<case>", line 1\n    f'''a{x}b\\u12'''\n                 ^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 1-4: truncated \\uXXXX escape
+SyntaxError	f"""a\nb\\u12"""	  File "<case>", line 2\n    b\\u12"""\n         ^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 3-6: truncated \\uXXXX escape
+SyntaxError	'a' f'\\u12'	  File "<case>", line 1\n    'a' f'\\u12'\n              ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	f'\\u12' 'a'	  File "<case>", line 1\n    f'\\u12' 'a'\n          ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	f'{x}' f'\\u12'	  File "<case>", line 1\n    f'{x}' f'\\u12'\n                 ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	rf'a' f'\\u12'	  File "<case>", line 1\n    rf'a' f'\\u12'\n                ^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+UnicodeDecodeError	f'{x:\\u12}'	UnicodeDecodeError: 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+UnicodeDecodeError	f'{x:\\N{NOPE}}'	UnicodeDecodeError: 'unicodeescape' codec can't decode bytes in position 0-7: unknown Unicode character name
+UnicodeDecodeError	t'{x:\\u12}'	UnicodeDecodeError: 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	'''\\u12'''	  File "<case>", line 1\n    '''\\u12'''\n    ^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	'''a\nb\\u12'''	  File "<case>", line 1\n    '''a\n    ^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 3-6: truncated \\uXXXX escape
+SyntaxError	'''\\u12\n'''	  File "<case>", line 1\n    '''\\u12\n    ^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	'''\na\n\\u12'''	  File "<case>", line 1\n    '''\n    ^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 3-6: truncated \\uXXXX escape
+SyntaxError	x = 1\ny = '\\u12'\n	  File "<case>", line 2\n    y = '\\u12'\n        ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	def f():\n    return '\\u12'\n	  File "<case>", line 2\n    return '\\u12'\n           ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	if x:\n    pass\nelse:\n    y = '\\x'\n	  File "<case>", line 4\n    y = '\\x'\n        ^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: truncated \\xXX escape
+SyntaxError	'\\n\\u12'	  File "<case>", line 1\n    '\\n\\u12'\n    ^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 2-5: truncated \\uXXXX escape
+SyntaxError	'\\u12\\u34'	  File "<case>", line 1\n    '\\u12\\u34'\n    ^^^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 0-3: truncated \\uXXXX escape
+SyntaxError	'\\\\\\u12'	  File "<case>", line 1\n    '\\\\\\u12'\n    ^^^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 2-5: truncated \\uXXXX escape
+SyntaxError	'\\\\\\x'	  File "<case>", line 1\n    '\\\\\\x'\n    ^^^^^^\nSyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 2-3: truncated \\xXX escape
+SyntaxError	'abc	  File "<case>", line 1\n    'abc\n    ^\nSyntaxError: unterminated string literal (detected at line 1)
+SyntaxError	'abc\ndef'	  File "<case>", line 1\n    'abc\n    ^\nSyntaxError: unterminated string literal (detected at line 1)
+SyntaxError	'''abc	  File "<case>", line 1\n    '''abc\n    ^\nSyntaxError: unterminated triple-quoted string literal (detected at line 1)
+SyntaxError	f"abc	  File "<case>", line 1\n    f"abc\n    ^\nSyntaxError: unterminated f-string literal (detected at line 1)
+SyntaxError	ur'a'	  File "<case>", line 1\n    ur'a'\n    ^^\nSyntaxError: 'u' and 'r' prefixes are incompatible
+SyntaxError	bf'a'	  File "<case>", line 1\n    bf'a'\n    ^^\nSyntaxError: 'b' and 'f' prefixes are incompatible
+SyntaxError	rr'a'	  File "<case>", line 1\n    rr'a'\n      ^^^\nSyntaxError: invalid syntax
