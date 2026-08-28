@@ -311,6 +311,12 @@ def file_backend(name: str, compile_argv, exe: Path, ops: int, iters: int,
         if r.returncode != 0:
             return Row(name, "", ops, 0, 0, 0, 0, 0, False,
                        notes=r.stderr.strip().splitlines()[0] if r.stderr else "failed")
+        if not obj.exists() or obj.stat().st_size == 0:
+            # A compiler that does not recognise `.ll` can hand the file
+            # straight to the linker, print a warning nobody reads and exit 0.
+            # Timing that is timing nothing.
+            return Row(name, "", ops, 0, 0, 0, 0, 0, False,
+                       notes="exited 0 without writing an object file")
 
     prog = workdir / f"prog-{name}{EXE}"
     link = sh([cc, "-O2", str(driver), str(obj), "-o", str(prog)])
@@ -335,13 +341,42 @@ def file_backend(name: str, compile_argv, exe: Path, ops: int, iters: int,
     )
 
 
-def describe() -> dict:
-    def version(tool: str, *args: str) -> str | None:
-        if not have(tool):
-            return None
-        r = sh([tool, *args])
-        return (r.stdout or r.stderr).strip().splitlines()[0]
+def reads_llvm_ir(cc: str, workdir: Path) -> bool:
+    """Can this compiler actually turn a `.ll` file into an object file?
 
+    Being on PATH is not enough. The gaming PC has a MinGW `gcc` and no clang,
+    and `gcc -c trace.ll -o trace.o` exits 0 there without writing anything,
+    because gcc does not recognise the extension and passes the file through to
+    the linker. Every row measured that way would be timing a no-op.
+    """
+    src = workdir / "probe.ll"
+    src.write_text("define i64 @probe() {\nentry:\n  ret i64 0\n}\n")
+    obj = workdir / "probe.o"
+    if obj.exists():
+        obj.unlink()
+    r = sh([cc, "-O0", "-w", "-c", str(src), "-o", str(obj)])
+    return r.returncode == 0 and obj.exists() and obj.stat().st_size > 0
+
+
+def tool_version(tool: str, *args: str) -> str | None:
+    """First line of the tool's version banner, or None if it is not installed.
+
+    A tool that is installed but does not answer `--version` still has to read
+    as installed, because "not installed" is a claim about the machine and this
+    would be making it about the tool's argument parser. `tpde-llc` is the case
+    that forced this: it has no version flag at all and prints a parse error.
+    """
+    if not have(tool):
+        return None
+    r = sh([tool, *args])
+    if r.returncode != 0:
+        return "installed, version not reported"
+    line = (r.stdout or r.stderr).strip().splitlines()
+    return line[0] if line else "installed, version not reported"
+
+
+def describe() -> dict:
+    version = tool_version
     return {
         "host": platform.node(),
         "system": platform.system(),
@@ -380,9 +415,10 @@ def render(env: dict, rows: list[Row], skipped: list[str] | None = None) -> str:
             f"| {r.run_ns / 1e6:.2f} ms | {'yes' if r.ok else 'NO ' + r.notes} |"
         )
     if skipped:
-        out += ["",
-                "Not attempted, because one compile of it runs into the minutes "
-                "and the sizes below it already fix the shape of the curve:", ""]
+        # Each entry carries its own reason. There are two kinds of omission,
+        # one we chose and one the machine forced on us, and a shared preamble
+        # would have to be wrong about one of them.
+        out += ["", "Not measured here:", ""]
         out += [f"- {what}" for what in skipped]
     return "\n".join(out) + "\n"
 
@@ -400,10 +436,17 @@ def main() -> int:
     rows: list[Row] = []
     skipped: list[str] = []
 
-    cc = have("clang") or have("cc") or have("gcc")
-
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
+
+        cc = have("clang") or have("cc") or have("gcc")
+        if cc and not reads_llvm_ir(cc, workdir):
+            skipped.append(f"every file-based back end, because the only C "
+                           f"compiler on PATH here ({cc}) cannot read LLVM IR")
+            cc = None
+        elif not cc:
+            skipped.append("every file-based back end, because there is no C "
+                           "compiler on PATH to build the emitted LLVM IR with")
 
         if cc:
             for name, argv in file_backends(cc):
@@ -416,7 +459,10 @@ def main() -> int:
             for opt in ("none", "speed"):
                 for state in DEOPT_STATES:
                     if skip_combination(opt, state, ops):
-                        skipped.append(f"cranelift {opt}/{state} at {ops} ops")
+                        skipped.append(
+                            f"cranelift {opt}/{state} at {ops} ops, because one "
+                            f"compile of it runs into the minutes and the sizes "
+                            f"below it already fix the shape of the curve")
                         continue
                     rows.append(
                         cranelift(binaries, ops, opt, state, iters, compiles))
