@@ -5,10 +5,7 @@
 //! `compile`, for the reason set out in `docs/spec/15-frontend.md`: a library
 //! that inspects a tree we refused to build is a library that does not run.
 //!
-//! Only expressions are here so far. Statements come next, and one piece of
-//! the expression grammar is still left out on purpose: f-strings and
-//! t-strings with their replacement fields, which are refused as unsupported
-//! rather than half-parsed.
+//! Only expressions are here so far, but all of them. Statements come next.
 //!
 //! ## Where the fiddly parts are
 //!
@@ -28,14 +25,22 @@
 //! `a[*b]` holds a one element tuple even though nothing was written with a
 //! comma, because the grammar reaches a starred element only through the rule
 //! that builds tuples.
+//!
+//! A replacement field inside an f-string or a t-string is a grammar of its
+//! own, and it is parsed here rather than in the lexer because what sits
+//! between the braces is an ordinary expression. The literal text around the
+//! fields is the awkward half: it becomes one `Constant` however many tokens
+//! and however many separate string literals it came from, so `'a' 'b' f'{x}'`
+//! is a single `Constant('ab')` spanning both quoted pieces. That is what
+//! `LiteralRun` is for.
 
 use crate::ast::{
     Arg, Arguments, Attributes, BoolOp, CmpOp, Comprehension, Expr, ExprContext, ExprKind, Ident,
     Keyword as KwArg, Mod, Operator, UnaryOp,
 };
-use crate::error::{ErrorClass, LineMap, SyntaxError};
+use crate::error::{LineMap, SyntaxError};
 use crate::literal;
-use crate::token::{Keyword, Span, Token, TokenKind};
+use crate::token::{Interpolated, Keyword, Span, Token, TokenKind};
 use crate::value::Value;
 use unicode_normalization::UnicodeNormalization;
 
@@ -46,7 +51,7 @@ type Result<T> = std::result::Result<T, SyntaxError>;
 /// # Errors
 ///
 /// A `SyntaxError` for source CPython also rejects, or an `Unsupported` error
-/// for the parts of the grammar that are not written yet.
+/// for the two literal gaps named in `literal`: `\N{...}` and lone surrogates.
 pub fn parse_expression(source: &str) -> Result<Mod> {
     let tokens = crate::tokenize(source)?;
     let mut parser = Parser::new(source, &tokens);
@@ -123,6 +128,86 @@ fn assignment_target_name(kind: &ExprKind) -> &'static str {
         | ExprKind::BoolOp { .. }
         | ExprKind::BinOp { .. }
         | ExprKind::UnaryOp { .. } => "expression",
+    }
+}
+
+/// Whitespace between two tokens, with any comment in it left out.
+///
+/// The newline that ends a comment is kept, since it is whitespace rather than
+/// part of the comment.
+fn push_without_comments(out: &mut String, gap: &str) {
+    let mut rest = gap;
+    while let Some(hash) = rest.find('#') {
+        out.push_str(&rest[..hash]);
+        rest = match rest[hash..].find('\n') {
+            Some(newline) => &rest[hash + newline..],
+            None => "",
+        };
+    }
+    out.push_str(rest);
+}
+
+/// Whether a token could be an expression all by itself.
+///
+/// The same set `atom` reads, which is why it is here rather than on `Token`.
+fn is_operand(token: &Token) -> bool {
+    matches!(
+        token.kind,
+        TokenKind::Name
+            | TokenKind::Number(_)
+            | TokenKind::String(_)
+            | TokenKind::InterpolatedStart(..)
+            | TokenKind::Ellipsis
+            | TokenKind::LParen
+            | TokenKind::LBracket
+            | TokenKind::LBrace
+            | TokenKind::Keyword(Keyword::True | Keyword::False | Keyword::None)
+    )
+}
+
+/// What a message about a replacement field calls the string it is in.
+///
+/// Every one of them is prefixed, and the prefix follows the literal the field
+/// was written in rather than the node being built, so a field nested in the
+/// format spec of a t-string still says `t-string` even though the spec itself
+/// is formatted rather than templated.
+fn label(kind: Interpolated) -> &'static str {
+    match kind {
+        Interpolated::Format => "f-string",
+        Interpolated::Template => "t-string",
+    }
+}
+
+/// The literal text between two replacement fields.
+///
+/// It becomes one `Constant` however many tokens or however many separate
+/// string literals it came from, which is why it is collected here rather than
+/// built as each piece is read.
+#[derive(Default)]
+struct LiteralRun {
+    text: String,
+    bytes: Vec<u8>,
+    /// From the first token that contributed to the run to the last, which is
+    /// the position CPython gives the `Constant`.
+    span: Option<Span>,
+    kind: Option<Ident>,
+}
+
+impl LiteralRun {
+    /// Extend the run to cover another token, and say whether it was the first.
+    fn claim(&mut self, span: Span) -> bool {
+        if let Some(existing) = &mut self.span {
+            existing.end = span.end;
+            return false;
+        }
+        self.span = Some(span);
+        true
+    }
+
+    fn reset(&mut self) {
+        self.span = None;
+        self.kind = None;
+        self.text.clear();
     }
 }
 
@@ -221,10 +306,6 @@ impl<'a> Parser<'a> {
 
     fn error(message: impl Into<std::borrow::Cow<'static, str>>, span: Span) -> SyntaxError {
         SyntaxError::syntax(message, span)
-    }
-
-    fn unsupported(&self, message: &'static str) -> SyntaxError {
-        SyntaxError::new(ErrorClass::Unsupported, message, self.current().span)
     }
 
     /// Positions, in the units `ast` nodes carry them: lines from one, columns
@@ -1040,10 +1121,7 @@ impl<'a> Parser<'a> {
                     span.end,
                 ))
             }
-            TokenKind::String(_) => self.string_concatenation(),
-            TokenKind::InterpolatedStart(..) => Err(self.unsupported(
-                "f-strings and t-strings are not parsed yet, they land with the replacement field grammar",
-            )),
+            TokenKind::String(_) | TokenKind::InterpolatedStart(..) => self.string_concatenation(),
             TokenKind::Keyword(Keyword::True) => Ok(self.constant_atom(Value::Bool(true))),
             TokenKind::Keyword(Keyword::False) => Ok(self.constant_atom(Value::Bool(false))),
             TokenKind::Keyword(Keyword::None) => Ok(self.constant_atom(Value::None)),
@@ -1064,47 +1142,427 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Adjacent string literals are one `Constant`, joined at parse time.
+    /// Adjacent string literals are one node, joined at parse time.
     ///
-    /// The `kind` comes from the first piece alone, so `u'a' 'b'` keeps its
-    /// `kind='u'` and `'a' u'b'` does not have one, which is what CPython does
-    /// and is only visible through `ast.unparse`.
+    /// All plain literals make one `Constant`, and the `kind` comes from the
+    /// first piece alone, so `u'a' 'b'` keeps its `kind='u'` and `'a' u'b'` does
+    /// not have one, which is what CPython does and is only visible through
+    /// `ast.unparse`.
+    ///
+    /// Once any piece is interpolated the whole run becomes a `JoinedStr` or a
+    /// `TemplateStr`, and the literal text turns into `Constant` elements
+    /// between the replacement fields. Those runs do not respect the literals
+    /// they came from. `'a' 'b' f'{x}'` has one `Constant` holding `ab` and
+    /// spanning both quoted pieces, and `f'a' 'b'` has one holding `ab` and
+    /// spanning from inside the first literal to the end of the second. A run
+    /// that decodes to nothing is dropped, which is why `f''` has no values.
     fn string_concatenation(&mut self) -> Result<Expr> {
         let start = self.offset();
-        let mut text = String::new();
-        let mut bytes: Vec<u8> = Vec::new();
+        let mut run = LiteralRun::default();
+        let mut values: Vec<Expr> = Vec::new();
+        let mut interpolated: Option<Interpolated> = None;
         let mut is_bytes: Option<bool> = None;
-        let mut kind = None;
+        let mut templates = 0usize;
+        let mut others = 0usize;
+        let mut previous: Option<Span> = None;
 
-        while let TokenKind::String(prefix) = self.peek() {
-            let span = self.bump().span;
-            if is_bytes.is_none() {
-                is_bytes = Some(prefix.bytes);
-                if prefix.unicode {
-                    kind = Some(Ident::from("u"));
+        loop {
+            let (span, prefix, kind) = match self.peek() {
+                TokenKind::String(prefix) => (self.bump().span, prefix, None),
+                TokenKind::InterpolatedStart(kind, prefix) => {
+                    (self.bump().span, prefix, Some(kind))
                 }
-            } else if is_bytes != Some(prefix.bytes) {
-                return Err(Self::error("cannot mix bytes and nonbytes literals", span));
+                _ => break,
+            };
+
+            // A t-string mixes with nothing but another t-string, not even with
+            // an f-string, because the two build different node types and there
+            // would be nowhere to put the result. Both mixing errors point at
+            // the pair of literals that disagree, which is the pair CPython
+            // names in the t-string message. It reports the bytes one at the end
+            // of the whole concatenation with no end position at all, which
+            // looks like an oversight and is not worth copying.
+            let pair = || Span::new(previous.unwrap_or(span).start, span.end);
+            if kind == Some(Interpolated::Template) {
+                templates += 1;
+            } else {
+                others += 1;
+            }
+            if templates > 0 && others > 0 {
+                return Err(Self::error(
+                    "cannot mix t-string literals with string or bytes literals",
+                    pair(),
+                ));
+            }
+            match is_bytes {
+                None => is_bytes = Some(prefix.bytes),
+                Some(first) if first != prefix.bytes => {
+                    return Err(Self::error(
+                        "cannot mix bytes and nonbytes literals",
+                        pair(),
+                    ));
+                }
+                Some(_) => {}
+            }
+            previous = Some(span);
+
+            if let Some(kind) = kind {
+                interpolated = Some(kind);
+                self.interpolated_body(kind, prefix.raw, &mut run, &mut values)?;
+                continue;
+            }
+            // A plain literal in the middle of the concatenation, whose text
+            // joins the run being built either way.
+            if run.claim(span) && prefix.unicode {
+                run.kind = Some(Ident::from("u"));
             }
             match literal::string(span.slice(self.source), prefix, span)? {
-                Value::Str(s) => text.push_str(&s),
-                Value::Bytes(b) => bytes.extend_from_slice(&b),
+                Value::Str(text) => run.text.push_str(&text),
+                Value::Bytes(raw) => run.bytes.extend_from_slice(&raw),
                 _ => unreachable!("a string literal decodes to a string or to bytes"),
-            }
-            if matches!(self.peek(), TokenKind::InterpolatedStart(..)) {
-                return Err(self.unsupported(
-                    "an f-string next to a plain string is not parsed yet, it lands with the replacement field grammar",
-                ));
             }
         }
 
-        let value = if is_bytes == Some(true) {
-            Value::Bytes(bytes.into_boxed_slice())
-        } else {
-            Value::Str(text.into_boxed_str())
-        };
         let end = self.prev_end();
-        Ok(self.expr(ExprKind::Constant { value, kind }, start, end))
+        let Some(kind) = interpolated else {
+            let value = if is_bytes == Some(true) {
+                Value::Bytes(run.bytes.into_boxed_slice())
+            } else {
+                Value::Str(run.text.into_boxed_str())
+            };
+            return Ok(self.expr(
+                ExprKind::Constant {
+                    value,
+                    kind: run.kind,
+                },
+                start,
+                end,
+            ));
+        };
+
+        self.flush(&mut run, &mut values);
+        let node = match kind {
+            Interpolated::Format => ExprKind::JoinedStr { values },
+            Interpolated::Template => ExprKind::TemplateStr { values },
+        };
+        Ok(self.expr(node, start, end))
+    }
+
+    /// One f-string or t-string, from just past its opening quotes to just past
+    /// its closing ones.
+    fn interpolated_body(
+        &mut self,
+        kind: Interpolated,
+        raw: bool,
+        run: &mut LiteralRun,
+        values: &mut Vec<Expr>,
+    ) -> Result<()> {
+        loop {
+            match self.peek() {
+                TokenKind::InterpolatedMiddle(_) => self.literal_chunk(raw, run)?,
+                TokenKind::LBrace => self.replacement_field(kind, false, raw, run, values)?,
+                TokenKind::InterpolatedEnd(_) => {
+                    self.bump();
+                    return Ok(());
+                }
+                _ => return Err(self.invalid_syntax()),
+            }
+        }
+    }
+
+    /// One chunk of literal text, decoded and added to the run being built.
+    fn literal_chunk(&mut self, raw: bool, run: &mut LiteralRun) -> Result<()> {
+        let span = self.bump().span;
+        let text = span.slice(self.source);
+        // A doubled brace is one character to the reader and two in the source,
+        // and the lexer stops the chunk between them because that is where
+        // CPython's tokenizer stops it. The `Constant` covers both, so the
+        // second one is added back here. Only a doubled brace can leave a raw
+        // brace at the end of a chunk, since a single one would open a field.
+        let doubled = u32::from(text.ends_with(['{', '}']));
+        let span = Span::new(span.start, span.end + doubled);
+        if span.start == span.end {
+            // An empty chunk carries no text and no position. The lexer emits
+            // one at the end of every format spec, including a spec that is
+            // empty, which is why an empty spec is a `JoinedStr` with no values
+            // rather than a `Constant` holding nothing.
+            return Ok(());
+        }
+        run.claim(span);
+        run.text
+            .push_str(&literal::interpolated_text(text, raw, span)?);
+        Ok(())
+    }
+
+    /// Turn the literal text collected so far into a `Constant`, if there is
+    /// any. A run that decoded to nothing produces no node.
+    fn flush(&self, run: &mut LiteralRun, values: &mut Vec<Expr>) {
+        let Some(span) = run.span else { return };
+        if !run.text.is_empty() {
+            let text = std::mem::take(&mut run.text);
+            values.push(self.expr(
+                ExprKind::Constant {
+                    value: Value::Str(text.into_boxed_str()),
+                    kind: run.kind.take(),
+                },
+                span.start,
+                span.end,
+            ));
+        }
+        run.reset();
+    }
+
+    /// One `{...}` inside an f-string or a t-string.
+    ///
+    /// The pieces are an expression, an optional `=` that echoes the source, an
+    /// optional `!s`, `!r`, or `!a`, and an optional `:` with a format spec that
+    /// is itself an f-string. The spec is always a `JoinedStr` holding
+    /// `FormattedValue`s even inside a t-string, because a spec is formatted on
+    /// the spot rather than handed to a template.
+    ///
+    /// This takes the literal run and pushes rather than returning, because
+    /// `f'{x=}'` is two nodes: the echoed source as a `Constant`, then the field
+    /// itself. The echo is part of the literal run rather than a node of its
+    /// own, so `f'a {x=}'` is one `Constant` reading `a x=`.
+    fn replacement_field(
+        &mut self,
+        kind: Interpolated,
+        in_spec: bool,
+        raw: bool,
+        run: &mut LiteralRun,
+        values: &mut Vec<Expr>,
+    ) -> Result<()> {
+        let label = label(kind);
+        let open = self.bump().span;
+        if let Some(found) = match self.peek() {
+            TokenKind::RBrace => Some("}"),
+            TokenKind::Exclamation => Some("!"),
+            TokenKind::Colon => Some(":"),
+            TokenKind::Equal => Some("="),
+            _ => None,
+        } {
+            return Err(Self::error(
+                format!("{label}: valid expression required before '{found}'"),
+                self.current().span,
+            ));
+        }
+        if self.at_keyword(Keyword::Lambda) {
+            return Err(self.lambda_in_field(label));
+        }
+
+        let source_start = open.end;
+        let opening = self.pos;
+        let value = self.field_expression().map_err(|e| {
+            // CPython's parser backtracks, so a field that holds nothing an
+            // expression could be built from gets a different message from one
+            // that holds an expression followed by something unexpected.
+            // Nothing here backtracks, so the question is asked of the tokens
+            // instead: if not one of them could have stood alone as an operand,
+            // the field never began an expression at all.
+            if self.tokens[opening..self.pos].iter().any(is_operand) {
+                e
+            } else {
+                Self::error(
+                    format!("{label}: expecting a valid expression after '{{'"),
+                    self.tokens[opening].span,
+                )
+            }
+        })?;
+        let source_end = self.prev_end();
+
+        // `f'{x=}'` echoes the source and then formats the value. The echoed
+        // text runs to whatever ended the expression, so the trailing space in
+        // `f'{x = }'` is part of it.
+        let debug = self.at(TokenKind::Equal)
+            && matches!(
+                self.peek_at(1),
+                TokenKind::RBrace | TokenKind::Colon | TokenKind::Exclamation
+            );
+        let echo = if debug {
+            self.bump();
+            let span = Span::new(source_start, self.offset());
+            Some((span, self.echo_text(opening, span)))
+        } else {
+            None
+        };
+
+        let mut conversion = -1;
+        if self.eat(TokenKind::Exclamation) {
+            conversion = self.conversion_character(label)?;
+        }
+        let format_spec = if self.at(TokenKind::Colon) {
+            Some(Box::new(self.format_spec(kind, raw)?))
+        } else {
+            None
+        };
+
+        if !self.at(TokenKind::RBrace) {
+            let message = if conversion == -1 && format_spec.is_none() {
+                format!("{label}: expecting '=', or '!', or ':', or '}}'")
+            } else {
+                format!("{label}: expecting ':' or '}}'")
+            };
+            return Err(Self::error(message, self.current().span));
+        }
+        let close = self.bump().span;
+
+        // A debug field with neither a conversion nor a spec prints the repr,
+        // which is the one place a conversion appears that nobody wrote.
+        if debug && conversion == -1 && format_spec.is_none() {
+            conversion = i32::from(b'r');
+        }
+
+        if let Some((span, text)) = echo {
+            run.claim(span);
+            run.text.push_str(&text);
+        }
+        self.flush(run, values);
+        let node = if in_spec || kind == Interpolated::Format {
+            ExprKind::FormattedValue {
+                value: Box::new(value),
+                conversion,
+                format_spec,
+            }
+        } else {
+            ExprKind::Interpolation {
+                value: Box::new(value),
+                source: Ident::from(Span::new(source_start, source_end).slice(self.source)),
+                conversion,
+                format_spec,
+            }
+        };
+        values.push(self.expr(node, open.start, close.end));
+        Ok(())
+    }
+
+    /// The source a `=` echoes back, which is the field as written apart from
+    /// any comment in it.
+    ///
+    /// A field can run over several lines and hold comments on any of them, and
+    /// CPython drops the comment while keeping the whitespace around it, so
+    /// `f"{1+2 = # note\n}"` echoes `1+2 = \n`. Comments are not tokens, so the
+    /// text is rebuilt from the tokens with the gaps between them cleaned out.
+    fn echo_text(&self, from: usize, span: Span) -> String {
+        let whole = span.slice(self.source);
+        if !whole.contains('#') {
+            return whole.to_owned();
+        }
+        let mut out = String::with_capacity(whole.len());
+        let mut cursor = span.start as usize;
+        for token in &self.tokens[from..self.pos] {
+            let start = token.span.start as usize;
+            push_without_comments(&mut out, &self.source[cursor..start]);
+            out.push_str(token.span.slice(self.source));
+            cursor = token.span.end as usize;
+        }
+        push_without_comments(&mut out, &self.source[cursor..span.end as usize]);
+        out
+    }
+
+    /// What may stand inside a replacement field.
+    ///
+    /// `star_expressions` or a `yield`, so `f'{*a,}'` and `f'{yield}'` both
+    /// parse, which is wider than it looks useful and is what the grammar says.
+    fn field_expression(&mut self) -> Result<Expr> {
+        if self.at_keyword(Keyword::Yield) {
+            return self.yield_expression();
+        }
+        let start = self.offset();
+        let first = self.star_named_expression()?;
+        if !self.at(TokenKind::Comma) {
+            return Ok(first);
+        }
+        let mut elts = vec![first];
+        while self.eat(TokenKind::Comma) {
+            if self.at_field_end() {
+                break;
+            }
+            elts.push(self.star_named_expression()?);
+        }
+        let end = self.prev_end();
+        Ok(self.expr(
+            ExprKind::Tuple {
+                elts,
+                ctx: ExprContext::Load,
+            },
+            start,
+            end,
+        ))
+    }
+
+    fn at_field_end(&self) -> bool {
+        matches!(
+            self.peek(),
+            TokenKind::RBrace | TokenKind::Exclamation | TokenKind::Colon | TokenKind::Equal
+        )
+    }
+
+    /// The letter after a `!`.
+    ///
+    /// A whole name is read rather than a single character, so `f'{x!rr}'`
+    /// complains about `rr` and points at both letters.
+    fn conversion_character(&mut self, label: &str) -> Result<i32> {
+        if !self.at(TokenKind::Name) {
+            return Err(Self::error(
+                format!("{label}: missing conversion character"),
+                self.current().span,
+            ));
+        }
+        let span = self.bump().span;
+        let text = span.slice(self.source);
+        match text {
+            "s" | "r" | "a" => Ok(i32::from(text.as_bytes()[0])),
+            _ => Err(Self::error(
+                format!(
+                    "{label}: invalid conversion character '{text}': expected 's', 'r', or 'a'"
+                ),
+                span,
+            )),
+        }
+    }
+
+    /// A field that starts with `lambda`, which is always a mistake.
+    ///
+    /// The colon that ends the parameter list would end the field instead, so
+    /// the grammar refuses it rather than guessing, and the message says to add
+    /// brackets. It is only a lambda if the colon is really there: `f'{lambda}'`
+    /// is the ordinary complaint about a field that holds no expression.
+    fn lambda_in_field(&mut self, label: &str) -> SyntaxError {
+        let lambda = self.bump().span;
+        let no_expression = Self::error(
+            format!("{label}: expecting a valid expression after '{{'"),
+            lambda,
+        );
+        if self.lambda_parameters().is_err() || !self.at(TokenKind::Colon) {
+            return no_expression;
+        }
+        Self::error(
+            format!("{label}: lambda expressions are not allowed without parentheses"),
+            Span::new(lambda.start, self.current().span.end),
+        )
+    }
+
+    /// Everything after the `:`, which is an f-string in its own right.
+    ///
+    /// It takes the colon into its position and stops at the closing brace
+    /// without taking that, so `f'{x:}'` has a spec one character wide holding
+    /// nothing at all.
+    fn format_spec(&mut self, kind: Interpolated, raw: bool) -> Result<Expr> {
+        let colon = self.bump().span;
+        let mut run = LiteralRun::default();
+        let mut values = Vec::new();
+        loop {
+            match self.peek() {
+                TokenKind::InterpolatedMiddle(_) => self.literal_chunk(raw, &mut run)?,
+                TokenKind::LBrace => {
+                    self.replacement_field(kind, true, raw, &mut run, &mut values)?;
+                }
+                _ => break,
+            }
+        }
+        self.flush(&mut run, &mut values);
+        let end = self.offset();
+        Ok(self.expr(ExprKind::JoinedStr { values }, colon.start, end))
     }
 
     /// `(...)`: an empty tuple, a grouped expression, a tuple, a generator
