@@ -15,9 +15,10 @@
 //! both, we do not try to unify them, and [`crate::Position`] is the byte one.
 
 use core::fmt::Write as _;
+use std::borrow::Cow;
 
 use crate::error::{LineMap, SyntaxError};
-use crate::token::{Span, Token};
+use crate::token::{Span, Token, TokenKind};
 
 /// A row and column in the same terms the `tokenize` module uses.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
@@ -55,14 +56,46 @@ pub fn view(source: &str) -> Result<Vec<ViewToken<'_>>, SyntaxError> {
 /// tokens does not pay to lex them twice.
 #[must_use]
 pub fn project<'src>(source: &'src str, tokens: &[Token]) -> Vec<ViewToken<'src>> {
-    let lines = LineMap::new(source);
+    // CPython reads a file whose last line has no newline as though it had
+    // one, and its positions say so: the line ending token covers a character
+    // that is not in the file, and everything after it sits on a line that is
+    // not in the file either. The lexer is right to give those tokens empty
+    // spans, since there is nothing there to point at, so the pretending is
+    // done here where it belongs.
+    let phantom = !source.is_empty() && !source.ends_with(['\n', '\r']);
+    let end_of_source = u32::try_from(source.len()).unwrap_or(u32::MAX);
+    let padded = if phantom {
+        Cow::Owned(format!("{source}\n"))
+    } else {
+        Cow::Borrowed(source)
+    };
+    let lines = LineMap::new(&padded);
+
+    let mut past_phantom = false;
     tokens
         .iter()
-        .map(|token| ViewToken {
-            name: token.kind.tokenize_name(),
-            start: line_col(source, &lines, token.span.start),
-            end: end_line_col(source, &lines, token.span),
-            text: token.span.slice(source),
+        .map(|token| {
+            let mut span = token.span;
+            if phantom && span.is_empty() && span.start == end_of_source {
+                if past_phantom {
+                    span = Span::new(end_of_source + 1, end_of_source + 1);
+                } else if matches!(
+                    token.kind,
+                    TokenKind::Newline | TokenKind::NonLogicalNewline
+                ) {
+                    span = Span::new(end_of_source, end_of_source + 1);
+                    past_phantom = true;
+                }
+            }
+            ViewToken {
+                name: token.kind.tokenize_name(),
+                start: line_col(&padded, &lines, span.start),
+                end: end_line_col(&padded, &lines, span),
+                // Text comes from the real source, never from the padding, so
+                // the phantom newline is reported with no text at all, which is
+                // what CPython reports for it.
+                text: token.span.slice(source),
+            }
         })
         .collect()
 }
@@ -246,6 +279,51 @@ mod tests {
         let rendered = render_text(&view("if x:\n    pass\ny\n").unwrap());
         assert!(rendered.contains("INDENT 2,0-2,4 '    '\n"), "{rendered}");
         assert!(rendered.contains("DEDENT 3,0-3,0 ''\n"), "{rendered}");
+    }
+
+    #[test]
+    fn a_file_with_no_trailing_newline_gets_a_phantom_one() {
+        // Checked against CPython 3.14, which reports exactly this for a file
+        // that does not end in a newline: the NEWLINE covers a character that
+        // is not there, and the ENDMARKER moves to a line that is not there.
+        assert_eq!(
+            render_text(&view("x = 1\ny = 2").unwrap()),
+            "NAME 1,0-1,1 'x'\nOP 1,2-1,3 '='\nNUMBER 1,4-1,5 '1'\nNEWLINE 1,5-1,6 '\\n'\n\
+             NAME 2,0-2,1 'y'\nOP 2,2-2,3 '='\nNUMBER 2,4-2,5 '2'\nNEWLINE 2,5-2,6 ''\n\
+             ENDMARKER 3,0-3,0 ''\n"
+        );
+    }
+
+    #[test]
+    fn the_phantom_newline_pushes_the_dedents_along_too() {
+        let rendered = render_text(&view("if a:\n    pass").unwrap());
+        assert!(
+            rendered.ends_with("NEWLINE 2,8-2,9 ''\nDEDENT 3,0-3,0 ''\nENDMARKER 3,0-3,0 ''\n"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn an_unterminated_comment_line_still_ends() {
+        // CPython gives a comment-only last line an NL, not a NEWLINE, and
+        // gives it one even when the file stops before the newline does.
+        assert_eq!(
+            render_text(&view("# c").unwrap()),
+            "COMMENT 1,0-1,3 '# c'\nNL 1,3-1,4 ''\nENDMARKER 2,0-2,0 ''\n"
+        );
+        assert_eq!(
+            render_text(&view("   ").unwrap()),
+            "NL 1,3-1,4 ''\nENDMARKER 2,0-2,0 ''\n"
+        );
+    }
+
+    #[test]
+    fn an_empty_file_has_no_phantom_anything() {
+        assert_eq!(render_text(&view("").unwrap()), "ENDMARKER 1,0-1,0 ''\n");
+        assert_eq!(
+            render_text(&view("\n").unwrap()),
+            "NL 1,0-1,1 '\\n'\nENDMARKER 2,0-2,0 ''\n"
+        );
     }
 
     #[test]
