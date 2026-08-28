@@ -18,3 +18,12 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        # The MSRV job pins dtolnay/rust-toolchain to the exact toolchain in
+        # Cargo.toml and rust-toolchain.toml. That action pre-creates branches
+        # for Rust versions that have not been released, so dependabot happily
+        # proposes 1.100.0 while stable is 1.98.0 and the job then fails on a
+        # toolchain rustup cannot fetch. Bumping the MSRV is a deliberate
+        # decision made in three files at once, not a dependency update.
+        exclude-patterns: ["dtolnay/rust-toolchain"]
+    ignore:
+      - dependency-name: dtolnay/rust-toolchain
