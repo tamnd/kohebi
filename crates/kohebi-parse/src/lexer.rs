@@ -33,7 +33,7 @@ use std::cmp::Ordering;
 
 use smallvec::{SmallVec, smallvec};
 
-use crate::error::{ErrorClass, LineMap, SyntaxError};
+use crate::error::{ErrorClass, LineMap, Site, SyntaxError};
 use crate::token::{Interpolated, Keyword, NumberKind, Span, StringPrefix, Token, TokenKind};
 
 type Result<T> = std::result::Result<T, SyntaxError>;
@@ -177,12 +177,14 @@ impl<'src> Lexer<'src> {
     /// Lex the whole input, or return the first error.
     pub fn tokenize(src: &'src str) -> Result<Vec<Token>> {
         // Null bytes are rejected before tokenizing rather than during, because
-        // that is where CPython rejects them, and its message has no position.
-        if let Some(at) = memchr::memchr(0, src.as_bytes()) {
-            let at = u32::try_from(at).unwrap_or(u32::MAX);
-            return Err(SyntaxError::syntax(
+        // that is where CPython rejects them: in the function that takes the
+        // source, before the compiler it is about to call has been told what
+        // the file is called. So the error carries nothing, not even a
+        // filename, and prints as one line with no `File` above it.
+        if memchr::memchr(0, src.as_bytes()).is_some() {
+            return Err(SyntaxError::at(
                 "source code string cannot contain null bytes",
-                Span::new(at, at + 1),
+                Site::Message,
             ));
         }
         Self::new(src).collect()

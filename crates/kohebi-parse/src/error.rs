@@ -42,12 +42,46 @@ impl ErrorClass {
     }
 }
 
+/// How much of a traceback an error has enough information to fill in.
+///
+/// A `SyntaxError` in CPython carries a filename, a line and a column, any of
+/// which can be unset, and the traceback module prints as far down that list as
+/// it can get. So a refusal comes out in one of four shapes, and each variant
+/// here is named for the last thing its block manages to show. Which shape an
+/// error gets is not a formatting choice. It is how much the compiler had
+/// worked out about the file at the point it gave up.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Site {
+    /// The exception line on its own, with no `File` line above it.
+    ///
+    /// A null byte is the only one. CPython refuses those in the function that
+    /// takes the source, before the compiler it is about to call has been told
+    /// what the file is called, so nothing is attached to the error at all.
+    Message,
+    /// The file, then `line 0`, then the exception line.
+    ///
+    /// The encoding failures. What a coding cookie names is looked up before a
+    /// single line has been decoded, and a byte the codec has no character for
+    /// is found while decoding rather than after it, so there is nothing to
+    /// count lines in yet. Inventing a line for these would print a guess that
+    /// reads like a fact.
+    File,
+    /// A line, and no column in it, given as a byte offset anywhere on the line.
+    ///
+    /// A coding cookie contradicting a byte order mark is the only one. The
+    /// file did decode, so the line exists and is worth showing, but what is
+    /// wrong is the declaration rather than any character in it.
+    Line(u32),
+    /// A run of source with carets under it, which is every other error.
+    Span(Span),
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
 #[error("{}: {message}", .class.python_name())]
 pub struct SyntaxError {
     pub class: ErrorClass,
     pub message: Cow<'static, str>,
-    pub span: Span,
+    pub site: Site,
 }
 
 impl SyntaxError {
@@ -59,7 +93,7 @@ impl SyntaxError {
         Self {
             class,
             message: message.into(),
-            span,
+            site: Site::Span(span),
         }
     }
 
@@ -67,33 +101,61 @@ impl SyntaxError {
         Self::new(ErrorClass::Syntax, message, span)
     }
 
+    /// A `SyntaxError` somewhere other than at a run of characters.
+    pub(crate) fn at(message: impl Into<Cow<'static, str>>, site: Site) -> Self {
+        Self {
+            class: ErrorClass::Syntax,
+            message: message.into(),
+            site,
+        }
+    }
+
+    /// The span this error covers, for the errors that cover one.
+    #[must_use]
+    pub const fn span(&self) -> Option<Span> {
+        match self.site {
+            Site::Span(span) => Some(span),
+            Site::Message | Site::File | Site::Line(_) => None,
+        }
+    }
+
     /// The traceback CPython would print for this error.
     ///
     /// Same shape as `SyntaxError` formatting in 3.11 and later: the file and
     /// line, the offending source line with leading whitespace stripped, a run
-    /// of carets under the span, then the exception line.
+    /// of carets under the span, then the exception line. An error that knows
+    /// less than that prints less than that, stopping wherever its `Site` says.
     #[must_use]
     pub fn report(&self, source: &str, filename: &str) -> String {
+        let at = match self.site {
+            Site::Message => return self.to_string(),
+            Site::File => return format!("  File \"{filename}\", line 0\n{self}"),
+            Site::Line(at) => at,
+            Site::Span(span) => span.start,
+        };
         let lines = LineMap::new(source);
-        let start = lines.position(self.span.start);
+        let start = lines.position(at);
 
         let line = start.line_text(source).trim_end_matches(['\n', '\r']);
         let body = line.trim_start();
         let stripped = line.len() - body.len();
 
+        let mut out = format!("  File \"{filename}\", line {}\n    {body}\n", start.line);
+        let Site::Span(span) = self.site else {
+            out.push_str(&self.to_string());
+            return out;
+        };
+
         // Carets are placed by character and not by byte, so that a line with
         // non-ASCII text in front of the error still lines up in a terminal.
         let column = (start.column as usize).saturating_sub(stripped);
         let lead = body.char_indices().take_while(|(i, _)| *i < column).count();
-        let end = (self.span.end as usize).min(start.line_start as usize + line.len());
+        let end = (span.end as usize).min(start.line_start as usize + line.len());
         let width = source
-            .get(self.span.start as usize..end)
+            .get(span.start as usize..end)
             .map_or(1, |s| s.chars().count().max(1));
 
-        let mut out = format!(
-            "  File \"{filename}\", line {}\n    {body}\n    ",
-            start.line
-        );
+        out.push_str("    ");
         out.extend(std::iter::repeat_n(' ', lead));
         out.extend(std::iter::repeat_n('^', width));
         out.push('\n');

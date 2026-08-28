@@ -40,7 +40,7 @@
 
 pub mod charmap;
 
-use crate::error::{ErrorClass, SyntaxError};
+use crate::error::{ErrorClass, Site, SyntaxError};
 use crate::token::Span;
 
 use charmap::{ALIASES, CHARMAPS, CODECS, Charmap, UNDEFINED};
@@ -70,6 +70,10 @@ pub struct Source {
 /// problem is on, and by definition these bytes are not text yet. What is here
 /// is the closest thing to it: every byte that did decode, and U+FFFD for
 /// every byte that did not, which is also what CPython prints.
+///
+/// Two of these errors have no line to be shown against, because they are
+/// settled before or during the decode rather than after it, and for those the
+/// text is along for the ride. See `Site`.
 #[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
 #[error("{error}")]
 pub struct SourceError {
@@ -100,13 +104,11 @@ pub fn decode(bytes: &[u8]) -> Result<Source, SourceError> {
     // The mark says UTF-8 and the cookie says otherwise, so one of them is
     // wrong and CPython will not guess which.
     if bom && name != "utf-8" {
-        let line = first_line(bytes);
+        // The cookie is on the first line or the second, and CPython reports
+        // this against the first either way.
         return Err(fail(
             bytes,
-            SyntaxError::syntax(
-                format!("encoding problem: {name} with BOM"),
-                Span::new(0, line),
-            ),
+            SyntaxError::at(format!("encoding problem: {name} with BOM"), Site::Line(0)),
         ));
     }
 
@@ -131,7 +133,7 @@ pub fn decode(bytes: &[u8]) -> Result<Source, SourceError> {
         )),
         Codec::Unknown => Err(fail(
             bytes,
-            SyntaxError::syntax(format!("unknown encoding: {name}"), Span::new(0, 0)),
+            SyntaxError::at(format!("unknown encoding: {name}"), Site::File),
         )),
     }
 }
@@ -374,11 +376,15 @@ fn utf8_codec(bytes: &[u8], name: String) -> Result<Source, SourceError> {
             } else {
                 format!("bytes in position {at}-{}", at + width - 1)
             };
+            // Unplaced for the same reason the charmap failures are: this comes
+            // out of the codec, before there is any text to count lines in.
+            // Which is why the same bad byte is reported on a line when the
+            // cookie says `utf-8` and on no line at all when it says `utf8`.
             Err(fail(
                 bytes,
-                SyntaxError::syntax(
+                SyntaxError::at(
                     format!("'utf-8' codec can't decode {where_}: {reason}"),
-                    Span::new(u32_at(at), u32_at(at + width)),
+                    Site::File,
                 ),
             ))
         }
@@ -396,16 +402,15 @@ fn single_byte(bytes: &[u8], map: &Charmap, name: String) -> Result<Source, Sour
         });
     }
 
-    // Decoding runs to the end even after a byte with no meaning, because the
-    // error has to be shown against the line it is on and there is no other
-    // way to know where in the text that line ends up. The first failure is
-    // the one reported, the way it would be if this had stopped there.
+    // Decoding runs to the end even after a byte with no meaning, so that the
+    // text on the error is the whole file rather than however much of it came
+    // before the first bad byte. The first failure is the one reported, the
+    // way it would be if this had stopped there.
     let mut text = String::with_capacity(bytes.len());
     let mut failure = None;
     for (at, &byte) in bytes.iter().enumerate() {
         let point = map.table[byte as usize];
         if point == UNDEFINED {
-            let start = u32_at(text.len());
             text.push(char::REPLACEMENT_CHARACTER);
             if failure.is_none() {
                 // The name in the message is the decoder's rather than the
@@ -416,12 +421,16 @@ fn single_byte(bytes: &[u8], map: &Charmap, name: String) -> Result<Source, Sour
                 } else {
                     ("charmap", "character maps to <undefined>")
                 };
-                failure = Some(SyntaxError::syntax(
+                // The position in the message is the byte's, counted in the
+                // file, which is the only position this error has. It is not a
+                // place in any text, because there is no text: this is the
+                // failure to make one.
+                failure = Some(SyntaxError::at(
                     format!(
                         "'{decoder}' codec can't decode byte 0x{byte:02x} \
                          in position {at}: {reason}"
                     ),
-                    Span::new(start, u32_at(text.len())),
+                    Site::File,
                 ));
             }
             continue;
