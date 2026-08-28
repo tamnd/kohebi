@@ -18,6 +18,10 @@ The AST is now written down in Rust, all 133 node types of it, along with the `a
 
 Most of the work was in the rules nobody writes down. A field is skipped when it holds nothing, which is why `arguments()` prints empty, except that zero is not nothing, so `level=0`, `is_async=0`, `conversion=-1`, and `simple=1` all print on almost every file in the standard library. `Constant` and `MatchSingleton` are exempt from the skipping so that `Constant(value=None)` does not collapse into `Constant()`. Identifiers are printed with `repr`, which is why the previous piece of work had to land first.
 
+Literal evaluation, which is the step between a token and the value `ast.Constant` holds. Underscores come out of numbers, a hexadecimal constant of any length prints as the decimal integer CPython prints, floats round the way CPython rounds them, and every string escape is decoded. The cases that look like typos are the ones that matter: an escape that is not an escape keeps its backslash, so `'\q'` is two characters, and an octal escape reads three digits and is not bounded by 255, so `'\400'` is U+0100 in a string but `b'\x00'` in bytes.
+
+There is a fixture of 144 hand-picked cases, and then there is the check that actually settled it. Every distinct string and number token in CPython 3.14.7's standard library, 97604 of them, decoded and compared against `ast.literal_eval`. Nothing came out wrong. The 259 we refuse are two known gaps and nothing else: 227 lone surrogates, which a Rust `str` cannot hold until the runtime owns its own string representation, and 32 uses of `\N{...}`, which needs the two megabyte Unicode name database. Both are refused as unsupported rather than guessed at, and the fixture records what they should evaluate to so the answer is already sitting there when either gap closes.
+
 The frontend finally has a design document, `docs/spec/15-frontend.md`. Three crates pointed at a `03-frontend.md` that never existed, and a test now walks the tree and fails if any spec document we reference is missing. Writing that sentence with the old path in it was the first thing the new test caught.
 
 ## 0.0.2

@@ -9,7 +9,7 @@ Source text to tokens to a CPython-compatible AST. This is the first code in the
 | Stage | Input | Output | Crate | State |
 | --- | --- | --- | --- | --- |
 | Lexer | `&str` | `Vec<Token>` | `kohebi-parse` | Done |
-| Parser | `&[Token]` | AST | `kohebi-parse` | Node types and `ast.dump` done, parsing not started |
+| Parser | `&[Token]` | AST | `kohebi-parse` | Node types, `ast.dump`, and literal evaluation done, parsing not started |
 | Lowering | AST | HIR | `kohebi-hir` | Not started |
 | Compilation | HIR | register bytecode | `kohebi-bc` | Not started |
 
@@ -57,7 +57,7 @@ Three things about the shape that are easy to get wrong and expensive to fix lat
 
 `ctx` is not decoration. Every `Name`, `Attribute`, `Subscript`, `Starred`, `List`, and `Tuple` carries `Load`, `Store`, or `Del`, and the value is decided by the position the node ends up in rather than by how it was parsed. This is why CPython parses an assignment target as an ordinary expression and then walks it setting the context, and it is why `x = *a` parses at all. We do the same thing for the same reason.
 
-`Constant` holds a value, not a token. `1`, `1.0`, `1j`, `True`, `None`, `...`, and every string literal are all `Constant`, and the difference between them is the Python object in the `value` field. That means the parser owns numeric literal evaluation, including the parts that are annoying: underscores in numbers, arbitrary precision integers, the exact float rounding CPython does, and `kind='u'` on a `u''` string.
+`Constant` holds a value, not a token. `1`, `1.0`, `1j`, `True`, `None`, `...`, and every string literal are all `Constant`, and the difference between them is the Python object in the `value` field. That means the parser owns numeric literal evaluation, including the parts that are annoying: underscores in numbers, arbitrary precision integers, the exact float rounding CPython does, and `kind='u'` on a `u''` string. Done, checked against every one of the 97604 distinct literal tokens in the standard library.
 
 One gap is known and is not the parser's to fix. A CPython string is a sequence of code points and can hold a lone surrogate, which `'\ud800'` produces and which a Rust `str` cannot represent, so such a literal is refused rather than mangled. Closing it means the runtime owning its string representation, which is an object model decision, and until then it is one escape sequence out of a corpus that has none of it.
 
@@ -87,12 +87,13 @@ Recursion depth is bounded explicitly rather than by the stack. CPython raises `
 The order of work, one pull request each, each one landing with the differential extended to cover it:
 
 1. AST node types and an `ast.dump` compatible view, so there is something to compare against before there is a parser. Done, with 77 trees written by hand and checked against CPython 3.14.7.
-2. Expressions: Pratt table, calls, subscripts, attributes, comprehensions, lambdas, conditional expressions, the walrus.
-3. Simple statements, imports, and assignment targets.
-4. Compound statements: `if`, `while`, `for`, `with`, `try`, `def`, `class`, and the `async` forms.
-5. `match`, which is its own grammar and its own eight node types.
-6. Encoding declarations, so the last three standard library files come into the corpus.
-7. Error messages, in a second pass.
+2. Literal evaluation, since `Constant` holds a value rather than a token and the expression parser needs somewhere to put one. Done, with 144 hand-written cases and a sweep of every literal in the standard library.
+3. Expressions: Pratt table, calls, subscripts, attributes, comprehensions, lambdas, conditional expressions, the walrus.
+4. Simple statements, imports, and assignment targets.
+5. Compound statements: `if`, `while`, `for`, `with`, `try`, `def`, `class`, and the `async` forms.
+6. `match`, which is its own grammar and its own eight node types.
+7. Encoding declarations, so the last three standard library files come into the corpus.
+8. Error messages, in a second pass.
 
 ## Errors
 
