@@ -50,12 +50,12 @@ mod pattern;
 ///
 /// A `SyntaxError` for source CPython also rejects.
 pub fn parse_module(source: &str) -> Result<Mod> {
-    let tokens = crate::tokenize(source)?;
-    let mut parser = Parser::new(source, &tokens);
-    let body = parser.module_body()?;
-    Ok(Mod::Module {
-        body,
-        type_ignores: Vec::new(),
+    super::lexed(source, |parser| {
+        let body = parser.module_body()?;
+        Ok(Mod::Module {
+            body,
+            type_ignores: Vec::new(),
+        })
     })
 }
 

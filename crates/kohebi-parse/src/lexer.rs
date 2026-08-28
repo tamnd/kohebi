@@ -137,6 +137,54 @@ pub struct Lexer<'src> {
     /// line of the file was missing, so that it supplies it only once.
     owes_line_ending: bool,
     state: State,
+    /// How the next error out of here ranks against a parse error, set at the
+    /// few sites that do not rank the ordinary way. See `Priority`.
+    priority: Priority,
+}
+
+/// How a tokenizer error ranks against a parse error found earlier in the file.
+///
+/// CPython runs its tokenizer and its parser together, so which of the two
+/// refusals a user sees is decided by which one is reached first, and then by a
+/// tiebreak that is not the same for every tokenizer error. Some of them the
+/// tokenizer raises itself, and those win wherever the parser had got to,
+/// because after the parser gives up CPython tokenizes the rest of the file on
+/// purpose to look for one. The others only stop the tokenizer and leave the
+/// exception to whoever asked, and for those the parse error is what comes out.
+///
+/// The list is short and was settled by asking CPython 3.14.7 rather than by
+/// reading its tokenizer, with a file holding a parse error on an early line
+/// and one tokenizer error on a later one. `crates/kohebi-parse/tests/error.rs`
+/// keeps a case per variant.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Priority {
+    /// Wins over a parse error anywhere in the file.
+    ///
+    /// A bad character, an unterminated string, a malformed number, a bracket
+    /// closed by the wrong one, a closer with nothing open, and too much
+    /// nesting. Every one of these is a mistake in the text of a token rather
+    /// than in the shape of the line, which is why the tokenizer is confident
+    /// enough to raise on its own.
+    Raised,
+    /// Loses to a parse error anywhere earlier in the file.
+    ///
+    /// Indentation that fits no block, tabs and spaces that disagree, junk
+    /// after a line continuation, and the f-string tokenizer's own refusals.
+    /// These say the line does not fit the file rather than that the line is
+    /// wrong, and a parser that already gave up higher up was never going to
+    /// reach them.
+    Deferred,
+    /// End of file with a bracket still open, which is a rule of its own.
+    ///
+    /// It wins only when the bracket was opened on a line before the one the
+    /// parse error is on. `import a[b` is invalid syntax at the bracket, and
+    /// the same unclosed bracket a few lines up is what a user is told about
+    /// instead, because by then the rest of the file has been swallowed and
+    /// whatever the parser made of it is not worth reporting.
+    Unclosed {
+        /// Byte offset of the opening bracket.
+        opened: u32,
+    },
 }
 
 /// Whether the lexer will produce anything more.
@@ -171,23 +219,63 @@ impl<'src> Lexer<'src> {
             line_has_code: false,
             owes_line_ending: true,
             state: State::Running,
+            priority: Priority::Raised,
         }
+    }
+
+    /// Mark an error as one a parse error higher up in the file outranks.
+    fn defer(&mut self, error: SyntaxError) -> SyntaxError {
+        self.priority = Priority::Deferred;
+        error
     }
 
     /// Lex the whole input, or return the first error.
     pub fn tokenize(src: &'src str) -> Result<Vec<Token>> {
-        // Null bytes are rejected before tokenizing rather than during, because
-        // that is where CPython rejects them: in the function that takes the
-        // source, before the compiler it is about to call has been told what
-        // the file is called. So the error carries nothing, not even a
-        // filename, and prints as one line with no `File` above it.
+        Self::null_byte_check(src)?;
+        Self::new(src).collect()
+    }
+
+    /// Lex as far as the input allows, and hand back what stopped it.
+    ///
+    /// CPython's tokenizer and parser run together. The tokenizer hands over a
+    /// line at a time and the parser consumes it before the next one is read,
+    /// so a file with a bad statement on line 56 and a bad dedent on line 58
+    /// reports the statement: the parser has already given up by the time the
+    /// tokenizer would reach line 58. We lex the whole file in one pass, which
+    /// is most of why we are faster than it, so that ordering has to be put
+    /// back by hand and this is the half the parser needs to do it with.
+    ///
+    /// A null byte is the one refusal that stays first. CPython rejects it
+    /// before either half runs, so there is nothing to interleave it with.
+    #[must_use]
+    pub fn tokenize_prefix(src: &'src str) -> (Vec<Token>, Option<(SyntaxError, Priority)>) {
+        if let Err(error) = Self::null_byte_check(src) {
+            return (Vec::new(), Some((error, Priority::Raised)));
+        }
+        let mut tokens = Vec::new();
+        let mut lexer = Self::new(src);
+        while let Some(item) = lexer.next() {
+            match item {
+                Ok(token) => tokens.push(token),
+                Err(error) => return (tokens, Some((error, lexer.priority))),
+            }
+        }
+        (tokens, None)
+    }
+
+    /// Null bytes are rejected before tokenizing rather than during, because
+    /// that is where CPython rejects them: in the function that takes the
+    /// source, before the compiler it is about to call has been told what the
+    /// file is called. So the error carries nothing, not even a filename, and
+    /// prints as one line with no `File` above it.
+    fn null_byte_check(src: &str) -> Result<()> {
         if memchr::memchr(0, src.as_bytes()).is_some() {
             return Err(SyntaxError::at(
                 "source code string cannot contain null bytes",
                 Site::Message,
             ));
         }
-        Self::new(src).collect()
+        Ok(())
     }
 
     fn peek(&self) -> Option<u8> {
@@ -321,14 +409,14 @@ impl<'src> Lexer<'src> {
                 if alt == top.alt {
                     Ok(None)
                 } else {
-                    Err(tab_error(indent_span))
+                    Err(self.defer(tab_error(indent_span)))
                 }
             }
             Ordering::Greater => {
                 // Deeper under one measure and not the other means the file
                 // looks like two different programs depending on your tab stop.
                 if alt <= top.alt {
-                    return Err(tab_error(indent_span));
+                    return Err(self.defer(tab_error(indent_span)));
                 }
                 self.indents.push(Indent { col, alt });
                 Ok(Some(Token::new(TokenKind::Indent, indent_span)))
@@ -342,14 +430,14 @@ impl<'src> Lexer<'src> {
                 }
                 let top = *self.indents.last().expect("the zero level is never popped");
                 if top.col != col {
-                    return Err(SyntaxError::new(
+                    return Err(self.defer(SyntaxError::new(
                         ErrorClass::Indentation,
                         "unindent does not match any outer indentation level",
                         indent_span,
-                    ));
+                    )));
                 }
                 if top.alt != alt {
-                    return Err(tab_error(indent_span));
+                    return Err(self.defer(tab_error(indent_span)));
                 }
                 Ok(None)
             }
@@ -391,22 +479,22 @@ impl<'src> Lexer<'src> {
                     match self.line_break_at(self.pos + 1) {
                         Some(next) => self.pos = next,
                         None if self.pos + 1 >= self.bytes.len() => {
-                            return Err(SyntaxError::syntax(
+                            return Err(self.defer(SyntaxError::syntax(
                                 "unexpected EOF while parsing",
                                 Span::new(
                                     u32::try_from(start).unwrap_or(u32::MAX),
                                     u32::try_from(start + 1).unwrap_or(u32::MAX),
                                 ),
-                            ));
+                            )));
                         }
                         None => {
-                            return Err(SyntaxError::syntax(
+                            return Err(self.defer(SyntaxError::syntax(
                                 "unexpected character after line continuation character",
                                 Span::new(
                                     u32::try_from(start).unwrap_or(u32::MAX),
                                     u32::try_from(start + 1).unwrap_or(u32::MAX),
                                 ),
-                            ));
+                            )));
                         }
                     }
                 }
@@ -508,13 +596,16 @@ impl<'src> Lexer<'src> {
         // parts report an unterminated string instead, and they get there
         // first, so anything arriving here was reading an expression.
         if !self.fstrings.is_empty() {
-            return Err(self.expecting_close_brace());
+            let error = self.expecting_close_brace();
+            return Err(self.defer(error));
         }
         if let Some((kind, span)) = self.brackets.first() {
             let open = kind.as_str().expect("brackets have fixed text");
+            let (open, span) = (open, *span);
+            self.priority = Priority::Unclosed { opened: span.start };
             return Err(SyntaxError::syntax(
                 format!("'{open}' was never closed"),
-                *span,
+                span,
             ));
         }
         // CPython reads the last line of a file as though it ended with a
@@ -773,10 +864,11 @@ impl<'src> Lexer<'src> {
             // how you write one, and CPython insists on it.
             Some(b'}') => {
                 self.pos += 1;
-                Err(SyntaxError::syntax(
+                let error = SyntaxError::syntax(
                     "f-string: single '}' is not allowed",
                     self.span_from(start),
-                ))
+                );
+                Err(self.defer(error))
             }
             _ => {
                 self.pos += if triple { 3 } else { 1 };

@@ -41,6 +41,7 @@ use crate::ast::{
     Keyword as KwArg, Mod, Operator, UnaryOp,
 };
 use crate::error::{LineMap, Site, SyntaxError};
+use crate::lexer::Priority;
 use crate::literal;
 use crate::token::{Interpolated, Keyword, Span, Token, TokenKind};
 use crate::value::{StrBuf, Value};
@@ -59,11 +60,62 @@ type Result<T> = std::result::Result<T, SyntaxError>;
 /// A `SyntaxError` for source CPython also rejects. Every expression the
 /// grammar covers now parses, so nothing here reports itself as a gap.
 pub fn parse_expression(source: &str) -> Result<Mod> {
-    let tokens = crate::tokenize(source)?;
+    lexed(source, |parser| {
+        let body = parser.expressions()?;
+        parser.expect_end()?;
+        Ok(Mod::Expression { body })
+    })
+}
+
+/// Run the parser over as much of the file as lexed, and pick the error.
+///
+/// The two halves of the frontend can each refuse the same file in a different
+/// place, and CPython settles that by running them together. Its tokenizer
+/// hands over one line at a time, so a parser that gives up on line 56 is never
+/// shown the bad dedent on line 58, and once the parser has given up CPython
+/// deliberately tokenizes the rest of the file to see whether the tokenizer had
+/// something better to say. We lex the whole file up front, which is most of
+/// why we are faster than it, so that order has to be restored here.
+///
+/// Three things decide it. A parser that ran out of tokens did not really fail,
+/// it was cut short, so the lexer's error is the one to print. Otherwise the
+/// tokenizer errors CPython raises itself win wherever the parser had got to,
+/// and the ones it only stops on lose to a parse error anywhere. An unclosed
+/// bracket is its own rule and lives in `Priority`.
+fn lexed<T>(source: &str, parse: impl FnOnce(&mut Parser<'_>) -> Result<T>) -> Result<T> {
+    let (mut tokens, stopped) = crate::lexer::Lexer::tokenize_prefix(source);
+    let Some((error, priority)) = stopped else {
+        let mut parser = Parser::new(source, &tokens);
+        return parse(&mut parser);
+    };
+    if tokens.is_empty() {
+        return Err(error);
+    }
+    // The prefix has no end to it, and a parser that walks off the end of its
+    // tokens reads the last one forever. An `EndMarker` where the lexer stopped
+    // ends the walk, and an error raised against it lands exactly at `cut`,
+    // which is how running out of tokens is told apart from failing.
+    let cut = tokens.last().map_or(0, |token| token.span.end);
+    tokens.push(Token::new(TokenKind::EndMarker, Span::new(cut, cut)));
     let mut parser = Parser::new(source, &tokens);
-    let body = parser.expressions()?;
-    parser.expect_end()?;
-    Ok(Mod::Expression { body })
+    let Err(ours) = parse(&mut parser) else {
+        return Err(error);
+    };
+    let Some(at) = ours.offset().filter(|at| *at < cut) else {
+        return Err(error);
+    };
+    match priority {
+        Priority::Raised => Err(error),
+        Priority::Deferred => Err(ours),
+        Priority::Unclosed { opened } => {
+            let lines = LineMap::new(source);
+            if lines.line_of(opened) < lines.line_of(at) {
+                Err(error)
+            } else {
+                Err(ours)
+            }
+        }
+    }
 }
 
 /// Precedence of the left-associative binary operators, loosest first.
