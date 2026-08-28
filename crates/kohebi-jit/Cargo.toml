@@ -1,0 +1,21 @@
+[package]
+name = "kohebi-jit"
+description = "Tiers 1 and 2: copy-and-patch baseline, optimizing SSA compiler, deoptimization, OSR"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kohebi-core.workspace = true
+kohebi-bc.workspace = true
+kohebi-cir.workspace = true
+target-lexicon.workspace = true
+memmap2.workspace = true
+tracing.workspace = true

@@ -1,0 +1,31 @@
+name: Bug
+description: Something that is implemented does not work.
+labels: ["kind: bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Note that almost nothing is implemented yet. If `kohebi run` told you a
+        command is not implemented, that is expected rather than a bug.
+  - type: textarea
+    attributes:
+      label: Reproducer
+      description: The smallest Python program that shows the problem.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What CPython does
+      description: CPython is the oracle. Its behaviour is the correct answer by definition.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What kohebi does
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Mode
+      placeholder: kohebi run / kohebi build --sealed / both

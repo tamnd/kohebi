@@ -1,0 +1,20 @@
+[package]
+name = "kohebi-core"
+description = "Values, shapes, collections, allocator, and garbage collector for the kohebi Python runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+rustc-hash.workspace = true
+hashbrown.workspace = true
+smallvec.workspace = true
+bitflags.workspace = true
+parking_lot.workspace = true

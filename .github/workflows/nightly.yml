@@ -1,0 +1,93 @@
+name: Nightly
+
+# The jobs that are too slow for every push but are where the worst bugs live.
+# See docs/spec/12-testing.md.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  miri:
+    name: Miri
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - name: Miri over the crates with unsafe in them
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check
+        run: |
+          cargo miri setup
+          cargo miri test -p kohebi-core -p kohebi-abi
+
+  sanitizers:
+    name: ${{ matrix.sanitizer }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, thread, leak]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+      - name: Test under ${{ matrix.sanitizer }}Sanitizer
+        env:
+          RUSTFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
+          RUSTDOCFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
+        run: cargo test -Zbuild-std --workspace --target x86_64-unknown-linux-gnu
+
+  # Loom models of the concurrent protocols: the object header, shape
+  # transitions on shared objects, the safepoint protocol, and lazy deopt
+  # invalidation. Each is small enough to model exhaustively.
+  loom:
+    name: Loom
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - env:
+          RUSTFLAGS: --cfg loom
+        run: cargo test -p kohebi-core --features loom --release -- --test-threads=1
+
+  stress:
+    name: Stress mode ${{ matrix.mode }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [gc-stress, deopt-stress, osr-stress, tier-shuffle, no-cache]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --bin kohebi
+      - name: Full corpus under --${{ matrix.mode }}
+        run: |
+          echo "Stress modes land with the runtime they stress; see M3 and M6."
+          echo "Placeholder so the matrix exists before the modes do."
+
+  audit:
+    name: Security advisories
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - run: cargo deny check advisories

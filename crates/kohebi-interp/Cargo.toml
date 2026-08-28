@@ -1,0 +1,19 @@
+[package]
+name = "kohebi-interp"
+description = "Tier 0: the register bytecode interpreter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kohebi-core.workspace = true
+kohebi-bc.workspace = true
+kohebi-cir.workspace = true
+tracing.workspace = true

@@ -1,0 +1,6 @@
+# Pinned so that CI, contributors, and `kohebi build` all agree on a compiler.
+# Must match rust-version in Cargo.toml and the msrv job in .github/workflows/ci.yml.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy", "rust-src"]
+profile = "default"

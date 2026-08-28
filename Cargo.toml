@@ -1,0 +1,106 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tamnd/kohebi"
+homepage = "https://github.com/tamnd/kohebi"
+authors = ["tamnd"]
+
+[workspace.dependencies]
+# Internal crates. Kept at path-only until the first release; see docs/spec/13-repo-layout.md.
+kohebi-abi = { path = "crates/kohebi-abi", version = "0.0.0" }
+kohebi-aot = { path = "crates/kohebi-aot", version = "0.0.0" }
+kohebi-bc = { path = "crates/kohebi-bc", version = "0.0.0" }
+kohebi-capi = { path = "crates/kohebi-capi", version = "0.0.0" }
+kohebi-cir = { path = "crates/kohebi-cir", version = "0.0.0" }
+kohebi-core = { path = "crates/kohebi-core", version = "0.0.0" }
+kohebi-hir = { path = "crates/kohebi-hir", version = "0.0.0" }
+kohebi-interp = { path = "crates/kohebi-interp", version = "0.0.0" }
+kohebi-jit = { path = "crates/kohebi-jit", version = "0.0.0" }
+kohebi-parse = { path = "crates/kohebi-parse", version = "0.0.0" }
+kohebi-pyo3-compat = { path = "crates/kohebi-pyo3-compat", version = "0.0.0" }
+kohebi-std = { path = "crates/kohebi-std", version = "0.0.0" }
+kohebi-testing = { path = "crates/kohebi-testing", version = "0.0.0" }
+
+# External. Versions verified against crates.io on 2026-08-28.
+anyhow = "1.0.104"
+bitflags = "2.13.1"
+bumpalo = "3.20.3"
+clap = { version = "4.6.6", features = ["derive", "env", "wrap_help"] }
+cranelift-codegen = "0.135.1"
+cranelift-frontend = "0.135.1"
+cranelift-jit = "0.135.1"
+cranelift-module = "0.135.1"
+crossbeam-utils = "0.8.22"
+divan = "0.1.21"
+hashbrown = "0.17.1"
+indexmap = "2.14.0"
+insta = "1.48.0"
+itoa = "1.0.18"
+memchr = "2.8.3"
+memmap2 = "0.9.11"
+mimalloc = "0.1.52"
+parking_lot = "0.12.5"
+proptest = "1.11.0"
+rayon = "1.12.0"
+rustc-hash = "2.1.3"
+ryu = "1.0.23"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+smallvec = { version = "1.15.2", features = ["union", "const_generics"] }
+target-lexicon = "0.13.5"
+thiserror = "2.0.20"
+toml = "1.1.4"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+unicode-ident = "1.0.24"
+
+[workspace.lints.rust]
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unreachable_pub = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Noise in a runtime codebase; re-enable case by case if it ever earns its keep.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+# The unsafe in this workspace is load-bearing. Every block justifies itself.
+undocumented_unsafe_blocks = "warn"
+missing_safety_doc = "deny"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+# Deliberately NOT panic = "abort". kohebi-abi has to catch_unwind at the
+# extension boundary and turn a panicking Rust extension into a Python
+# exception rather than killing the process. See docs/spec/08-rust-interop.md.
+panic = "unwind"
+
+# Release build with symbols, for profiling the runtime itself.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = "none"
+
+# What `kohebi build` uses for the generated crate by default. Tuned for build
+# time over peak throughput; see docs/spec/06-aot.md on why this matters.
+[profile.aot]
+inherits = "release"
+lto = false
+codegen-units = 16
+
+[profile.bench]
+inherits = "release"
+debug = true
+strip = "none"

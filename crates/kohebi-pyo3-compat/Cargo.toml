@@ -1,0 +1,17 @@
+[package]
+name = "kohebi-pyo3-compat"
+description = "PyO3-shaped compatibility shim so existing PyO3 extensions build against kohebi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kohebi-abi.workspace = true
+kohebi-core.workspace = true

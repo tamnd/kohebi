@@ -1,0 +1,20 @@
+[package]
+name = "kohebi-std"
+description = "Rust implementations of the CPython standard library C extension modules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+kohebi-core.workspace = true
+kohebi-abi.workspace = true
+ryu.workspace = true
+itoa.workspace = true
+memchr.workspace = true

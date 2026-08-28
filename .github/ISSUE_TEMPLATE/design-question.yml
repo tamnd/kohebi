@@ -1,0 +1,25 @@
+name: Design question or correction
+description: Something in docs/spec/ is unclear, unsupported, or wrong.
+labels: ["area: design", "kind: question"]
+body:
+  - type: input
+    attributes:
+      label: Which document
+      placeholder: docs/spec/05-jit.md
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What the document says
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Why that is a problem
+      description: Evidence is more useful than intuition, but intuition from someone who has built a runtime is still useful.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What would resolve it
+      description: An experiment, a paper, a measurement, a counterexample.
