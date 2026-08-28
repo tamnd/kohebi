@@ -115,11 +115,15 @@ The lexer set the pattern and the parser follows it. Every stage gets a view, th
 | Stage | Our view | CPython's | Where |
 | --- | --- | --- | --- |
 | Lexer | `kohebi tokenize` | `tokenize.generate_tokens` | `kohebi-compat`, done |
-| Parser | `kohebi ast` | `ast.dump(include_attributes=True)` | `kohebi-compat`, next |
-| Parser errors | `kohebi ast` on a bad file | `ast.parse` in a `try` | `kohebi-compat`, next |
+| Parser | `kohebi ast` | `ast.dump(include_attributes=True)` | `kohebi-compat`, done |
+| Parser errors | `kohebi ast` on a bad file | `ast.parse` in a `try` | `kohebi-compat`, done |
 | Round trip | `kohebi ast --unparse` | `ast.unparse(ast.parse(src))` | `kohebi-compat`, later |
 
 The round trip check is the cheap one and it catches a surprising amount: unparse both sides' trees and require identical text, and any field we filled in wrongly shows up as a diff without anyone having to write an expected tree by hand.
+
+Where the parser stands as of 29 August 2026: 1797 of the 1870 files in CPython 3.14.7's standard library parse to a tree whose dump is identical to CPython's, attributes and all. Nothing in the remainder is a wrong answer. All 73 are refusals kohebi reports as such, they are the two literal gaps from item 3, and they do not appear in the token comparison because a tokenizer only has to hand back the text of a literal while a parser has to say what value it is.
+
+The two runs disagreeing about a file is itself a signal, which is why both stages run in the same job over the same corpus. A file that tokenizes identically and parses differently means the bug is in the parser and not before it, and that is most of the debugging done before anyone opens an editor.
 
 Speed is tracked from the first day the parser exists, in `tamnd/kohebi-bench`, against `ast.parse` over the same corpus, with both sides checked for agreement before either is timed. The lexer is 3.6x ahead and the point of measuring the parser from the start is to notice the day that stops being true.
 
@@ -128,7 +132,7 @@ Speed is tracked from the first day the parser exists, in `tamnd/kohebi-bench`, 
 | | Target | Note |
 | --- | --- | --- |
 | Token agreement with `tokenize` | 100% | Met, 1870 of 1870 files |
-| Tree agreement with `ast.parse` | 100% | Over the standard library, attributes included |
+| Tree agreement with `ast.parse` | 100% | 1797 of 1870 files, attributes included. No wrong answers, and the 73 left are the two literal gaps from item 3 |
 | Error text agreement | 100% | Over a corpus of deliberately broken files |
 | Lexer throughput | 3x `tokenize` | Met, 3.6x |
 | Parse throughput | 5x `ast.parse` | `ast.parse` builds Python objects and we do not, so this should be easier than it sounds |
