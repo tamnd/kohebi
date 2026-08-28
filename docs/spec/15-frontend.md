@@ -9,7 +9,7 @@ Source text to tokens to a CPython-compatible AST. This is the first code in the
 | Stage | Input | Output | Crate | State |
 | --- | --- | --- | --- | --- |
 | Lexer | `&str` | `Vec<Token>` | `kohebi-parse` | Done |
-| Parser | `&[Token]` | AST | `kohebi-parse` | Expressions done apart from `lambda` and f-strings, statements not started |
+| Parser | `&[Token]` | AST | `kohebi-parse` | Expressions done apart from f-strings, statements not started |
 | Lowering | AST | HIR | `kohebi-hir` | Not started |
 | Compilation | HIR | register bytecode | `kohebi-bc` | Not started |
 
@@ -88,7 +88,7 @@ The order of work, one pull request each, each one landing with the differential
 
 1. AST node types and an `ast.dump` compatible view, so there is something to compare against before there is a parser. Done, with 77 trees written by hand and checked against CPython 3.14.7.
 2. Literal evaluation, since `Constant` holds a value rather than a token and the expression parser needs somewhere to put one. Done, with 144 hand-written cases and a sweep of every literal in the standard library.
-3. Expressions: Pratt table, calls, subscripts, attributes, comprehensions, conditional expressions, the walrus. Done, with 209 hand-written cases and a sweep of 552966 expressions out of the standard library. `lambda` and f-strings are the two pieces left, because each carries a sub-grammar of its own, and both are refused as unsupported rather than half-parsed until they land.
+3. Expressions: Pratt table, calls, subscripts, attributes, comprehensions, lambdas, conditional expressions, the walrus. Done, with 291 hand-written cases and a sweep of 552966 expressions out of the standard library. f-strings are the one piece left, because a replacement field is a sub-grammar of its own, and they are refused as unsupported rather than half-parsed until they land.
 4. Simple statements, imports, and assignment targets.
 5. Compound statements: `if`, `while`, `for`, `with`, `try`, `def`, `class`, and the `async` forms.
 6. `match`, which is its own grammar and its own eight node types.
