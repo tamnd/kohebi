@@ -10,6 +10,7 @@
 //! shape of the tool is reviewable before any of it works, and so the flags
 //! named throughout the spec have exactly one definition.
 
+use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -38,6 +39,8 @@ enum Command {
     Run(RunArgs),
     /// Compile a Python program to a native binary by way of Rust.
     Build(BuildArgs),
+    /// Print the token stream for a Python file and exit.
+    Tokenize(TokenizeArgs),
     /// Print the resolved configuration and exit.
     Config,
 }
@@ -103,6 +106,24 @@ struct BuildArgs {
     target: Option<String>,
 }
 
+#[derive(Debug, Args)]
+struct TokenizeArgs {
+    /// The Python file to tokenize. `-` reads standard input.
+    file: PathBuf,
+
+    /// How to print the tokens.
+    #[arg(long, value_enum, default_value_t = TokenFormat::Text)]
+    format: TokenFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum TokenFormat {
+    /// One token per line, as `NAME 1,0-1,1 'x'`.
+    Text,
+    /// One JSON object per line.
+    Json,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Tier {
     /// Interpreter only.
@@ -130,6 +151,7 @@ fn main() -> ExitCode {
     let unimplemented = match &cli.command {
         Command::Run(_) => "kohebi run",
         Command::Build(_) => "kohebi build",
+        Command::Tokenize(args) => return tokenize(args),
         Command::Config => {
             println!("kohebi {}", env!("CARGO_PKG_VERSION"));
             println!("rustc target: {}", std::env::consts::ARCH);
@@ -147,6 +169,45 @@ fn main() -> ExitCode {
          for what has to happen before this command does anything."
     );
     ExitCode::FAILURE
+}
+
+/// Print the token stream for one file.
+///
+/// This is a debugging command, and it is also the interface `kohebi-compat`
+/// uses to diff us against CPython's `tokenize` module token for token. That
+/// makes the output format a contract, described in `kohebi_parse::view`.
+fn tokenize(args: &TokenizeArgs) -> ExitCode {
+    let name = args.file.display().to_string();
+    let source = if args.file.as_os_str() == "-" {
+        io::read_to_string(io::stdin())
+    } else {
+        std::fs::read_to_string(&args.file)
+    };
+    let source = match source {
+        Ok(source) => source,
+        Err(error) => {
+            // Not valid UTF-8 counts here. Source encoding declarations are a
+            // separate job, tracked in docs/spec/03-frontend.md.
+            eprintln!("kohebi: cannot read {name}: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match kohebi_parse::view::view(&source) {
+        Ok(tokens) => {
+            let out = match args.format {
+                TokenFormat::Text => kohebi_parse::view::render_text(&tokens),
+                TokenFormat::Json => kohebi_parse::view::render_json(&tokens),
+            };
+            print!("{out}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            // The same shape CPython prints, so the text itself is comparable.
+            eprint!("{}", error.report(&source, &name));
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn init_tracing(filter: Option<&str>) {

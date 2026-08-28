@@ -13,10 +13,12 @@
 pub mod error;
 pub mod lexer;
 pub mod token;
+pub mod view;
 
 pub use error::{ErrorClass, LineMap, Position, SyntaxError};
 pub use lexer::Lexer;
 pub use token::{Keyword, NumberKind, Span, StringPrefix, Token, TokenKind};
+pub use view::{LineCol, ViewToken};
 
 /// Lex `source` into tokens, or fail with the first error.
 pub fn tokenize(source: &str) -> Result<Vec<Token>, SyntaxError> {
