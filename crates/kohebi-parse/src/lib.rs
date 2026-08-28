@@ -4,7 +4,7 @@
 //! has to match CPython closely enough that `ast.parse` and `ast.unparse` round
 //! trip through it, because real programs inspect their own syntax trees and a
 //! near miss there is a compatibility bug that only shows up in someone else's
-//! library. The design lives in `docs/spec/03-frontend.md`.
+//! library. The design lives in `docs/spec/15-frontend.md`.
 //!
 //! Only the lexer exists so far.
 
@@ -26,4 +26,4 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, SyntaxError> {
 }
 
 /// The design documents that govern this crate.
-pub const SPEC: &[&str] = &["docs/spec/03-frontend.md"];
+pub const SPEC: &[&str] = &["docs/spec/15-frontend.md"];

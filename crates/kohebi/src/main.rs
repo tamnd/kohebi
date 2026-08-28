@@ -228,7 +228,7 @@ fn tokenize(args: &TokenizeArgs) -> ExitCode {
             Ok(source) => source,
             Err(error) => {
                 // Not valid UTF-8 counts here. Source encoding declarations are
-                // a separate job, tracked in docs/spec/03-frontend.md.
+                // a separate job, tracked in docs/spec/15-frontend.md.
                 eprintln!("kohebi: cannot read {name}: {error}");
                 return ExitCode::FAILURE;
             }

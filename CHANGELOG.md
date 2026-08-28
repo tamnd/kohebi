@@ -4,6 +4,16 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and the first unit of the frontend.
 
+## Unreleased
+
+f-strings and t-strings, which closes the gap 0.0.2 shipped with. The lexer now agrees with CPython 3.14.7 on 100% of its standard library: 1867 files matched out of 1870, and the three that are left are not UTF-8, so nobody reads them yet. That is up from 1240 of 1870, and there are still zero wrong answers of any kind.
+
+PEP 701 and PEP 750 turn a string literal into something with structure, and the implementation keeps a stack of open strings where each one holds a stack of literal, expression, and format-spec parts. Nothing recurses. Getting there meant learning several things about CPython that are not written down anywhere: a doubled brace splits one character across two tokens, a format spec always emits an `FSTRING_MIDDLE` even when it is empty, `\N{...}` is a single escape that ends its chunk, and a stray closing bracket inside a replacement field leaves the field because the bracket counter is shared with the string around it.
+
+`kohebi tokenize` learned `--files-from` and `--format count`, so a whole corpus is one process rather than 1900. That is what made a benchmark possible: `tamnd/kohebi-bench` now has a `lex` command that tokenizes the standard library under both us and CPython's `tokenize`, checks the two sides counted the same tokens file for file, and only then times either of them. We are 3.6x on an M4 laptop and 5.05x on a CI runner, with the process startup cost reported separately so a reader can take it back out.
+
+The frontend finally has a design document, `docs/spec/15-frontend.md`. Three crates pointed at a `03-frontend.md` that never existed, and a test now walks the tree and fails if any spec document we reference is missing. Writing that sentence with the old path in it was the first thing the new test caught.
+
 ## 0.0.2
 
 The first working piece of the compiler. `kohebi-parse` turns Python source into tokens, and a new `kohebi tokenize` command prints them in the shape CPython's `tokenize` module reports.
