@@ -1,9 +1,10 @@
 //! The statements with a colon and a body: `if`, `while`, `for`, `with`, and
 //! `try`, plus the `async` forms of the last two.
 //!
-//! `def` and `class` are here too, by way of `definition`, which owns them
-//! because a parameter list is a grammar of its own. The dispatch and the block
-//! itself stay here so that all of it reads in one place.
+//! `def` and `class` are here too, by way of `definition`, and `match` by way
+//! of `pattern`, because a parameter list and a pattern are each a grammar of
+//! their own. The dispatch and the block itself stay here so that all of it
+//! reads in one place.
 //!
 //! ## Where the fiddly parts are
 //!
@@ -56,6 +57,11 @@ impl Parser<'_> {
                 self.current().span,
             ));
         }
+        // `match` is a name until the whole line says otherwise, so it is not
+        // in the keyword dispatch below and reads its own line instead.
+        if self.at_soft_keyword("match") {
+            return self.match_line(body);
+        }
         match self.compound_statement()? {
             Some(stmt) => {
                 body.push(stmt);
@@ -68,8 +74,7 @@ impl Parser<'_> {
     /// A compound statement, if one starts here.
     ///
     /// `None` means the line starts with something else, which is every simple
-    /// statement and also `match`, since that one is still reported as a gap by
-    /// `simple_statement`.
+    /// statement.
     fn compound_statement(&mut self) -> Result<Option<Stmt>> {
         let start = self.offset();
         if self.at(TokenKind::At) {

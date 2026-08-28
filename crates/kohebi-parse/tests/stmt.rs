@@ -11,7 +11,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use kohebi_parse::{ErrorClass, dump, dump_with_attributes, parse_module};
+use kohebi_parse::{dump, dump_with_attributes, parse_module};
 
 struct Case {
     /// `None` if CPython parses it, otherwise the exception class it raises.
@@ -150,15 +150,16 @@ fn every_refused_statement_is_refused_for_the_same_reason() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// `match` is the gap now, and it says so.
+/// `match` is reached from every place a statement can be written.
 ///
-/// A gap that reported itself as a `SyntaxError` would tell someone their
-/// working program is broken, and would hide from anyone measuring coverage
-/// how much of the grammar is still missing. It is reported from inside a
-/// block as well as at the margin, since a body is parsed by the same code
-/// that parses a file.
+/// It is the one statement not dispatched on a keyword, because `match` is an
+/// ordinary name until the rest of the line says otherwise. That decision is
+/// made in `statement`, which is also what parses the body of a block, so this
+/// checks the five nestings as well as the margin. Nothing in the statement
+/// grammar reports itself as a gap any more, which is the other half of what
+/// this used to check.
 #[test]
-fn the_unwritten_statements_report_themselves() {
+fn a_match_statement_is_recognised_wherever_one_can_be_written() {
     for source in [
         "match x:\n    case 1: pass",
         "match x:\n    case [1, 2]: pass\n    case _: pass",
@@ -168,11 +169,10 @@ fn the_unwritten_statements_report_themselves() {
         "with a:\n    match x:\n        case 1: pass",
         "try:\n    match x:\n        case 1: pass\nexcept:\n    pass",
     ] {
-        let error = parse_module(source).expect_err("not written yet");
-        assert_eq!(
-            error.class,
-            ErrorClass::Unsupported,
-            "{source} should be reported as our gap, not as the user's mistake"
+        let module = parse_module(source).unwrap_or_else(|e| panic!("{source}: {}", e.message));
+        assert!(
+            dump(&module).contains("Match("),
+            "{source} should hold a match statement"
         );
     }
 }

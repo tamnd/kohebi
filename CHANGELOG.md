@@ -2,9 +2,23 @@
 
 Patch release every few merged PRs, so there is always a recent tag to bisect from and a built binary to hand someone. A `0.x.0` when a milestone finishes.
 
-Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for everything in it except `match`.
+Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for it.
 
 ## Unreleased
+
+`match`, with the whole pattern grammar and all eight pattern node types. That is the last statement, so the parser now reads every Python program CPython reads, with the two literal gaps from the expression work still outstanding.
+
+`match` and `case` are ordinary names that mean something only in one position. `match(x)` is a call, `match + 1` is a sum, `match: int = 1` is an annotated assignment, and `class match` is a class named `match`, and all of those keep working in the same file as a match statement. CPython settles this by reading the line twice, once as a match statement and once as anything else, and taking whichever works. We do the same, and reporting the match reading's error only when both readings fail is what makes `match x` say `expected ':'` rather than complaining about a name.
+
+A pattern looks like an expression and is not one. `case C(x)` binds `x` rather than calling anything, `case 1 | 2` is an alternative rather than a bitwise or, and `case {'a': p}` holds a pattern where a dict holds a value, so none of the expression code is reused except for the pieces that really are expressions: the literals, the dotted names, and the guard.
+
+The pattern alternatives are ordered and the first one that matches wins, which is visible in the errors rather than hidden in the implementation. `_` is the wildcard before it is anything else, so `case _.x` and `case _(y)` are both refused even though `case x.y` and `case C(y)` are fine. A bare name is a capture unless a `.`, a `(`, or an `=` follows it, and those three are exactly what turn it into a dotted value, a class pattern, or a keyword pattern.
+
+A complex literal is checked as each half is read, so `case 1 + 2` says `imaginary number required in complex literal` about the right operand while `case 1j + 2` says `real number required in complex literal` about the left one.
+
+There are 748 hand-written cases, and then a sweep of 1734 whole modules out of CPython 3.14.7's standard library, each one parsed from the first byte to the last and required to print the same `ast.dump` with attributes included. No shape mismatches and no position mismatches. That sweep now takes in CPython's own test suite, which is where the pattern grammar is worked hardest, and it paid for itself immediately by finding two bugs the fixture had not: an `as` target was read as an expression and swallowed the `if` of the guard after it, so `case _ as y if y:` asked for an `else`, and `yield` was reading `expressions` where the grammar says `star_expressions`, so `yield 1, *rest` was refused. Both are fixed and both have cases now.
+
+The 73 files the sweep still refuses are the two literal gaps, `\N{...}` and lone surrogates, and not a statement between them.
 
 `def` and `class`, with decorators, parameter lists, return annotations, PEP 695 type parameters, and the `async def` form. The parser now reads a whole real file end to end, which is the first time it has been possible to point it at something someone actually wrote.
 
@@ -19,8 +33,6 @@ The return annotation sits inside an optional group in the grammar, and that sho
 A class header holds exactly what a call's brackets hold, so bases and keywords come from the same code, with one thing taken away: a generator expression may borrow a call's brackets and write itself without its own, and `class C(x for x in y)` may not.
 
 There are 581 hand-written cases, and then a sweep of 1832 whole modules out of CPython 3.14.7's standard library, each one parsed from the first byte to the last and required to print the same `ast.dump` with attributes included. No shape mismatches and no position mismatches. The 73 files it still refuses are the two literal gaps from the expression work, `\N{...}` and lone surrogates, and not a statement between them.
-
-`match` is the last statement left, and it still reports itself as a gap.
 
 Compound statements: `if` and its `elif` chain, `while`, `for`, `with`, `try`, and the `async` forms of the last two. Blocks in both shapes, so `if x: pass` and an indented body underneath the header are the same rule, and nesting works to whatever depth the file goes.
 
