@@ -6,12 +6,14 @@
 //! near miss there is a compatibility bug that only shows up in someone else's
 //! library. The design lives in `docs/spec/15-frontend.md`.
 //!
-//! Only the lexer exists so far. The parser is next, and four of its pieces
-//! are already here: `value` for what a literal denotes and how `repr` prints
-//! it, `literal` for turning the source text of a literal token into one of
-//! those values, `ast` for the tree CPython's `ast` module describes, and
-//! `dump` for printing that tree the way `ast.dump` does, so there is something
-//! to compare against before there is anything doing the parsing.
+//! The lexer is complete, and so is the expression half of the parser. The
+//! simple statements are in, which is enough for `parse_module` to exist; the
+//! compound statements are next and say so rather than reporting a valid
+//! program as a syntax error. Four supporting pieces sit alongside: `value` for
+//! what a literal denotes and how `repr` prints it, `literal` for turning the
+//! source text of a literal token into one of those values, `ast` for the tree
+//! CPython's `ast` module describes, and `dump` for printing that tree the way
+//! `ast.dump` does.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-parse/0.0.1")]
 
@@ -29,7 +31,7 @@ pub mod view;
 pub use dump::{dump, dump_with_attributes};
 pub use error::{ErrorClass, LineMap, Position, SyntaxError};
 pub use lexer::Lexer;
-pub use parser::parse_expression;
+pub use parser::{parse_expression, parse_module};
 pub use token::{Keyword, NumberKind, Span, StringPrefix, Token, TokenKind};
 pub use value::{Int, Value};
 pub use view::{LineCol, ViewToken};

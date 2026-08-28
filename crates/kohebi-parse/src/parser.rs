@@ -5,7 +5,9 @@
 //! `compile`, for the reason set out in `docs/spec/15-frontend.md`: a library
 //! that inspects a tree we refused to build is a library that does not run.
 //!
-//! Only expressions are here so far, but all of them. Statements come next.
+//! Every expression is here, and the simple statements are in `stmt`. The
+//! compound statements are next, and until they land they report themselves as
+//! a gap rather than as the user's mistake.
 //!
 //! ## Where the fiddly parts are
 //!
@@ -43,6 +45,10 @@ use crate::literal;
 use crate::token::{Interpolated, Keyword, Span, Token, TokenKind};
 use crate::value::Value;
 use unicode_normalization::UnicodeNormalization;
+
+mod stmt;
+
+pub use stmt::parse_module;
 
 type Result<T> = std::result::Result<T, SyntaxError>;
 
@@ -116,15 +122,16 @@ fn assignment_target_name(kind: &ExprKind) -> &'static str {
         ExprKind::JoinedStr { .. } | ExprKind::FormattedValue { .. } => "f-string expression",
         ExprKind::TemplateStr { .. } | ExprKind::Interpolation { .. } => "t-string expression",
         ExprKind::Slice { .. } => "slice",
-        // `a + b` and `not a` are all just "expression", and so are the six
-        // that can be assigned to, which never reach here because the caller
-        // only asks for a name once it has decided the node is not a target.
+        ExprKind::List { .. } => "list",
+        ExprKind::Tuple { .. } => "tuple",
+        ExprKind::Starred { .. } => "starred",
+        // `a + b` and `not a` are all just "expression", and so are the three
+        // that can always be assigned to, which never reach here because the
+        // caller only asks for a name once it has decided the node is not a
+        // target.
         ExprKind::Name { .. }
         | ExprKind::Attribute { .. }
         | ExprKind::Subscript { .. }
-        | ExprKind::Starred { .. }
-        | ExprKind::List { .. }
-        | ExprKind::Tuple { .. }
         | ExprKind::BoolOp { .. }
         | ExprKind::BinOp { .. }
         | ExprKind::UnaryOp { .. } => "expression",

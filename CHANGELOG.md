@@ -2,9 +2,23 @@
 
 Patch release every few merged PRs, so there is always a recent tag to bisect from and a built binary to hand someone. A `0.x.0` when a milestone finishes.
 
-Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads an expression and builds the tree CPython builds.
+Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for everything in it except the compound statements.
 
 ## Unreleased
+
+Simple statements, which is the first time `parse_module` exists and the first time a whole file goes through the parser rather than a single expression. Assignment in all four of its forms, `del`, `return`, `raise`, `assert`, `global`, `nonlocal`, `import`, `from ... import`, `type` aliases with their PEP 695 parameter lists, and `pass`, `break`, `continue`.
+
+Nothing about an assignment is decided until its left hand side has been read, because `a`, `a = 1`, `a += 1`, and `a: int = 1` all begin the same way. So the left hand side is parsed as an ordinary expression and converted afterwards, which is what CPython does and is why `x = *a` parses at all.
+
+Most of the code went into one message, and it is the one people see most. CPython has two rules that can report a bad assignment target and they word it differently, one saying `cannot assign to literal` and the other adding `here. Maybe you meant '==' instead of '='?`. Which one fires is decided by the grammar and not by the tree, so `1 = 2` gets the longer message while `1 = 2 = 3` gets the shorter one, and `([1]) = 2` gets the longer one while `[1] = 2` gets the shorter one and points at a different node. The rule underneath is that the longer message comes from a rule that reads its target as a `bitwise_or` and refuses to start on a list, a tuple, a generator expression, or one of the three named constants. Brackets around any of those make it an atom and the rule matches again, which is the whole of the difference between the two spellings.
+
+The other messages have their own shapes. An augmented assignment calls a tuple a `tuple` where an ordinary one calls it an `expression`. An annotated tuple reports at its first element when it was written with commas and at the whole tuple when it was written with brackets. `del` recurses into a tuple and reports the piece inside, so `del (a, 1)` complains about the `1`.
+
+`type` is a soft keyword, so `type = 1` and `type(x)` still mean what they always did, and a type alias is told apart by looking two tokens ahead for the `=` or the `[` that no other reading can have.
+
+The compound statements are not written yet and say so. Meeting `if` or `def` or a decorator raises our own unsupported error rather than a `SyntaxError`, because reporting a working program as broken would be a lie and would hide the gap from anyone measuring coverage. `match` is caught by the colon that ends its header line, which is a stand-in until match patterns are written.
+
+There are 276 hand-written cases, and then a sweep of every simple statement in CPython 3.14.7's standard library, 76524 of them after duplicates, each one re-parsed on its own and required to print the same `ast.dump` with attributes included. No shape mismatches, no position mismatches, and no refusals.
 
 f-strings and t-strings in the parser, which closes the last gap in the expression grammar. Every expression shape Python has now builds the tree CPython builds.
 
