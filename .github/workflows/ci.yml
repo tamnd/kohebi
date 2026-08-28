@@ -46,7 +46,12 @@ jobs:
       - uses: taiki-e/install-action@v2.87.0
         with:
           tool: cargo-nextest
-      - run: cargo nextest run --workspace --all-features
+      # --no-tests=warn because the crates are still skeletons and nextest
+      # treats an empty run as an error, which is the right default and the
+      # wrong one for today. It prints a warning on every run, which is the
+      # point: this goes back to the default the moment M0 lands a test, and
+      # until then the log says out loud that nothing was verified.
+      - run: cargo nextest run --workspace --all-features --no-tests=warn
       # nextest does not run doctests; they still have to pass.
       - run: cargo test --workspace --doc
 
