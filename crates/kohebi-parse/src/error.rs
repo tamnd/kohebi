@@ -168,6 +168,18 @@ impl LineMap {
         }
     }
 
+    /// The byte offset a line and column refer to.
+    ///
+    /// The inverse of `position`. The parser needs it because `ast` attributes
+    /// are lines and columns while everything that reports an error wants a
+    /// span, so a node that already carries its position has to be able to give
+    /// one back.
+    #[must_use]
+    pub fn offset_at(&self, line: u32, column: u32) -> u32 {
+        let index = (line as usize).saturating_sub(1).min(self.starts.len() - 1);
+        self.starts[index].saturating_add(column)
+    }
+
     /// One-based line number, which is all most callers want.
     #[must_use]
     pub fn line_of(&self, offset: u32) -> u32 {
