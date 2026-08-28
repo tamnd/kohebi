@@ -8,3 +8,8 @@
 *.profraw
 .idea/
 .vscode/
+
+# Raw measurement output from the experiment harnesses. The markdown summary
+# next to it is the record that gets reviewed and cited; the JSON is a local
+# artefact of one run on one machine and does not belong in the history.
+experiments/*/results/*.json
