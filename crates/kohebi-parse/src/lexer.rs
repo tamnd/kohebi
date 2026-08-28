@@ -77,6 +77,9 @@ pub struct Lexer<'src> {
     /// Has this logical line produced a token yet? Decides `NEWLINE` against
     /// `NL` when the line ends.
     line_has_code: bool,
+    /// Cleared once the end of file has supplied the line ending that the last
+    /// line of the file was missing, so that it supplies it only once.
+    owes_line_ending: bool,
     state: State,
 }
 
@@ -109,6 +112,7 @@ impl<'src> Lexer<'src> {
             at_line_start: true,
             brackets: SmallVec::new(),
             line_has_code: false,
+            owes_line_ending: true,
             state: State::Running,
         }
     }
@@ -370,15 +374,33 @@ impl<'src> Lexer<'src> {
                 *span,
             ));
         }
-        // A file whose last line has no trailing newline still ends a logical
-        // line, and the parser should not have to special-case that.
-        if self.line_has_code {
+        // CPython reads the last line of a file as though it ended with a
+        // newline even when it does not, so that line still gets its ending
+        // token: `NEWLINE` if it held code, `NL` if it was only a comment or
+        // trailing whitespace. Nothing is owed when the file really did end
+        // with a newline, because then the last line is empty.
+        if self.owes_line_ending
+            && !matches!(
+                self.bytes.get(self.pos.wrapping_sub(1)),
+                None | Some(b'\n' | b'\r')
+            )
+        {
+            self.owes_line_ending = false;
+            let kind = if self.line_has_code {
+                TokenKind::Newline
+            } else {
+                TokenKind::NonLogicalNewline
+            };
             self.line_has_code = false;
-            return Ok(Token::new(TokenKind::Newline, self.here()));
+            return Ok(Token::new(kind, self.here()));
         }
+        // Every block still open closes here, one DEDENT each. This one is
+        // returned and the rest are queued, and the stack is emptied in the
+        // same breath, because queued dedents do not pop it themselves and
+        // leaving levels on it means arriving back here and closing them twice.
         if self.indents.len() > 1 {
-            self.indents.pop();
-            self.pending_dedents = u32::try_from(self.indents.len() - 1).unwrap_or(u32::MAX);
+            self.pending_dedents = u32::try_from(self.indents.len() - 2).unwrap_or(u32::MAX);
+            self.indents.truncate(1);
             return Ok(Token::new(TokenKind::Dedent, self.here()));
         }
         self.state = State::Finished;

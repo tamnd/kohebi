@@ -686,3 +686,28 @@ fn the_stream_stops_at_the_first_error_rather_than_inventing_more() {
     }
     assert_eq!(errors, 1);
 }
+
+#[test]
+fn every_open_block_closes_once_at_the_end_of_the_file() {
+    // Found by the tokenizer differential in tamnd/kohebi-compat, which saw
+    // three DEDENTs here where CPython emits two. The end of file path popped
+    // one level and then queued the whole remaining depth, so every level
+    // above the first was closed twice.
+    assert_eq!(
+        lex("if a:\n    if b:\n        pass\n"),
+        "NAME(if) NAME(a) OP(:) NEWLINE INDENT \
+         NAME(if) NAME(b) OP(:) NEWLINE INDENT \
+         NAME(pass) NEWLINE DEDENT DEDENT ENDMARKER"
+    );
+}
+
+#[test]
+fn four_nested_blocks_produce_four_dedents() {
+    let source = "a\nif a:\n if a:\n  if a:\n   if a:\n    pass\n";
+    let dedents = tokenize(source)
+        .unwrap()
+        .iter()
+        .filter(|t| t.kind == TokenKind::Dedent)
+        .count();
+    assert_eq!(dedents, 4);
+}
