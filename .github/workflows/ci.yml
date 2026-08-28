@@ -56,7 +56,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # Must match rust-version in Cargo.toml and rust-toolchain.toml.
-      - uses: dtolnay/rust-toolchain@1.98.0
+      - uses: dtolnay/rust-toolchain@1.100.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-features
 
