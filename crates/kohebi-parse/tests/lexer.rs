@@ -464,8 +464,8 @@ fn an_identifier_that_only_looks_like_a_prefix_is_still_an_identifier() {
 
 #[test]
 fn an_escaped_quote_does_not_end_the_literal() {
-    let source = r#"x = 'a\'b'
-"#;
+    let source = r"x = 'a\'b'
+";
     let tokens = tokenize(source).unwrap();
     assert_eq!(tokens[2].span.slice(source), r"'a\'b'");
 }
@@ -474,8 +474,8 @@ fn an_escaped_quote_does_not_end_the_literal() {
 fn a_backslash_still_shields_a_quote_inside_a_raw_string() {
     // The backslash stays in the value, but the quote after it does not close
     // the literal, which is why `r"\"` on its own is unterminated.
-    let source = r#"x = r'a\'b'
-"#;
+    let source = r"x = r'a\'b'
+";
     let tokens = tokenize(source).unwrap();
     assert_eq!(tokens[2].span.slice(source), r"r'a\'b'");
     assert_eq!(
