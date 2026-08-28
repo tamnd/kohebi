@@ -5,10 +5,9 @@
 //! `compile`, for the reason set out in `docs/spec/15-frontend.md`: a library
 //! that inspects a tree we refused to build is a library that does not run.
 //!
-//! Only expressions are here so far. Statements come next, and the two pieces
-//! of the expression grammar that carry a sub-grammar of their own are left
-//! out on purpose: `lambda` with its parameter list, and f-strings and
-//! t-strings with their replacement fields. Both are refused as unsupported
+//! Only expressions are here so far. Statements come next, and one piece of
+//! the expression grammar is still left out on purpose: f-strings and
+//! t-strings with their replacement fields, which are refused as unsupported
 //! rather than half-parsed.
 //!
 //! ## Where the fiddly parts are
@@ -31,8 +30,8 @@
 //! that builds tuples.
 
 use crate::ast::{
-    Attributes, BoolOp, CmpOp, Comprehension, Expr, ExprContext, ExprKind, Ident, Keyword as KwArg,
-    Mod, Operator, UnaryOp,
+    Arg, Arguments, Attributes, BoolOp, CmpOp, Comprehension, Expr, ExprContext, ExprKind, Ident,
+    Keyword as KwArg, Mod, Operator, UnaryOp,
 };
 use crate::error::{ErrorClass, LineMap, SyntaxError};
 use crate::literal;
@@ -313,9 +312,7 @@ impl<'a> Parser<'a> {
     /// `expression`: a conditional expression, or a lambda.
     fn expression(&mut self) -> Result<Expr> {
         if self.at_keyword(Keyword::Lambda) {
-            return Err(self.unsupported(
-                "lambda is not parsed yet, it lands with the parameter list grammar",
-            ));
+            return self.lambda();
         }
         let start = self.offset();
         let body = self.disjunction()?;
@@ -340,6 +337,205 @@ impl<'a> Parser<'a> {
             start,
             end,
         ))
+    }
+
+    /// `lambdef`: `lambda`, a parameter list, a colon, and one expression.
+    ///
+    /// The body is an `expression` and not an `expressions`, so `lambda: a, b`
+    /// is a two element tuple whose first element is the lambda rather than a
+    /// lambda returning a tuple.
+    fn lambda(&mut self) -> Result<Expr> {
+        let start = self.offset();
+        self.bump();
+        let args = self.lambda_parameters()?;
+        self.expect(TokenKind::Colon)?;
+        let body = self.expression()?;
+        let end = self.prev_end();
+        Ok(self.expr(
+            ExprKind::Lambda {
+                args: Box::new(args),
+                body: Box::new(body),
+            },
+            start,
+            end,
+        ))
+    }
+
+    /// The parameter list of a lambda, up to but not including the colon.
+    ///
+    /// CPython writes this as five alternatives of `lambda_parameters` plus a
+    /// parallel set of `invalid_` rules, and reading it that way is misleading.
+    /// It is one left to right walk with three pieces of state: whether `/` has
+    /// been seen, whether `*` has been seen, and whether a default has been
+    /// seen. Every message below is one of those three noticing something out
+    /// of order, and each is CPython's exact wording.
+    ///
+    /// `arguments` is the awkward shape here rather than in the parser. A
+    /// default belongs to `defaults`, which is a tail shared by `posonlyargs`
+    /// and `args` together, or to `kw_defaults`, which is parallel to
+    /// `kwonlyargs` and holds a hole where a keyword-only parameter has none.
+    /// That is why a parameter without a default is an error before the star
+    /// and is fine after it.
+    ///
+    /// Nothing here is annotated. `lambda x: int: 1` is a syntax error, because
+    /// the first colon ends the parameter list, and only `def` takes types.
+    fn lambda_parameters(&mut self) -> Result<Arguments> {
+        let mut args = Arguments::default();
+        let mut seen_slash = false;
+        let mut seen_star = false;
+
+        while !self.at(TokenKind::Colon) {
+            // A `**kwargs` closes the list, so anything after it is out of
+            // place whatever it is.
+            if args.kwarg.is_some() {
+                return Err(Self::error(
+                    "arguments cannot follow var-keyword argument",
+                    self.current().span,
+                ));
+            }
+
+            match self.peek() {
+                TokenKind::Slash => {
+                    let slash = self.bump().span;
+                    if seen_star {
+                        return Err(Self::error("/ must be ahead of *", slash));
+                    }
+                    if seen_slash {
+                        return Err(Self::error("/ may appear only once", slash));
+                    }
+                    if args.args.is_empty() {
+                        // CPython only offers the helpful message when a comma
+                        // follows, because the rule that produces it is written
+                        // as `'/' ','`. A lone `lambda /:` falls through to the
+                        // catch-all instead.
+                        if self.at(TokenKind::Comma) {
+                            return Err(Self::error("at least one argument must precede /", slash));
+                        }
+                        return Err(Self::error("invalid syntax", slash));
+                    }
+                    seen_slash = true;
+                    args.posonlyargs = std::mem::take(&mut args.args);
+                }
+                TokenKind::Star => {
+                    let star = self.bump().span;
+                    if seen_star {
+                        return Err(Self::error("* argument may appear only once", star));
+                    }
+                    seen_star = true;
+                    if self.at(TokenKind::Comma) || self.at(TokenKind::Colon) {
+                        self.bare_star_needs_names()?;
+                    } else {
+                        args.vararg = Some(Box::new(self.lambda_parameter()?));
+                    }
+                }
+                TokenKind::DoubleStar => {
+                    self.bump();
+                    args.kwarg = Some(Box::new(self.lambda_parameter()?));
+                    if self.at(TokenKind::Equal) {
+                        return Err(Self::error(
+                            "var-keyword argument cannot have default value",
+                            self.current().span,
+                        ));
+                    }
+                }
+                TokenKind::LParen => return Err(self.parenthesized_parameters()),
+                _ => {
+                    let span = self.current().span;
+                    let parameter = self.lambda_parameter()?;
+                    let default = if self.eat(TokenKind::Equal) {
+                        Some(self.expression()?)
+                    } else {
+                        None
+                    };
+                    if seen_star {
+                        args.kwonlyargs.push(parameter);
+                        args.kw_defaults.push(default);
+                    } else {
+                        match default {
+                            Some(value) => args.defaults.push(value),
+                            None if !args.defaults.is_empty() => {
+                                return Err(Self::error(
+                                    "parameter without a default follows parameter with a default",
+                                    span,
+                                ));
+                            }
+                            None => {}
+                        }
+                        args.args.push(parameter);
+                    }
+                }
+            }
+
+            if !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(args)
+    }
+
+    /// A bare `*` has to be followed by the names it makes keyword-only.
+    ///
+    /// The position CPython reports is the token that should have been a name,
+    /// which is the colon in `lambda *:` and the `**` in `lambda *, **k:`, so
+    /// this looks one token past the comma rather than raising where the star
+    /// is.
+    fn bare_star_needs_names(&self) -> Result<()> {
+        let offender = if self.at(TokenKind::Colon) {
+            Some(self.current())
+        } else if matches!(self.peek_at(1), TokenKind::Colon | TokenKind::DoubleStar) {
+            Some(self.tokens[(self.pos + 1).min(self.tokens.len() - 1)])
+        } else {
+            None
+        };
+        match offender {
+            Some(token) => Err(Self::error(
+                "named arguments must follow bare *",
+                token.span,
+            )),
+            None => Ok(()),
+        }
+    }
+
+    /// One parameter name. No annotation, no default, just the name.
+    fn lambda_parameter(&mut self) -> Result<Arg> {
+        let name = self.expect(TokenKind::Name)?;
+        Ok(Arg {
+            arg: self.ident(name.span),
+            annotation: None,
+            type_comment: None,
+            attrs: self.attributes(name.span.start, name.span.end),
+        })
+    }
+
+    /// `lambda (x, y): 1`, which is Python 2 muscle memory and gets its own
+    /// message.
+    ///
+    /// Only when the brackets hold a plain list of names, because that is what
+    /// CPython's rule matches. `lambda ((x)): 1` is ordinary invalid syntax,
+    /// and so is `lambda [x]: 1`, since neither is what someone porting from
+    /// Python 2 would have written.
+    fn parenthesized_parameters(&self) -> SyntaxError {
+        let open = self.current().span;
+        let mut index = self.pos + 1;
+        loop {
+            if self.tokens.get(index).map(|t| t.kind) != Some(TokenKind::Name) {
+                return Self::error("invalid syntax", open);
+            }
+            index += 1;
+            match self.tokens.get(index).map(|t| t.kind) {
+                Some(TokenKind::Comma) => index += 1,
+                Some(TokenKind::RParen) => break,
+                _ => return Self::error("invalid syntax", open),
+            }
+            if self.tokens.get(index).map(|t| t.kind) == Some(TokenKind::RParen) {
+                break;
+            }
+        }
+        let close = self.tokens[index].span;
+        Self::error(
+            "Lambda expression parameters cannot be parenthesized",
+            Span::new(open.start, close.end),
+        )
     }
 
     /// `named_expression`: `x := 1`, or an ordinary expression.
