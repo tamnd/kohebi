@@ -12,7 +12,7 @@ PEP 701 and PEP 750 turn a string literal into something with structure, and the
 
 `kohebi tokenize` learned `--files-from` and `--format count`, so a whole corpus is one process rather than 1900. That is what made a benchmark possible: `tamnd/kohebi-bench` now has a `lex` command that tokenizes the standard library under both us and CPython's `tokenize`, checks the two sides counted the same tokens file for file, and only then times either of them. We are 3.6x on an M4 laptop and 5.05x on a CI runner, with the process startup cost reported separately so a reader can take it back out.
 
-The frontend finally has a design document, `docs/spec/15-frontend.md`. Three crates pointed at `docs/spec/03-frontend.md`, which never existed, and a test now walks the tree and fails if any spec document we reference is missing.
+The frontend finally has a design document, `docs/spec/15-frontend.md`. Three crates pointed at a `03-frontend.md` that never existed, and a test now walks the tree and fails if any spec document we reference is missing. Writing that sentence with the old path in it was the first thing the new test caught.
 
 ## 0.0.2
 
