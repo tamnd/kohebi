@@ -106,6 +106,8 @@ Boring, and the reason anyone will believe the numbers.
 
 **Statistics.** Minimum 30 runs. Report median and interquartile range, not mean. Report the geomean of per-benchmark medians for the summary. Reject any comparison whose confidence interval spans 1.0.
 
+**Several builds, not one.** Thirty runs of one binary measure that binary, and that is not the same as measuring the program. M0.4 hit this directly: two builds of identical source, differing only in that one of them contained an unrelated allocator module, gave 0.048s and 0.032s for the same loop. The disassembly showed the same floating-point work in both, 22 multiplies and 16 adds and 3 square roots, and 19 extra `mov` instructions in the slower one, so it was register allocation, not the change. A 1.5x swing from a change that touched nothing in the loop is larger than most of the effects this project intends to claim. So every measurement of our own code samples at least three builds and reports the spread across them, and a result whose build to build spread exceeds the effect it claims is not a result. This is the general hazard from Mytkowicz, Diwan, Hauswirth and Sweeney, "Producing Wrong Data Without Doing Anything Obviously Wrong!", ASPLOS 2009, which is worth reading before writing any benchmark harness.
+
 **Reproducibility.** Every published number reproducible with one command from a clean checkout. The benchmark harness lives in the repo.
 
 **Continuous.** Benchmarks run on every merge to main, with results tracked over time and a regression alert. A 3% regression is invisible in a one-off comparison and obvious in a time series, and by the time a project notices its accumulated 3% regressions it has usually lost 30%.
@@ -117,6 +119,7 @@ Boring, and the reason anyone will believe the numbers.
 - Never quietly drop a benchmark where we regress. If it must be dropped, say why in the same document.
 - Never report warm numbers without the warmup cost.
 - Never report speed without memory.
+- Never report a number from a single build of our own code.
 
 ## The comparison table we are aiming for
 
