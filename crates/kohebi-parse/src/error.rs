@@ -119,6 +119,16 @@ impl SyntaxError {
         }
     }
 
+    /// Where in the file this error is, for the errors that are anywhere.
+    #[must_use]
+    pub const fn offset(&self) -> Option<u32> {
+        match self.site {
+            Site::Line(at) => Some(at),
+            Site::Span(span) => Some(span.start),
+            Site::Message | Site::File => None,
+        }
+    }
+
     /// The traceback CPython would print for this error.
     ///
     /// Same shape as `SyntaxError` formatting in 3.11 and later: the file and

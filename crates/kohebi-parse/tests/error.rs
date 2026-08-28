@@ -136,3 +136,114 @@ fn the_refusals_with_no_position_are_still_refusals() {
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
+
+/// The refusal `parse_module` gives for this source, or a panic saying it did not.
+fn refusal(source: &str) -> String {
+    match parse_module(source) {
+        Ok(_) => panic!("this is supposed to be refused: {source:?}"),
+        Err(e) => e.to_string(),
+    }
+}
+
+/// Which of two refusals a file with one of each gets.
+///
+/// A file has a parse error on line 1 and a tokenizer error on line 3, and the
+/// question is which one comes out. CPython runs the two together and does not
+/// answer it the same way for every tokenizer error, so every case here was
+/// taken from CPython 3.14.7 rather than reasoned about.
+mod when_both_halves_have_something_to_say {
+    use super::refusal;
+
+    /// A parse error early enough that anything below it is only reachable by
+    /// carrying on past it, which CPython's parser does not do.
+    const FIRST: &str = "x = = 1\ny = 2\n";
+
+    fn both(tokenizer_error: &str) -> String {
+        refusal(&format!("{FIRST}{tokenizer_error}"))
+    }
+
+    #[test]
+    fn a_mistake_inside_a_token_wins_from_wherever_it_is() {
+        // CPython's tokenizer raises these itself, and after the parser gives
+        // up CPython tokenizes the rest of the file on purpose to find one.
+        for (source, message) in [
+            (
+                "z = 'abc\n",
+                "SyntaxError: unterminated string literal (detected at line 3)",
+            ),
+            ("z = 1abc\n", "SyntaxError: invalid decimal literal"),
+            ("z = 1)\n", "SyntaxError: unmatched ')'"),
+            (
+                "z = (1]\n",
+                "SyntaxError: closing parenthesis ']' does not match opening parenthesis '('",
+            ),
+            (
+                "z = \u{20ac}\n",
+                "SyntaxError: invalid character '\u{20ac}' (U+20AC)",
+            ),
+        ] {
+            assert_eq!(both(source), message, "for {source:?}");
+        }
+    }
+
+    #[test]
+    fn a_line_that_does_not_fit_the_file_loses_to_a_parse_error_above_it() {
+        // These only stop CPython's tokenizer rather than raising, so a parser
+        // that had already given up higher up is what the user hears from.
+        for source in [
+            "if q:\n        a = 1\n     b = 2\n",
+            "    z = 3\n",
+            "if q:\n\ta = 1\n        b = 2\n",
+            "z = 1 \\ q\n",
+        ] {
+            assert_eq!(
+                both(source),
+                "SyntaxError: invalid syntax",
+                "for {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_of_those_is_still_the_answer_when_nothing_is_wrong_above_it() {
+        // Otherwise the test above would pass on a lexer that had stopped
+        // producing these at all.
+        assert_eq!(
+            refusal("if q:\n        a = 1\n     b = 2\n"),
+            "IndentationError: unindent does not match any outer indentation level"
+        );
+        assert_eq!(
+            refusal("if q:\n\ta = 1\n        b = 2\n"),
+            "TabError: inconsistent use of tabs and spaces in indentation"
+        );
+        assert_eq!(
+            refusal("z = 1 \\ q\n"),
+            "SyntaxError: unexpected character after line continuation character"
+        );
+    }
+
+    #[test]
+    fn an_unclosed_bracket_wins_only_from_a_line_above() {
+        // The one rule that is neither of the two above. Once a bracket has
+        // swallowed the rest of the file, whatever the parser made of what it
+        // swallowed is not worth reporting, but on the line the parse error is
+        // on there is something better to say.
+        assert_eq!(
+            refusal("y = f(1,\nx = = 1\n"),
+            "SyntaxError: '(' was never closed"
+        );
+        assert_eq!(
+            refusal("x = = 1\ny = f(1,\n"),
+            "SyntaxError: invalid syntax"
+        );
+        assert_eq!(refusal("import a[b\n"), "SyntaxError: invalid syntax");
+    }
+
+    #[test]
+    fn a_parser_that_ran_out_of_tokens_did_not_fail_on_its_own() {
+        // Nothing is wrong with `x = (1` until the file ends, so the bracket is
+        // the whole story even though the parse error is on the same line.
+        assert_eq!(refusal("x = (1\n"), "SyntaxError: '(' was never closed");
+        assert_eq!(refusal("foo(\n"), "SyntaxError: '(' was never closed");
+    }
+}

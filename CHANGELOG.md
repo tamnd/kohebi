@@ -6,6 +6,14 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+Which of two refusals a user sees, when a file is wrong in two places at once. A file with a bad statement on line 56 and a bad dedent on line 58 reported the dedent, and CPython reports the statement, because it runs its tokenizer and its parser together and the parser gives up before the tokenizer reaches line 58. Then, once the parser has given up, CPython tokenizes the rest of the file on purpose to see whether the tokenizer had something better to say, and some tokenizer errors win that argument and some lose it.
+
+Three rules, all of them CPython's. A parser that ran out of tokens was cut short rather than failing, so the tokenizer's error is the one to print, which is why `x = (1` still says the bracket was never closed. A mistake inside a token, meaning a bad character, an unterminated string, a malformed number or a mismatched bracket, wins from wherever it is. A line that does not fit the file, meaning indentation, tabs against spaces, or junk after a line continuation, loses to a parse error anywhere above it. An unclosed bracket is its own rule and wins only from a line above, which is why `import a[b` is invalid syntax at the bracket rather than a complaint about the bracket.
+
+Which errors fall on which side was settled by asking CPython 3.14.7, with a file holding a parse error on an early line and one tokenizer error on a later one, rather than by reading its tokenizer. There is a case per rule in the fixture.
+
+Measured over 1200 files made by breaking one random line of a real standard library module, this takes agreement on the whole printed block from 55.33% to 66.33%. It changes nothing about a file that parses: the standard library is still identical to CPython's trees, file for file.
+
 ## 0.0.6
 
 Three merged pull requests since 0.0.5, and all of them are item 9, the error messages. A file kohebi refuses now prints what CPython prints for it, character for character and line for line, over 87 recorded blocks and a corpus of 46 files written to be refused.
