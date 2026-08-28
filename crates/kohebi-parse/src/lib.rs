@@ -7,7 +7,8 @@
 //! library. The design lives in `docs/spec/15-frontend.md`.
 //!
 //! The lexer is complete, and so is the parser: every expression and every
-//! statement, `match` included. Four supporting pieces sit alongside: `value` for
+//! statement, `match` included. Five supporting pieces sit alongside: `source`
+//! for turning the bytes of a file into the text the lexer reads, `value` for
 //! what a literal denotes and how `repr` prints it, `literal` for turning the
 //! source text of a literal token into one of those values, `ast` for the tree
 //! CPython's `ast` module describes, and `dump` for printing that tree the way
@@ -22,6 +23,7 @@ pub mod lexer;
 pub mod literal;
 pub mod parser;
 pub mod printable;
+pub mod source;
 pub mod token;
 pub mod value;
 pub mod view;
@@ -30,6 +32,7 @@ pub use dump::{dump, dump_with_attributes};
 pub use error::{ErrorClass, LineMap, Position, SyntaxError};
 pub use lexer::Lexer;
 pub use parser::{parse_expression, parse_module};
+pub use source::{Source, SourceError, decode};
 pub use token::{Keyword, NumberKind, Span, StringPrefix, Token, TokenKind};
 pub use value::{Int, Value};
 pub use view::{LineCol, ViewToken};

@@ -219,17 +219,26 @@ fn tokenize(args: &TokenizeArgs) -> ExitCode {
     let mut out = String::new();
     for file in &files {
         let name = file.display().to_string();
-        let source = if file.as_os_str() == "-" {
-            io::read_to_string(io::stdin())
+        let bytes = if file.as_os_str() == "-" {
+            let mut buffer = Vec::new();
+            io::Read::read_to_end(&mut io::stdin(), &mut buffer).map(|_| buffer)
         } else {
-            std::fs::read_to_string(file)
+            std::fs::read(file)
         };
-        let source = match source {
-            Ok(source) => source,
+        let bytes = match bytes {
+            Ok(bytes) => bytes,
             Err(error) => {
-                // Not valid UTF-8 counts here. Source encoding declarations are
-                // a separate job, tracked in docs/spec/15-frontend.md.
                 eprintln!("kohebi: cannot read {name}: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        // What encoding those bytes are in is the file's own business to
+        // declare, which is PEP 263 and lives in `kohebi_parse::source`.
+        let source = match kohebi_parse::decode(&bytes) {
+            Ok(source) => source.text,
+            Err(error) => {
+                print!("{out}");
+                eprint!("{}", error.error.report(&error.text, &name));
                 return ExitCode::FAILURE;
             }
         };

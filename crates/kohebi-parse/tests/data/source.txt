@@ -1,0 +1,147 @@
+ok		Module()
+ok	78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	78203d2031	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	23206120636f6d6d656e740a	Module()
+ok	0a0a0a	Module()
+ok	efbbbf78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	efbbbf	Module()
+ok	efbbbf78203d2027c3a9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	efbbbf2320636f64696e673a207574662d380a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+SyntaxError	efbbbf2320636f64696e673a20757466380a78203d20310a	encoding problem: utf8 with BOM
+SyntaxError	efbbbf2320636f64696e673a206c6174696e2d310a78203d20310a	encoding problem: iso-8859-1 with BOM
+SyntaxError	efbbbf2320636f64696e673a2061736369690a78203d20310a	encoding problem: ascii with BOM
+SyntaxError	efbbbf78203d2027f6270a	Non-UTF-8 code starting with '\xf6' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	efbb78203d20310a	Non-UTF-8 code starting with '\xef' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	ef78203d20310a	Non-UTF-8 code starting with '\xef' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+ok	78203d2027c3a9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320e298830a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	78203d2027f09f908d270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='🐍'))])
+SyntaxError	7072696e74282262f6736522290a	Non-UTF-8 code starting with '\xf6' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	78203d20310a79203d2027e9270a	Non-UTF-8 code starting with '\xe9' on line 2, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	78203d202780270a	Non-UTF-8 code starting with '\x80' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	78203d2027ff270a	Non-UTF-8 code starting with '\xff' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	78203d2027c080270a	Non-UTF-8 code starting with '\xc0' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	78203d2027eda080270a	Non-UTF-8 code starting with '\xed' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	78203d2027e282270a	Non-UTF-8 code starting with '\xe2' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	78203d2027f09f92270a	Non-UTF-8 code starting with '\xf0' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	23f60a78203d20310a	Non-UTF-8 code starting with '\xf6' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+ok	23202d2a2d20636f64696e673a206c6174696e2d31202d2a2d0a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a206c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673d6c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	23636f64696e673a6c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	232076696d3a207365742066696c65656e636f64696e673d6c6174696e2d31203a0a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	23212f7573722f62696e2f656e7620707974686f6e0a23202d2a2d20636f64696e673a206c6174696e2d31202d2a2d0a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	0a2320636f64696e673a206c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	09200c2320636f64696e673a206c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	230a2320636f64696e673a206c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a206c6174696e2d310d0a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+SyntaxError	23610a23620a2320636f64696e673a206c6174696e2d310a78203d2027e9270a	Non-UTF-8 code starting with '\xe9' on line 4, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	78203d20310a2320636f64696e673a206c6174696e2d310a79203d2027e9270a	Non-UTF-8 code starting with '\xe9' on line 3, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	78203d2031202320636f64696e673a206c6174696e2d310a79203d2027e9270a	Non-UTF-8 code starting with '\xe9' on line 2, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+SyntaxError	706173730a0a2320636f64696e673a206c6174696e2d310a78203d2027e9270a	Non-UTF-8 code starting with '\xe9' on line 4, but no encoding declared; see https://peps.python.org/pep-0263/ for details
+ok	2320636f64696e67206c6174696e2d310a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a200a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a0a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320656e636f64696e673a206c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e67636f64696e673a206c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+SyntaxError	2320636f64696e673a20636f64696e673a206c6174696e2d310a78203d20310a	unknown encoding: coding
+ok	23206e6f636f64696e673d6c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	23633a6c0a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	230a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a205554462d380a78203d2027c3a9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a20757466380a78203d2027c3a9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a20555446380a78203d2027c3a9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a2055380a78203d2027c3a9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a207574665f380a78203d2027c3a9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a207574662d382d7369670a78203d2027c3a9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a207574662d382d616e797468696e670a78203d2027c3a9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a204c6174696e5f310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a204c4154494e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a2069736f2d6c6174696e2d310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a2069736f2d383835392d312d780a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a206c6174696e310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a204c310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a20383835390a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a2063703831390a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a2069736f383835395f310a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a2049534f5f383835392d313a313938370a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a202d2d2d6c6174696e2d2d2d312d2d2d0a78203d2027e9270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='é'))])
+ok	2320636f64696e673a2061736369690a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+SyntaxError	2320636f64696e673a2061736369690a78203d2027e9270a	'ascii' codec can't decode byte 0xe9 in position 21: ordinal not in range(128)
+SyntaxError	2320636f64696e673a2075732d61736369690a78203d2027e9270a	'ascii' codec can't decode byte 0xe9 in position 24: ordinal not in range(128)
+ok	2320636f64696e673a20414e53495f58332e342d313936380a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+SyntaxError	2320636f64696e673a206370313235320a78203d202781270a	'charmap' codec can't decode byte 0x81 in position 22: character maps to <undefined>
+SyntaxError	2320636f64696e673a2069736f2d383835392d330a78203d2027a5270a	'charmap' codec can't decode byte 0xa5 in position 26: character maps to <undefined>
+SyntaxError	2320636f64696e673a206370313235320a78203d2027e981270a	'charmap' codec can't decode byte 0x81 in position 23: character maps to <undefined>
+SyntaxError	2320636f64696e673a20757466380a78203d202780270a	'utf-8' codec can't decode byte 0x80 in position 20: invalid start byte
+SyntaxError	2320636f64696e673a20757466380a78203d2027ff270a	'utf-8' codec can't decode byte 0xff in position 20: invalid start byte
+SyntaxError	2320636f64696e673a20757466380a78203d2027c080270a	'utf-8' codec can't decode byte 0xc0 in position 20: invalid start byte
+SyntaxError	2320636f64696e673a20757466380a78203d2027c328270a	'utf-8' codec can't decode byte 0xc3 in position 20: invalid continuation byte
+SyntaxError	2320636f64696e673a20757466380a78203d2027e28228270a	'utf-8' codec can't decode bytes in position 20-21: invalid continuation byte
+SyntaxError	2320636f64696e673a20757466380a78203d2027f09f9228270a	'utf-8' codec can't decode bytes in position 20-22: invalid continuation byte
+SyntaxError	2320636f64696e673a20757466380a78203d2027eda080270a	'utf-8' codec can't decode byte 0xed in position 20: invalid continuation byte
+SyntaxError	2320636f64696e673a20757466380a78203d2027e08080270a	'utf-8' codec can't decode byte 0xe0 in position 20: invalid continuation byte
+SyntaxError	2320636f64696e673a20757466380a78203d2027f4908080270a	'utf-8' codec can't decode byte 0xf4 in position 20: invalid continuation byte
+SyntaxError	2320636f64696e673a20757466380a78203d20312023c3	'utf-8' codec can't decode byte 0xc3 in position 22: invalid continuation byte
+SyntaxError	2320636f64696e673a20757466380a78203d20312023e282	'utf-8' codec can't decode bytes in position 22-23: invalid continuation byte
+SyntaxError	2320636f64696e673a20757466380a78203d20312023f09f92	'utf-8' codec can't decode bytes in position 22-24: invalid continuation byte
+SyntaxError	2320636f64696e673a206e6f737563680a78203d20310a	unknown encoding: nosuch
+SyntaxError	2320636f64696e673a204e6f537563682d5468696e670a78203d20310a	unknown encoding: NoSuch-Thing
+SyntaxError	2320636f64696e673a206b6f69382d722d780a78203d20310a	unknown encoding: koi8-r-x
+SyntaxError	2320636f64696e673a207574662d390a78203d20310a	unknown encoding: utf-9
+SyntaxError	2320636f64696e673a20310a78203d20310a	unknown encoding: 1
+ok	2320636f64696e673a2073686966745f6a69730a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a2067626b0a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a206575632d6a700a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a20626967350a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a206575632d6b720a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a20676231383033300a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a2069736f323032322d6a700a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a207574662d370a78203d20310a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value=1))])
+ok	2320636f64696e673a206c6174696e2d310a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éöÿ'))])
+ok	2320636f64696e673a2069736f2d383835392d320a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éö˙'))])
+ok	2320636f64696e673a2069736f2d383835392d350a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='щіџ'))])
+SyntaxError	2320636f64696e673a2069736f2d383835392d370a78203d2027e9f6ff270a	'charmap' codec can't decode byte 0xff in position 28: character maps to <undefined>
+ok	2320636f64696e673a2069736f2d383835392d31330a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éö’'))])
+ok	2320636f64696e673a2069736f2d383835392d31350a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éöÿ'))])
+ok	2320636f64696e673a2069736f2d383835392d31360a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éöÿ'))])
+ok	2320636f64696e673a206b6f69382d720a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='ИЖЪ'))])
+ok	2320636f64696e673a206b6f69382d750a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='ИЖЪ'))])
+ok	2320636f64696e673a206b6f69382d740a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='ИЖЪ'))])
+ok	2320636f64696e673a206370313235300a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éö˙'))])
+ok	2320636f64696e673a206370313235310a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='йця'))])
+ok	2320636f64696e673a206370313235320a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éöÿ'))])
+SyntaxError	2320636f64696e673a206370313235330a78203d2027e9f6ff270a	'charmap' codec can't decode byte 0xff in position 24: character maps to <undefined>
+ok	2320636f64696e673a206370313235340a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éöÿ'))])
+SyntaxError	2320636f64696e673a206370313235350a78203d2027e9f6ff270a	'charmap' codec can't decode byte 0xff in position 24: character maps to <undefined>
+ok	2320636f64696e673a206370313235370a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éö˙'))])
+ok	2320636f64696e673a206370313235380a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éöÿ'))])
+ok	2320636f64696e673a2063703433370a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Θ÷\xa0'))])
+ok	2320636f64696e673a2063703732300a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='لِ\xa0'))])
+ok	2320636f64696e673a2063703733370a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='ώ÷\xa0'))])
+ok	2320636f64696e673a2063703835300a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Ú÷\xa0'))])
+ok	2320636f64696e673a2063703835320a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Ú÷\xa0'))])
+ok	2320636f64696e673a2063703835350a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='жШ\xa0'))])
+ok	2320636f64696e673a2063703835370a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Ú÷\xa0'))])
+ok	2320636f64696e673a2063703836300a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Θ÷\xa0'))])
+ok	2320636f64696e673a2063703836320a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Θ÷\xa0'))])
+ok	2320636f64696e673a2063703836350a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Θ÷\xa0'))])
+ok	2320636f64696e673a2063703836360a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='щЎ\xa0'))])
+ok	2320636f64696e673a2063703836390a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='οψ\xa0'))])
+SyntaxError	2320636f64696e673a2063703837340a78203d2027e9f6ff270a	'charmap' codec can't decode byte 0xff in position 23: character maps to <undefined>
+ok	2320636f64696e673a206370313030360a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='ﻠﺉﹽ'))])
+ok	2320636f64696e673a206370313132350a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='щІ\xa0'))])
+ok	2320636f64696e673a206d61632d726f6d616e0a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Èˆˇ'))])
+ok	2320636f64696e673a206d61632d637972696c6c69630a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='йц€'))])
+ok	2320636f64696e673a206d61632d677265656b0a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='ιω\xad'))])
+ok	2320636f64696e673a206d61632d6963656c616e640a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Èˆˇ'))])
+ok	2320636f64696e673a206d61632d6c6174696e320a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='ťŲˇ'))])
+ok	2320636f64696e673a206d61632d7475726b6973680a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Èˆˇ'))])
+ok	2320636f64696e673a206d61632d63726f617469616e0a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Èˆˇ'))])
+ok	2320636f64696e673a206d61632d726f6d616e69616e0a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='Èˆˇ'))])
+SyntaxError	2320636f64696e673a207469732d3632300a78203d2027e9f6ff270a	'charmap' codec can't decode byte 0xff in position 25: character maps to <undefined>
+SyntaxError	2320636f64696e673a2068702d726f6d616e380a78203d2027e9f6ff270a	'charmap' codec can't decode byte 0xff in position 27: character maps to <undefined>
+ok	2320636f64696e673a20707463703135340a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='йця'))])
+ok	2320636f64696e673a206b7a313034380a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='йця'))])
+ok	2320636f64696e673a2070616c6d6f730a78203d2027e9f6ff270a	Module(body=[Assign(targets=[Name(id='x', ctx=Store())], value=Constant(value='éöÿ'))])
+SyntaxError	7b408396848995877a408397f0f3f725898640817a254040404082407e40c07d837d7a40f14bf56b407d847d7a40baf26b40f3bbd025	Non-UTF-8 code starting with '\x83' on line 1, but no encoding declared; see https://peps.python.org/pep-0263/ for details
