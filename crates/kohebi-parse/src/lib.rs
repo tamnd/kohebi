@@ -6,18 +6,22 @@
 //! near miss there is a compatibility bug that only shows up in someone else's
 //! library. The design lives in `docs/spec/15-frontend.md`.
 //!
-//! Only the lexer exists so far.
+//! Only the lexer exists so far. The parser is next, and `value` is the first
+//! piece of it: what a literal denotes, and how `repr` prints it.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-parse/0.0.1")]
 
 pub mod error;
 pub mod lexer;
+pub mod printable;
 pub mod token;
+pub mod value;
 pub mod view;
 
 pub use error::{ErrorClass, LineMap, Position, SyntaxError};
 pub use lexer::Lexer;
 pub use token::{Keyword, NumberKind, Span, StringPrefix, Token, TokenKind};
+pub use value::{Int, Value};
 pub use view::{LineCol, ViewToken};
 
 /// Lex `source` into tokens, or fail with the first error.
