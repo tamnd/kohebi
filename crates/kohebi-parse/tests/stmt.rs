@@ -1,4 +1,4 @@
-//! Every simple statement, parsed and printed, against what CPython builds.
+//! Every statement, parsed and printed, against what CPython builds.
 //!
 //! The same two comparisons the expression fixture makes, in exec mode: the
 //! tree has the right shape, and every node is where CPython puts it. A
@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use kohebi_parse::{ErrorClass, dump, dump_with_attributes, parse_module};
 
 struct Case {
-    /// `true` if CPython parses it, `false` if CPython refuses it.
-    parses: bool,
+    /// `None` if CPython parses it, otherwise the exception class it raises.
+    refused: Option<String>,
     source: String,
     /// The dump, or for a refused case the error message.
     first: String,
@@ -35,10 +35,9 @@ fn fixture() -> Vec<Case> {
             let fields: Vec<&str> = line.split('\t').collect();
             assert_eq!(fields.len(), 4, "bad fixture line: {line}");
             Case {
-                parses: match fields[0] {
-                    "ok" => true,
-                    "error" => false,
-                    other => panic!("unknown verdict {other}"),
+                refused: match fields[0] {
+                    "ok" => None,
+                    class => Some(class.to_owned()),
                 },
                 source: unescape(fields[1]),
                 first: unescape(fields[2]),
@@ -77,7 +76,7 @@ fn unescape(field: &str) -> String {
 fn every_statement_parses_into_the_tree_cpython_builds() {
     let mut failures = Vec::new();
     for case in fixture() {
-        if !case.parses {
+        if case.refused.is_some() {
             continue;
         }
         match parse_module(&case.source) {
@@ -100,7 +99,7 @@ fn every_statement_parses_into_the_tree_cpython_builds() {
 fn every_statement_node_lands_where_cpython_puts_it() {
     let mut failures = Vec::new();
     for case in fixture() {
-        if !case.parses {
+        if case.refused.is_some() {
             continue;
         }
         let Ok(tree) = parse_module(&case.source) else {
@@ -122,9 +121,9 @@ fn every_statement_node_lands_where_cpython_puts_it() {
 fn every_refused_statement_is_refused_for_the_same_reason() {
     let mut failures = Vec::new();
     for case in fixture() {
-        if case.parses {
+        let Some(class) = case.refused.as_deref() else {
             continue;
-        }
+        };
         match parse_module(&case.source) {
             Ok(tree) => failures.push(format!(
                 "{:?}: CPython refuses this with {:?} and we built {}",
@@ -133,9 +132,9 @@ fn every_refused_statement_is_refused_for_the_same_reason() {
                 dump(&tree)
             )),
             Err(e) => {
-                if e.class != ErrorClass::Syntax {
+                if e.class.python_name() != class {
                     failures.push(format!(
-                        "{:?}: CPython calls this a SyntaxError and we called it {}",
+                        "{:?}: CPython calls this a {class} and we called it {}",
                         case.source,
                         e.class.python_name()
                     ));
@@ -151,24 +150,26 @@ fn every_refused_statement_is_refused_for_the_same_reason() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// The compound statements are the gap now, and they say so.
+/// The two definitions and `match` are the gap now, and they say so.
 ///
 /// A gap that reported itself as a `SyntaxError` would tell someone their
 /// working program is broken, and would hide from anyone measuring coverage
-/// how much of the grammar is still missing.
+/// how much of the grammar is still missing. They are reported from inside a
+/// block as well as at the margin, since a body is parsed by the same code
+/// that parses a file.
 #[test]
 fn the_unwritten_statements_report_themselves() {
     for source in [
-        "if x: pass",
-        "while x: pass",
-        "for x in y: pass",
-        "with a: pass",
-        "try: pass\nexcept: pass",
         "def f(): pass",
         "class C: pass",
         "async def f(): pass",
         "@deco\ndef f(): pass",
         "match x:\n    case 1: pass",
+        "if x:\n    def f(): pass",
+        "while x:\n    class C: pass",
+        "for x in y:\n    @deco\n    def f(): pass",
+        "with a:\n    match x:\n        case 1: pass",
+        "try:\n    async def f(): pass\nexcept:\n    pass",
     ] {
         let error = parse_module(source).expect_err("not written yet");
         assert_eq!(

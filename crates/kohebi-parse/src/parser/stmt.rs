@@ -1,10 +1,11 @@
-//! Statements, so far the simple ones.
+//! Statements, all but the two that carry a parameter list.
 //!
 //! A simple statement is one that fits on a logical line and has no indented
 //! body, which is the whole of assignment, `del`, `return`, `raise`, `assert`,
-//! `global`, `nonlocal`, `import`, `type`, and the three one word ones. The
-//! compound statements come next and report themselves as a gap until they do,
-//! rather than as the user's mistake.
+//! `global`, `nonlocal`, `import`, `type`, and the three one word ones. Those
+//! are here. The ones with a body are in `compound`, except `def` and `class`,
+//! which report themselves as a gap until they land rather than as the user's
+//! mistake.
 //!
 //! ## Where the fiddly parts are
 //!
@@ -38,13 +39,15 @@ use crate::value::Value;
 
 use super::{Parser, Result, assignment_target_name};
 
+mod compound;
+
 /// Parse a whole file, the way `ast.parse(source)` does.
 ///
 /// # Errors
 ///
 /// A `SyntaxError` for source CPython also rejects, or an `Unsupported` error
 /// for a construct that is valid Python and is not written yet, which for now
-/// is every compound statement.
+/// is `def`, `class`, and `match`.
 pub fn parse_module(source: &str) -> Result<Mod> {
     let tokens = crate::tokenize(source)?;
     let mut parser = Parser::new(source, &tokens);
@@ -114,22 +117,11 @@ fn written_without_brackets(kind: &ExprKind) -> bool {
     }
 }
 
-/// What a compound statement keyword is called in the message that says it is
-/// not written yet.
+/// The two compound statements that are not written yet, named for the message
+/// that says so. The rest are in `compound`.
 fn compound_keyword(keyword: Keyword) -> Option<&'static str> {
     match keyword {
-        Keyword::If
-        | Keyword::Elif
-        | Keyword::Else
-        | Keyword::While
-        | Keyword::For
-        | Keyword::With
-        | Keyword::Try
-        | Keyword::Except
-        | Keyword::Finally
-        | Keyword::Def
-        | Keyword::Class
-        | Keyword::Async => Some(keyword.as_str()),
+        Keyword::Def | Keyword::Class => Some(keyword.as_str()),
         _ => None,
     }
 }
@@ -143,7 +135,7 @@ impl Parser<'_> {
             if self.at(TokenKind::EndMarker) {
                 return Ok(body);
             }
-            self.logical_line(&mut body)?;
+            self.statement(&mut body)?;
         }
     }
 
