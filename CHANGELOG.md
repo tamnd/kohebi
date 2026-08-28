@@ -2,9 +2,11 @@
 
 Patch release every few merged PRs, so there is always a recent tag to bisect from and a built binary to hand someone. A `0.x.0` when a milestone finishes.
 
-Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and the first unit of the frontend.
+Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads an expression and builds the tree CPython builds.
 
-## Unreleased
+## 0.0.3
+
+Seven merged pull requests since 0.0.2. The lexer closed its last gap and now agrees with CPython on the whole standard library, the AST and its printer are written down, literals evaluate to real Python values, and there is a parser.
 
 The expression parser, which is the first code in the project that turns tokens into a tree. Recursive descent with a precedence loop for the binary operators, covering names, literals, every operator, comparison chains, calls, subscripts, attributes, slices, tuples, lists, dicts, sets, all four comprehension forms, conditional expressions, the walrus, `await`, and `yield`. Two things are deliberately not in it: `lambda`, because a parameter list is its own grammar, and f-strings, because a replacement field is too. Both are refused as unsupported rather than half-parsed, and there is a test that fails if either ever starts reporting itself as the user's mistake instead of as our gap.
 
