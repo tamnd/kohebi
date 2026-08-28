@@ -167,8 +167,11 @@ The "never worse on memory" row is the one that keeps us honest. It is easy to w
 | `12-testing.md` | Differential testing, fuzzing, the semantics oracle |
 | `13-repo-layout.md` | Crates, CI, packaging, distribution |
 | `14-open-questions.md` | What we do not know, ranked |
+| `15-frontend.md` | Lexer, parser, the AST, and which CPython to match when they disagree |
 
 If you only read two, read this one and `14-open-questions.md`.
+
+The numbers are the order the documents were written rather than the order to read them in. `15-frontend.md` arrived once there was a frontend to describe and belongs next to `03-object-model.md` in a reading order.
 
 ## A note on dates and verification
 
