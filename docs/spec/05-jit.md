@@ -36,7 +36,9 @@ The purpose of T1 is not fast code, it is to get out of interpretive dispatch ch
 
 **The distribution problem.** Generating stencils requires LLVM at build time, per target triple. CPython has this exact problem and has parked it in PEP 774 rather than solving it. We inherit it and we should decide early whether to ship pre-generated stencils in the crate (bloats the source distribution, needs a matrix of targets) or require LLVM to build kohebi from source (raises the barrier for contributors and for `cargo install`). No good answer yet; see `13-repo-layout.md`.
 
-**TPDE as an alternative.** TPDE (CGO 2026) is a single-pass back-end framework that reports compiling SPECint 2017 8 to 26x faster than LLVM `-O0` at comparable code quality, working from an existing SSA IR through an adapter. That is a different operating point from copy-and-patch: slower to compile, better code, no stencil build problem. It might be a better T1, or it might be a better T2, or it might be neither because it is C++ and ELF-only. It should be benchmarked rather than dismissed.
+**TPDE as an alternative.** TPDE (CGO 2026) is a single-pass back-end framework that reports compiling SPECint 2017 8 to 26x faster than LLVM `-O0` at comparable code quality, working from an existing SSA IR through an adapter. That is a different operating point from copy-and-patch: slower to compile, better code, no stencil build problem.
+
+M0.3 settled what it can and cannot be. It emits ELF only, on x86-64 and AArch64 only, with no Mach-O writer and no COFF writer, so it cannot serve macOS or Windows at all. That rules it out for T2, where a Linux-only back end would mean maintaining two of everything including two deopt lowerings. It stays on the list for T1 on Linux specifically, as the fallback if the stencil distribution problem above turns out to have no good answer. See `experiments/m0.3-jit-backend/README.md`.
 
 ## T2: the optimizing compiler
 
@@ -78,13 +80,21 @@ Nothing here is novel. That is deliberate; the novelty budget is spent on CIR an
 
 ### Backend
 
-Open choice between Cranelift and TPDE, decided by measurement.
+Cranelift, at `opt_level=none`, with deopt state spilled to stack slots we allocate ourselves. Settled by M0.3; the harness, the full tables and the disassembly evidence are in `experiments/m0.3-jit-backend/`.
 
-Cranelift is Rust, integrates without an FFI boundary, has `regalloc2` and an e-graph mid-end, and is used in production by Wasmtime.
+Cranelift is Rust, integrates without an FFI boundary, has `regalloc2` and an e-graph mid-end, and is used in production by Wasmtime. TPDE was the other candidate and it is out, because it emits ELF only and two of our four machines need Mach-O or COFF.
 
-The finding that complicates this: Cranelift's stack maps are now "user stack maps," meaning we are responsible for emitting safepoint spills and reloads into the CLIF and annotating which virtual stack slots hold live references, and Cranelift merely forwards those annotations to emission. And there is no evidence Cranelift supports deoptimization at all. Stack maps tell a collector where the pointers are; they say nothing about reconstructing an interpreter frame.
+The two configuration choices are the part that was not obvious, and both were measured on a guarded trace shaped like what T2 will actually receive: one shape check per operation, one cold exit per check, 3n + 4 blocks, sizes from 16 to 2048 operations.
 
-So the deoptimization layer is ours to build regardless of backend, which means backend choice should be made on code quality, compile speed, and integration cost, not on what deopt support each one advertises.
+**`opt_level=none` beats `opt_level=speed` on both axes.** Faster to compile at every size, which is expected, and faster code at every size from 64 operations up, which is not. At 1024 operations `speed` takes 43 s against 17 ms, for code that runs 5x slower. The VCode shows `speed` emitting a 128-bit register-allocator spill of the accumulator on every iteration that `none` does not. There is very little for a back end optimizer to win on this shape: the guards cannot be removed without what the profile knows, the loads cannot be forwarded without alias facts we have to supply, and the arithmetic is already minimal. `clang -O2` had a full mid-end and 30x the compile budget and produced code only 1.3x faster than Cranelift at `none`. The speed of T2 code has to come from our own passes on CIR, before the IR reaches the back end. That agrees with M0.4, which found unboxing worth 22x to 116x and everything else worth 1.16x.
+
+**Deopt state goes through stack slots, not SSA.** Letting a guard's cold block consume the live SSA values directly is the obvious way to write it and it is a factor of five slower: the value is live into a block containing a call, so `regalloc2` parks it in a spill slot and reloads it in the hot path on every operation. At `opt_level=speed` it is also quadratic, because the optimizer rebuilds the pure chain leading to each guard inside that guard's cold block, which at 1024 operations is 8.4 MB of code and 43 s of compile time against 106 KB and 23 ms.
+
+The budget that falls out: about 20 µs of compile time per operation on an M-series laptop, so a 10 ms compile budget buys a trace of roughly 400 operations.
+
+Cranelift's stack maps are "user stack maps," meaning we are responsible for emitting safepoint spills and reloads into the CLIF and annotating which virtual stack slots hold live references, and Cranelift merely forwards those annotations to emission. And there is no evidence Cranelift supports deoptimization at all. Stack maps tell a collector where the pointers are; they say nothing about reconstructing an interpreter frame. So the deoptimization layer is ours to build regardless of backend.
+
+That looked like a tax when it was written down. M0.3 says it is not: the explicit spill the stack map API forces on us is also the faster shape, so the deopt layer and the fast path want the same code.
 
 ## Deoptimization
 
@@ -146,7 +156,7 @@ The interaction to watch: our memory target is aggressive, and a JIT that holds 
 
 ## Open questions for this document
 
-1. Cranelift versus TPDE, decided by a real head-to-head on our workload rather than on SPECint. Include integration cost, since TPDE is C++.
+1. ~~Cranelift versus TPDE, decided by a real head-to-head on our workload rather than on SPECint.~~ Answered by M0.3. Cranelift for T2, because TPDE cannot emit Mach-O or COFF and two of our platforms need one of those. TPDE remains a T1 candidate on Linux.
 2. Does Cranelift have any deoptimization support in progress? Search the Bytecode Alliance RFC repo and Zulip, not the open web.
 3. Can T0 and T1 be generated from one semantic description à la Deegen? Read the OOPSLA 2026 paper first.
 4. Ship pre-generated copy-and-patch stencils, or require LLVM to build? CPython has not solved this and neither have we.
