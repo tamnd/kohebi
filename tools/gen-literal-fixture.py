@@ -147,6 +147,15 @@ STRINGS = [
     "br'\\n'",
     "u'x'",
     "U'x'",
+    # Lone surrogates, which a Python string holds and a Rust `str` cannot.
+    "'\\ud800'",
+    "'\\udfff'",
+    "'\\U0000D800'",
+    "'a\\ud800b'",
+    # Two escapes that look like a surrogate pair stay two code points.
+    "'\\ud83d\\ude00'",
+    # The quote choice is made over the whole string either way.
+    "\"\\ud800'\"",
     # Bytes.
     "b''",
     "b'a'",
@@ -181,8 +190,6 @@ ERRORS = [
 UNSUPPORTED = [
     "'\\N{BULLET}'",
     "'\\N{GREEK SMALL LETTER ALPHA}'",
-    "'\\ud800'",
-    "'\\udfff'",
 ]
 
 

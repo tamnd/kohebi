@@ -43,7 +43,7 @@ use crate::ast::{
 use crate::error::{LineMap, SyntaxError};
 use crate::literal;
 use crate::token::{Interpolated, Keyword, Span, Token, TokenKind};
-use crate::value::Value;
+use crate::value::{StrBuf, Value};
 use unicode_normalization::UnicodeNormalization;
 
 mod stmt;
@@ -57,7 +57,7 @@ type Result<T> = std::result::Result<T, SyntaxError>;
 /// # Errors
 ///
 /// A `SyntaxError` for source CPython also rejects, or an `Unsupported` error
-/// for the two literal gaps named in `literal`: `\N{...}` and lone surrogates.
+/// for the one literal gap named in `literal`, which is `\N{...}`.
 pub fn parse_expression(source: &str) -> Result<Mod> {
     let tokens = crate::tokenize(source)?;
     let mut parser = Parser::new(source, &tokens);
@@ -229,7 +229,7 @@ fn label(kind: Interpolated) -> &'static str {
 /// built as each piece is read.
 #[derive(Default)]
 struct LiteralRun {
-    text: String,
+    text: StrBuf,
     bytes: Vec<u8>,
     /// From the first token that contributed to the run to the last, which is
     /// the position CPython gives the `Constant`.
@@ -1352,7 +1352,7 @@ impl<'a> Parser<'a> {
                 run.kind = Some(Ident::from("u"));
             }
             match literal::string(span.slice(self.source), prefix, span)? {
-                Value::Str(text) => run.text.push_str(&text),
+                Value::Str(text) => run.text.push_string(&text),
                 Value::Bytes(raw) => run.bytes.extend_from_slice(&raw),
                 _ => unreachable!("a string literal decodes to a string or to bytes"),
             }
@@ -1363,7 +1363,7 @@ impl<'a> Parser<'a> {
             let value = if is_bytes == Some(true) {
                 Value::Bytes(run.bytes.into_boxed_slice())
             } else {
-                Value::Str(run.text.into_boxed_str())
+                Value::Str(run.text.finish())
             };
             return Ok(self.expr(
                 ExprKind::Constant {
@@ -1425,7 +1425,7 @@ impl<'a> Parser<'a> {
         }
         run.claim(span);
         run.text
-            .push_str(&literal::interpolated_text(text, raw, span)?);
+            .push_string(&literal::interpolated_text(text, raw, span)?);
         Ok(())
     }
 
@@ -1437,7 +1437,7 @@ impl<'a> Parser<'a> {
             let text = std::mem::take(&mut run.text);
             values.push(self.expr(
                 ExprKind::Constant {
-                    value: Value::Str(text.into_boxed_str()),
+                    value: Value::Str(text.finish()),
                     kind: run.kind.take(),
                 },
                 span.start,

@@ -19,10 +19,12 @@ import random
 import struct
 import sys
 
-#: Lone surrogates. CPython strings can hold them and Rust strings cannot, so
-#: they are outside what this crate claims to support and are left out here
-#: rather than recorded as cases we knowingly fail.
-SURROGATES = range(0xD800, 0xE000)
+#: Lone surrogates, which a Python string can hold and a Rust `str` cannot.
+#: `Value::Str` carries a code point representation for exactly this, so they
+#: belong in the fixture rather than being filtered out of it. Both ends of the
+#: range and both halves of what would be a pair, since a pair written out as
+#: two escapes stays two code points in Python rather than combining.
+SURROGATES = [0xD800, 0xD801, 0xDBFF, 0xDC00, 0xDFFE, 0xDFFF]
 
 
 def strings() -> list[str]:
@@ -64,7 +66,18 @@ def strings() -> list[str]:
             start = None
     if start is not None:
         boundaries.update({start - 1, start, 0x10FFFF})
-    cases += [chr(cp) for cp in sorted(boundaries) if 0 <= cp <= 0x10FFFF and cp not in SURROGATES]
+    cases += [chr(cp) for cp in sorted(boundaries) if 0 <= cp <= 0x10FFFF]
+
+    # A lone surrogate on its own, next to text, and next to a quote, since the
+    # quote choice is made over the whole string and the code point path has to
+    # make it the same way the character path does.
+    cases += [chr(cp) for cp in SURROGATES]
+    cases += [
+        "a\ud800b",
+        "\ud83d\ude00",
+        "it's \ud800",
+        "\ud800 and both ' and \"",
+    ]
     return cases
 
 
