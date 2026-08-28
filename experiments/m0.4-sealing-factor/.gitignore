@@ -1,0 +1,7 @@
+# The driver builds six binaries, two allocators across three codegen-unit
+# settings, each into its own target directory so the builds cannot share
+# artifacts and quietly become the same build. That is a few hundred megabytes
+# of Cargo output and none of it is worth keeping.
+rust/target/
+__pycache__/
+.pytest_cache/
