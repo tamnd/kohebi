@@ -156,6 +156,23 @@ STRINGS = [
     "'\\ud83d\\ude00'",
     # The quote choice is made over the whole string either way.
     "\"\\ud800'\"",
+    # Named characters, which cover the three ways a name resolves: stored,
+    # spelled out as a rule, and an alias.
+    "'\\N{BULLET}'",
+    "'\\N{bullet}'",
+    "'\\N{GREEK SMALL LETTER ALPHA}'",
+    "'\\N{LATIN SMALL LETTER A}'",
+    "'a\\N{BULLET}b'",
+    "'\\N{BULLET}\\N{BULLET}'",
+    "'\\N{CJK UNIFIED IDEOGRAPH-4E00}'",
+    "'\\N{HANGUL SYLLABLE GAG}'",
+    "'\\N{TANGUT IDEOGRAPH-17000}'",
+    "'\\N{NULL}'",
+    "'\\N{LINE FEED}'",
+    "'\\N{BELL}'",
+    "'\\N{ALERT}'",
+    "r'\\N{BULLET}'",
+    "b'\\N{BULLET}'",
     # Bytes.
     "b''",
     "b'a'",
@@ -174,6 +191,16 @@ STRINGS = [
 ]
 
 ERRORS = [
+    # A name that is not one, and the four ways the escape is malformed rather
+    # than merely unknown.
+    "'\\N{NOPE}'",
+    "'\\N{KEYCAP DIGIT ZERO}'",
+    "'\\N{CJK UNIFIED IDEOGRAPH-04E00}'",
+    "'\\N{HANGUL SYLLABLE G}'",
+    "'\\N{}'",
+    "'\\N'",
+    "'\\Nx'",
+    "'\\N{BULLET'",
     "'\\x'",
     "'\\xg'",
     "'\\x1'",
@@ -187,10 +214,7 @@ ERRORS = [
 
 # Refused by us on purpose rather than by CPython, and listed here so the count
 # of them is visible rather than buried.
-UNSUPPORTED = [
-    "'\\N{BULLET}'",
-    "'\\N{GREEK SMALL LETTER ALPHA}'",
-]
+UNSUPPORTED: list[str] = []
 
 
 def main() -> int:

@@ -25,6 +25,7 @@ pub mod parser;
 pub mod printable;
 pub mod source;
 pub mod token;
+pub mod unicode_name;
 pub mod value;
 pub mod view;
 

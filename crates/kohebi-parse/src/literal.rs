@@ -17,23 +17,18 @@
 //! U+0100 in a string and is `b'\x00'` in bytes, because the byte version wraps
 //! and the text version does not.
 //!
-//! The fixture next to this module has 148 cases picked by hand to hit every
+//! The fixture next to this module has 169 cases picked by hand to hit every
 //! shape. That is the readable check. The one that actually convinced me was
 //! pulling every distinct string and number token out of CPython 3.14.7's
 //! standard library, 97604 of them, and requiring our value to print as
 //! `ast.literal_eval` prints it. Nothing decoded to the wrong answer. The 259
 //! that did not pass were two gaps rather than two bugs, 227 lone surrogates
-//! and 32 uses of `\N{...}`, and the surrogates are gone now that `Str` can
-//! hold a code point that is not a character.
+//! and 32 uses of `\N{...}`, and both are closed now: `Str` holds a code point
+//! that is not a character, and `unicode_name` resolves the names.
 //!
 //! ## What is not done here yet
 //!
-//! `\N{GREEK SMALL LETTER ALPHA}` needs the Unicode name database, which is
-//! about two megabytes of names and is its own piece of work. It is refused as
-//! unsupported rather than guessed at. Twenty six files in CPython 3.14.7's
-//! standard library use one, all but a handful of them tests.
-//!
-//! Error messages are the other gap and it is deliberate. CPython's are of the
+//! Error messages, and it is deliberate. CPython's are of the
 //! form `(unicode error) 'unicodeescape' codec can't decode bytes in position
 //! 0-3: truncated \uXXXX escape`, with a byte range that follows rules worth
 //! getting right on purpose rather than by approximation. They land with the
@@ -244,13 +239,7 @@ fn unicode(body: &str, raw: bool, span: Span, offset: u32) -> Result<Str, Syntax
             'x' => push_hex(&mut out, &mut chars, 2, span, offset, at)?,
             'u' => push_hex(&mut out, &mut chars, 4, span, offset, at)?,
             'U' => push_hex(&mut out, &mut chars, 8, span, offset, at)?,
-            'N' => {
-                return Err(SyntaxError::new(
-                    crate::error::ErrorClass::Unsupported,
-                    "the \\N{...} escape needs the Unicode name database, which kohebi does not have yet",
-                    span_at(span, offset, at, 2),
-                ));
-            }
+            'N' => named(&mut out, &mut chars, body, span, offset, at)?,
             other => keep(&mut out, other),
         }
     }
@@ -329,6 +318,61 @@ fn octal(first: char, chars: &mut std::str::CharIndices<'_>) -> u32 {
         }
     }
     value
+}
+
+/// `\N{GREEK SMALL LETTER ALPHA}`, which names a character rather than
+/// numbering it.
+///
+/// CPython tells two failures apart here and so do we. An escape that is not
+/// shaped like one at all, meaning no brace after the `N`, no closing brace
+/// before the end of the literal, or nothing between the braces, is malformed.
+/// An escape that is shaped right and names nothing is an unknown name. The
+/// two say different things because they are different mistakes: one is a typo
+/// in the syntax and the other is a typo in the name.
+fn named(
+    out: &mut StrBuf,
+    chars: &mut std::str::CharIndices<'_>,
+    body: &str,
+    span: Span,
+    offset: u32,
+    at: usize,
+) -> Result<(), SyntaxError> {
+    let malformed = |len: usize| {
+        SyntaxError::syntax(
+            "malformed \\N character escape",
+            span_at(span, offset, at, len),
+        )
+    };
+    let mut lookahead = chars.clone();
+    let Some((brace, '{')) = lookahead.next() else {
+        return Err(malformed(2));
+    };
+    let rest = &body[brace + 1..];
+    let Some(width) = rest.find('}') else {
+        return Err(malformed(3));
+    };
+    let name = &rest[..width];
+    // The closing brace, whose index is what says how far to walk the
+    // iterator. Counting characters instead would go wrong on a name with
+    // anything outside ASCII in it, which is not a name but is allowed to be
+    // written down.
+    let close = brace + 1 + width;
+    for (index, _) in chars.by_ref() {
+        if index == close {
+            break;
+        }
+    }
+    if name.is_empty() {
+        return Err(malformed(3));
+    }
+    let Some(found) = crate::unicode_name::lookup(name) else {
+        return Err(SyntaxError::syntax(
+            "unknown Unicode character name",
+            span_at(span, offset, at, close + 1 - at),
+        ));
+    };
+    out.push(found);
+    Ok(())
 }
 
 /// Exactly `count` hex digits, or nothing.
