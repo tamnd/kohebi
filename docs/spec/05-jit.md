@@ -82,7 +82,7 @@ Nothing here is novel. That is deliberate; the novelty budget is spent on CIR an
 
 Cranelift, at `opt_level=none`, with deopt state spilled to stack slots we allocate ourselves. Settled by M0.3; the harness, the full tables and the disassembly evidence are in `experiments/m0.3-jit-backend/`.
 
-Cranelift is Rust, integrates without an FFI boundary, has `regalloc2` and an e-graph mid-end, and is used in production by Wasmtime. TPDE was the other candidate and it is out, because it emits ELF only and two of our four machines need Mach-O or COFF.
+Cranelift is Rust, integrates without an FFI boundary, has `regalloc2` and an e-graph mid-end, and is used in production by Wasmtime. TPDE was the other candidate and it is out, because it emits ELF only and two of our four machines need Mach-O or COFF. That is a real cost and not a free choice: measured head to head on Linux, TPDE compiles this workload 1.4x faster than Cranelift and its code runs 1.5x faster. A tier 2 that exists on one of three platforms is not a tier 2, and two back ends would mean every speculation, guard lowering and deopt descriptor implemented twice forever, so the trade still goes the same way.
 
 The two configuration choices are the part that was not obvious, and both were measured on a guarded trace shaped like what T2 will actually receive: one shape check per operation, one cold exit per check, 3n + 4 blocks, sizes from 16 to 2048 operations.
 
