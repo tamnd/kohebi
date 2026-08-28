@@ -2,7 +2,19 @@
 
 Patch release every few merged PRs, so there is always a recent tag to bisect from and a built binary to hand someone. A `0.x.0` when a milestone finishes.
 
-Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, and the experiments the design rests on.
+Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and the first unit of the frontend.
+
+## 0.0.2
+
+The first working piece of the compiler. `kohebi-parse` turns Python source into tokens, and a new `kohebi tokenize` command prints them in the shape CPython's `tokenize` module reports.
+
+The lexer handles the whole of Python's lexical grammar apart from f-strings: every number shape, every string prefix, implicit line joining inside brackets, explicit joining with a backslash, all three kinds of line ending, tabs and spaces with CPython's own rule for when the mix is ambiguous, form feeds, and a byte order mark. It reports errors with the wording CPython uses, because an error message is part of the language as far as anyone reading one is concerned.
+
+`kohebi tokenize` exists so `tamnd/kohebi-compat` can diff us against CPython file by file rather than waiting for a runtime that can execute a whole program. It runs over CPython's own standard library, about 1900 files, and currently matches on 1240 of them with zero wrong answers. The other 627 are f-strings, which we refuse out loud rather than getting wrong, and they are the next piece of work.
+
+That comparison found three bugs in a lexer that already passed 62 hand written tests. An extra DEDENT at the end of any file with more than one open block. A missing NEWLINE when the last line of a file had no line ending. Wrong positions after that point, since CPython reads such a file as though the ending were there.
+
+Also in this release, the M0.3 sweep now has numbers from the Linux and Windows machines rather than macOS alone, and two claims published from the first run turned out to be wrong once the other platforms ran. Both are corrected in `docs/spec/`.
 
 ## 0.0.1
 
