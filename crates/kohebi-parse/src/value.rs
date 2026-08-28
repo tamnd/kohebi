@@ -196,7 +196,11 @@ fn shortest_digits(value: f64) -> (String, i32) {
 }
 
 /// `repr` of a string, quote choice and escapes included.
-fn str_repr(s: &str) -> String {
+///
+/// Public because `ast.dump` prints identifiers with `repr` too, so `name='f'`
+/// and `alias(name='a.b')` go through exactly this function.
+#[must_use]
+pub fn str_repr(s: &str) -> String {
     // A string with an apostrophe in it and no double quote is printed in
     // double quotes, so that the apostrophe does not need escaping.
     let quote = if s.contains('\'') && !s.contains('"') {

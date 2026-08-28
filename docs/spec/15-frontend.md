@@ -9,7 +9,7 @@ Source text to tokens to a CPython-compatible AST. This is the first code in the
 | Stage | Input | Output | Crate | State |
 | --- | --- | --- | --- | --- |
 | Lexer | `&str` | `Vec<Token>` | `kohebi-parse` | Done |
-| Parser | `&[Token]` | AST | `kohebi-parse` | Not started |
+| Parser | `&[Token]` | AST | `kohebi-parse` | Node types and `ast.dump` done, parsing not started |
 | Lowering | AST | HIR | `kohebi-hir` | Not started |
 | Compilation | HIR | register bytecode | `kohebi-bc` | Not started |
 
@@ -86,7 +86,7 @@ Recursion depth is bounded explicitly rather than by the stack. CPython raises `
 
 The order of work, one pull request each, each one landing with the differential extended to cover it:
 
-1. AST node types and an `ast.dump` compatible view, so there is something to compare against before there is a parser.
+1. AST node types and an `ast.dump` compatible view, so there is something to compare against before there is a parser. Done, with 77 trees written by hand and checked against CPython 3.14.7.
 2. Expressions: Pratt table, calls, subscripts, attributes, comprehensions, lambdas, conditional expressions, the walrus.
 3. Simple statements, imports, and assignment targets.
 4. Compound statements: `if`, `while`, `for`, `with`, `try`, `def`, `class`, and the `async` forms.
