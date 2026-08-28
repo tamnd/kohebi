@@ -273,6 +273,104 @@ candidate for tier 1 on Linux specifically, if copy-and-patch runs into the
 stencil build problem CPython has not solved either. It is not an option for
 tier 2.
 
+## Deoptimization: what Cranelift gives us
+
+The second question in issue #4 was to search the Bytecode Alliance RFC
+repository rather than the open web, on the theory that this had been discussed
+there. It has not. There is no RFC on deoptimization. So this section is read off
+the Cranelift source instead, which is a better answer anyway.
+
+Three things in Cranelift are adjacent to deopt.
+
+**User stack maps.** A `UserStackMapEntry` is `{ ty, slot, offset }`, and the
+important word is "user". The producer declares the entries, and to declare one
+the producer has to have spilled the value into an explicit stack slot it
+allocated itself. Cranelift does not tell you where its register allocator put a
+value; it forwards annotations you already made about slots you already chose.
+That is enough for a garbage collector, which needs to find pointers at
+safepoints it also chose. It is not deopt, which needs to reconstruct every local
+and every operand stack entry at a guard.
+
+**Debug tags.** `DebugTag` is `User(u32) | StackSlot(StackSlot)`. Tags can be
+attached only to call instructions and to `sequence_point`, they survive
+lowering, and inlining prepends the caller's tags to the callee's. That last
+property is genuinely useful: it means a tag can carry an inlining stack, which
+is one of the things a deopt descriptor needs. It is a way to label a program
+point, not a way to describe the state at one.
+
+**Exception tables and `try_call`.** These exist and they give us a non-local
+exit with a landing pad, which is the mechanism a guard failure can ride out on.
+Again a delivery mechanism, not a description of what to deliver.
+
+So the shape of the work is clear. We spill the deopt-live values into stack
+slots we allocate ourselves at each guard, we tag the guard with an index into
+our own descriptor table, and we write the descriptor format, the compression,
+the bailout stub, the frame reconstruction and the sunk-allocation replay. What
+Cranelift saves us is the plumbing to get from a failed guard to our code, plus
+the guarantee that annotations survive its optimizer.
+
+### The cost of doing it this way, which is not what I expected
+
+Spilling at every guard is exactly the thing HotSpot and V8 avoid by building
+their deopt maps inside the register allocator, where a value that lives in a
+register can be described as living in that register. Doing it above the
+allocator means the allocator sees a store it must not remove and a value that
+must be live, at every single guard, and Python-shaped code is nothing but
+guards. Written down like that it is obviously a pessimization proportional to
+guard density, and that is what I wrote down.
+
+The measurement above says the opposite, and the reason is worth stating,
+because it is a fact about this back end rather than about deopt in general.
+
+The alternative to spilling is not "the value stays in a register at no cost".
+The value is live into a cold block that contains a call, so `regalloc2` has to
+get it out of the way of the call somehow, and what it does is spill it, badly:
+a 16 byte vector spill plus a reload in the hot path on every operation. Our
+explicit spill is an 8 byte store and no reload. So the real comparison is
+between our spill and the allocator's, not between spilling and not spilling,
+and ours is cheaper. Measured: 1.19 ms against 0.21 ms at 64 operations,
+holding across three builds and five trace sizes.
+
+The register-in-a-register-map trick HotSpot uses is not on the table for
+Cranelift either way, because Cranelift will not tell us where the allocator put
+anything. Given that, the API forcing us to spill costs nothing we were not
+already going to pay.
+
+One caveat, stated because it limits the result. The trace here has one deopt-live
+value. A real guard has a frame's worth, and the cost of storing them grows with
+the live set while the allocator's spill cost does too, so the direction should
+hold but the crossover is not measured. Worth revisiting in M6 with a realistic
+live set.
+
+The escape hatch is still worth planning for rather than discovering: guards a
+shape check has already proven redundant do not need descriptors, and guards
+inside a loop can be hoisted so the descriptor is built once at loop entry rather
+than every iteration. M0.4 measured that hoisting matters for a different reason,
+and this is a second one. But that is an optimization on top of a correct
+baseline, and the baseline is spill-everything.
+
+### Estimate for M6
+
+This is a sizing estimate for planning, not a promise.
+
+| Piece | Size | Why |
+| --- | --- | --- |
+| Descriptor format and encoder | small | A bytecode offset, a value location list, an inlining stack. Well understood. |
+| Emitting descriptors at guards | medium | Touches every guard lowering in tier 2, so it is spread across the back end rather than contained. |
+| Bailout stub and frame reconstruction | medium | One stub plus an index, reading the descriptor and building a T0 frame. Fiddly, but bounded and very testable. |
+| Descriptor compression and out-of-line storage | small | Only read on failure. Open question 6 in `docs/spec/05-jit.md` is whether it threatens the memory target. |
+| Sunk allocation replay | large | LuaJIT's `lj_snap_restore` is the reference and it is the fiddliest part of that codebase. |
+| Deopt-triggered recompilation | medium | Count failures per guard, recompile without that speculation, keep the old code alive until nothing is executing in it. |
+
+The rule that falls out of the sunk-allocation row is worth keeping in the spec
+where it already is: you may only sink an allocation you can un-sink. This
+experiment is why it stays there.
+
+The honest read is that the deopt layer is comparable in size to the tier 2
+compiler it serves, and M6 should be planned that way. Nothing here changes the
+milestone plan, but it removes the possibility that M6 turns out to be smaller
+than feared.
+
 ## Decision
 
 Tier 2 uses Cranelift, at `opt_level=none`, with deopt state spilled to stack
@@ -280,8 +378,9 @@ slots the runtime allocates itself. Recorded in `docs/spec/05-jit.md`.
 
 TPDE stays on the list as a possible tier 1 back end on Linux, and only there.
 
-The second half of issue #4, what the deopt layer costs us to build and how big
-that makes M6, follows in its own change.
+Cranelift has no deoptimization support and none is planned. The layer is ours
+to build, it is roughly the size of the tier 2 compiler, and the way Cranelift
+forces us to build it is also the fast way.
 
 ## Reproducing
 

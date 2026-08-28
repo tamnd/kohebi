@@ -112,6 +112,14 @@ Lazy deoptimization. When an assumption is invalidated globally, for instance be
 
 **Deopt reasons should be enumerated and counted.** V8 has more than 70. A `--deopt-stats` flag that reports which guards are failing and how often is the single most useful debugging tool this runtime can have, both for us and for users trying to understand why their code is slow.
 
+**What Cranelift contributes, from M0.3.** Nothing directly, and none is planned. There is no Bytecode Alliance RFC on deoptimization. Three features are adjacent. User stack maps let a producer declare `{ ty, slot, offset }` entries for values it has already spilled into slots it allocated itself, which is enough for a collector and is not a deopt map. `DebugTag`, attachable to calls and `sequence_point`, survives lowering and gets the caller's tags prepended on inlining, so it can carry an inlining stack, which is a way to label a program point rather than describe the state at one. `try_call` and exception tables give a non-local exit with a landing pad, which is how a failed guard rides out. So Cranelift gives us delivery and annotation survival; the descriptor format, the compression, the bailout stub, the frame reconstruction and the sunk-allocation replay are all ours.
+
+**Spilling at every guard is not the tax it looks like.** Building deopt maps above the register allocator instead of inside it, as HotSpot and V8 do, looks like a pessimization proportional to guard density, which for Python-shaped code would be severe. M0.3 measured it and it is the other way round. The alternative to our spill is not the value staying in a register: it is live into a cold block containing a call, so `regalloc2` spills it anyway and does it worse, a 16 byte vector spill plus a hot-path reload on every operation against our single 8 byte store. 1.19 ms against 0.21 ms at 64 guards. Describing a value as living in a register was never available to us because Cranelift will not say where the allocator put anything, so the API forcing the spill costs nothing we were not already paying. Caveat: that was measured with one deopt-live value, and a real frame has more, so revisit with a realistic live set in M6.
+
+**Sizing.** The descriptor format and encoder are small, and so is compression and out-of-line storage. Emitting descriptors at guards is medium and spread across every guard lowering rather than contained. The bailout stub and frame reconstruction are medium, fiddly but bounded and very testable. Deopt-triggered recompilation is medium. Sunk allocation replay is large; `lj_snap_restore` is the reference and it is the fiddliest part of LuaJIT. Added up, the deopt layer is comparable in size to the T2 compiler it serves, and M6 is planned that way.
+
+Two optimizations are worth planning for rather than discovering. A guard a shape check has already proven redundant needs no descriptor, and a guard inside a loop can be hoisted so the descriptor is built once at loop entry rather than every iteration. M0.4 wanted hoisting for a different reason; this is a second one. Both sit on top of a correct baseline, and the baseline is spill everything.
+
 ## On-stack replacement
 
 Two directions, both required.
@@ -157,7 +165,7 @@ The interaction to watch: our memory target is aggressive, and a JIT that holds 
 ## Open questions for this document
 
 1. ~~Cranelift versus TPDE, decided by a real head-to-head on our workload rather than on SPECint.~~ Answered by M0.3. Cranelift for T2, because TPDE cannot emit Mach-O or COFF and two of our platforms need one of those. TPDE remains a T1 candidate on Linux.
-2. Does Cranelift have any deoptimization support in progress? Search the Bytecode Alliance RFC repo and Zulip, not the open web.
+2. ~~Does Cranelift have any deoptimization support in progress? Search the Bytecode Alliance RFC repo and Zulip, not the open web.~~ Answered by M0.3. No, and there is no RFC. User stack maps, debug tags and `try_call` are the adjacent features and none of them describe frame state. The layer is ours; see the Deoptimization section above and `experiments/m0.3-jit-backend/README.md`.
 3. Can T0 and T1 be generated from one semantic description à la Deegen? Read the OOPSLA 2026 paper first.
 4. Ship pre-generated copy-and-patch stencils, or require LLVM to build? CPython has not solved this and neither have we.
 5. What are the right tier-up thresholds? These are worth a proper sweep, not a guess, because they determine performance on short-running programs, which is most programs.
