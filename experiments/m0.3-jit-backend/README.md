@@ -107,7 +107,7 @@ instructions, and `-O2` tail-merged the 64 cold blocks into a single call site.
 
 ## Results
 
-Full table in `results/mba.md` and `results/mba.json`. This is a MacBook Air,
+Full table in `results/mba.md`. This is a MacBook Air,
 Darwin 24.6.0, arm64, Cranelift 0.135.1, Apple clang 17, rustc 1.98.
 
 Compile time, median of three builds, in milliseconds:
@@ -131,14 +131,38 @@ Run time of the compiled code, same total work in every row, in milliseconds:
 | 2048 | 0.32 | 1.36 | 1.47 | not run | 2.78 | 0.24 |
 
 Read the two together and one column wins outright. `none/spilled` compiles a
-2048 operation trace in 48 ms, which is 37x faster than `clang -O0` and 135x
-faster than `clang -O2`, and the code it produces runs within 1.3x of what
+2048 operation trace in 48 ms, and the code it produces runs within 1.3x of what
 `clang -O2` produced and about 9x faster than what `clang -O0` produced. At the
 three smaller sizes it is level with `clang -O2` or ahead of it.
 
 Compile time in that column is close to linear in the trace: 17.5 µs per
 operation at 16 ops, 17.4 at 256, 23.7 at 2048. If tier 2 wants to stay inside a
 10 ms compile budget on this machine, that is a trace of roughly 400 operations.
+
+### Correction: the compile-time ratio in this table was measured wrong
+
+An earlier version of this file said `none/spilled` compiles 37x faster than
+`clang -O0` and 135x faster than `clang -O2`. Those two numbers were wrong and
+they are struck from the claim above.
+
+`llc` was not installed on this laptop when the sweep first ran, so the driver
+fell back to `clang`, which is the whole compiler. Every millisecond in those two
+columns includes parsing the LLVM IR text, building a module, and about 17 ms of
+process startup, none of which a JIT back end does. Comparing an in-process
+Cranelift call against that is comparing a back end against a compiler.
+
+Rerun with `llc` on PATH, which is the back end on its own, and subtracting the
+startup measured by the empty-module row, the honest figure at 2048 operations is
+41.1 ms against 64.0 for `llc -O0` and 256.0 for `llc -O2`. Cranelift at
+`opt_level=none` is 1.6x faster to compile than LLVM at `-O0` and 6.2x faster
+than LLVM at `-O2`, not 37x and 135x. On the Linux machine the same comparison
+gives 1.7x and 10.6x.
+
+The decision does not move, because it never rested on the compile-time ratio
+against LLVM. It rests on `none` beating `speed`, on spilled beating SSA, and on
+the absolute budget of about 20 µs per operation. But a back end being 1.6x
+faster than another back end and a compiler being 37x faster than another
+compiler are very different sentences, and only one of them was measured.
 
 ## Cranelift's optimizer is a net loss here
 
@@ -259,14 +283,45 @@ implemented and tested twice, forever, and the bugs that appear on only one of
 them are exactly the rare and terrible kind `docs/spec/05-jit.md` already warns
 about for deopt.
 
-The tables above also suggest TPDE would not have won on the numbers even if it
-were portable. Its claim is stated against LLVM `-O0`, at `-O0` code quality. On
-this workload at 2048 operations `clang -O0` compiles in 1809 ms and its code
-runs in 2.78 ms, so 20x faster compilation would be about 90 ms. Cranelift at
-`opt_level=none` compiles the same trace in 48 ms and its code runs in 0.32 ms.
-That is an inference from their published claim rather than a measurement of
-their code, so it is worth checking on Linux where `tpde-llc` can actually be
-built, but it points the same way as the portability argument.
+### Correction: TPDE would have won on the numbers
+
+An earlier version of this section argued from the tables that TPDE would not
+have beaten Cranelift even if it were portable. That inference was built on the
+`clang` columns, which as the correction above explains were measuring a
+compiler and not a back end, and it was wrong. It has been checked against the
+real thing.
+
+`tpde-llc` was built from source on the Linux machine and put through the same
+sweep. Full table in `results/gpc.md`. At 2048 operations, with each tool's own
+process startup subtracted:
+
+| back end | compile | run | code |
+| --- | ---: | ---: | ---: |
+| tpde-llc | 29.6 ms | 0.27 ms | 237,551 B |
+| cranelift none/spilled | 42.7 ms | 0.40 ms | 218,033 B |
+| llc -O0 | 72.7 ms | 0.55 ms | 294,902 B |
+| llc -O2 | 453.9 ms | 0.46 ms | 121,295 B |
+
+TPDE compiles this trace 1.4x faster than Cranelift and its code runs 1.5x
+faster, for 9% more code. It wins on both axes we care about. At 1024 operations
+it is 1.3x faster to compile with the same shape of result.
+
+Two things in their paper do not reproduce here, in opposite directions. The
+claim of 10 to 20x faster compilation than LLVM `-O0` comes out as 2.5x on this
+workload, so on our shape of code the gap is much smaller than advertised. But
+the code quality is a good deal better than the "similar to `-O0`" the abstract
+claims: 2x faster than what `llc -O0` produced, and within 1.7x of `-O2`. On a
+guard-heavy trace with a hot loop, a single pass with decent register allocation
+is apparently most of the way to what a mid-end gets you, which is the same
+lesson `opt_level=none` beating `opt_level=speed` teaches two sections up.
+
+So the decision now costs something measurable. Choosing Cranelift is choosing
+1.4x slower compiles and 1.5x slower T2 code on Linux in exchange for T2 existing
+at all on macOS and Windows. That is still the right trade, because a tier 2 that
+runs on one of three platforms is not a tier 2, and because maintaining two back
+ends means implementing every speculation, guard lowering and deopt descriptor
+twice forever. But it is a price and not a free choice, and the earlier version
+of this file claimed it was free.
 
 There is a narrower reading available and it is worth keeping. TPDE is a
 candidate for tier 1 on Linux specifically, if copy-and-patch runs into the
@@ -371,12 +426,49 @@ compiler it serves, and M6 should be planned that way. Nothing here changes the
 milestone plan, but it removes the possibility that M6 turns out to be smaller
 than feared.
 
+## The same sweep on the other two platforms
+
+Everything above was measured on one arm64 laptop. Two findings that a design
+now rests on, and both of them surprising, is more than one machine should be
+asked to carry, so the sweep was rerun on Linux x86-64 (`results/gpc.md`) and
+Windows x86-64 (`results/gamingpc.md`).
+
+**Both findings replicate on Linux.** `none/spilled` beats `none/ssa` at run time
+at every size, by 3.6x at 64 operations against macOS's 5.7x. `none` beats
+`speed` at run time from 64 operations up. And `speed/ssa` is quadratic there
+too, with an identical CLIF instruction count at every size, producing 14.07 MB
+of code in 57 s at 1024 operations against arm64's 8.4 MB in 43 s. The same
+instruction counts on two architectures says the blowup is in the mid-end and not
+in anything target-specific.
+
+**Windows runs, and the run-time column there is too noisy to say anything.**
+Cranelift's JIT works on x86-64 MSVC and computes the right answer, which is the
+third-platform evidence the project needed and the reason TPDE is out. But the
+spread between builds of identical Rust at `codegen-units` 1, 16 and 64 reaches
+1.95x on that machine against 1.0 to 1.2x on the other two, and the run-time
+numbers move around inside that band without a pattern. `none/spilled` is ahead
+at 2048 operations, level at 256 and 1024, and behind at 64. That is not a
+contradiction of the macOS and Linux result, but it is not a confirmation of it
+either, and calling it one would be exactly the single-build reporting
+`docs/spec/11-benchmarks.md` exists to prevent. Whatever is causing the variance
+on that box needs finding before its run-time column is worth quoting.
+
+No file-based back end ran on Windows. The only C compiler on that machine is a
+MinGW `gcc`, and handed a `.ll` file it exits 0 without writing an object,
+because it does not recognise the extension and passes the file through to the
+linker. Every row measured that way would have been timing a no-op. The driver
+now probes for that before it trusts a compiler, and says so in the results
+rather than leaving a gap.
+
 ## Decision
 
 Tier 2 uses Cranelift, at `opt_level=none`, with deopt state spilled to stack
 slots the runtime allocates itself. Recorded in `docs/spec/05-jit.md`.
 
 TPDE stays on the list as a possible tier 1 back end on Linux, and only there.
+Measured, it is 1.4x faster to compile and produces code 1.5x faster than
+Cranelift, so choosing Cranelift buys portability at a real price rather than at
+no price.
 
 Cranelift has no deoptimization support and none is planned. The layer is ours
 to build, it is roughly the size of the tier 2 compiler, and the way Cranelift

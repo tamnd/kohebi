@@ -127,6 +127,9 @@ def test_a_c_compiler_agrees_with_the_rust_reference(harness: Path, tmp_path: Pa
         [str(harness), "emit-driver", "--ops", "32", "--objects", "8", "--iters", "500"],
         capture_output=True, text=True, check=True).stdout)
 
+    if not measure.reads_llvm_ir(cc, tmp_path):
+        pytest.skip(f"{cc} cannot turn a .ll file into an object file")
+
     obj = tmp_path / "trace.o"
     build = subprocess.run([cc, "-O0", "-c", str(ll), "-o", str(obj)],
                            capture_output=True, text=True)
@@ -205,3 +208,78 @@ def test_render_says_what_it_did_not_measure():
     env |= {"host": "h", "system": "s", "release": "r", "machine": "m", "when": "now"}
     text = measure.render(env, [], ["cranelift speed/ssa at 2048 ops"])
     assert "cranelift speed/ssa at 2048 ops" in text
+
+
+def test_a_tool_with_no_version_flag_still_reads_as_installed():
+    """`tpde-llc` has no version flag and exits nonzero on `--version`.
+
+    Reporting that as "not installed" would be a claim about the machine made
+    on the evidence of an argument parser, and it would make a results file
+    that did measure TPDE look like one that could not.
+    """
+    assert measure.tool_version("tpde-llc-definitely-not-here", "--version") is None
+    got = measure.tool_version("cargo", "--not-a-flag")
+    assert got == "installed, version not reported"
+
+
+def test_a_tool_with_a_version_flag_reports_its_first_line():
+    got = measure.tool_version("cargo", "--version")
+    assert got is not None and got.startswith("cargo ")
+
+
+def test_render_names_the_reason_a_whole_column_is_missing(monkeypatch):
+    """A results file from a machine with no C compiler has no LLVM rows at all.
+
+    Read cold, that looks like the sweep was run wrong. It has to say that the
+    machine could not host the comparison, the same way the TPDE rows say the
+    platform cannot host TPDE.
+    """
+    env = {k: None for k in ("rustc", "clang", "llc", "tpde_llc")}
+    env |= {"host": "h", "system": "s", "release": "r", "machine": "m", "when": "now"}
+    text = measure.render(env, [], ["every file-based back end, because there is "
+                                    "no C compiler on PATH to build the emitted "
+                                    "LLVM IR with"])
+    assert "no C compiler on PATH" in text
+
+
+def test_a_compiler_that_cannot_read_llvm_ir_is_not_treated_as_one_that_can(tmp_path: Path):
+    """The check that caught this: MinGW gcc on the gaming PC.
+
+    `gcc -c trace.ll -o trace.o` exits 0 and writes nothing, because gcc does
+    not recognise the extension and hands the file to the linker. Being on PATH
+    is not evidence that a compiler can host the comparison.
+    """
+    fake = tmp_path / ("cc.bat" if measure.WINDOWS else "cc.sh")
+    if measure.WINDOWS:
+        fake.write_text("@exit /b 0\n")
+    else:
+        fake.write_text("#!/bin/sh\nexit 0\n")
+        fake.chmod(0o755)
+    assert measure.reads_llvm_ir(str(fake), tmp_path) is False
+
+
+def test_a_real_compiler_that_reads_llvm_ir_is_recognised(tmp_path: Path):
+    cc = measure.have("clang")
+    if not cc:
+        pytest.skip("no clang")
+    assert measure.reads_llvm_ir(cc, tmp_path) is True
+
+
+def test_the_two_kinds_of_omission_each_carry_their_own_reason():
+    """One omission is a choice, the other is the machine refusing.
+
+    A single shared preamble over the list has to be wrong about one of them,
+    which is how a Windows run came out saying its missing LLVM rows were
+    missing because a compile of them runs into the minutes.
+    """
+    env = {k: None for k in ("rustc", "clang", "llc", "tpde_llc")}
+    env |= {"host": "h", "system": "s", "release": "r", "machine": "m", "when": "now"}
+    text = measure.render(env, [], [
+        "cranelift speed/ssa at 2048 ops, because one compile of it runs into "
+        "the minutes and the sizes below it already fix the shape of the curve",
+        "every file-based back end, because the only C compiler on PATH here "
+        "(gcc) cannot read LLVM IR",
+    ])
+    assert "runs into the minutes" in text
+    assert "cannot read LLVM IR" in text
+    assert "Not measured here:" in text
