@@ -56,8 +56,8 @@ type Result<T> = std::result::Result<T, SyntaxError>;
 ///
 /// # Errors
 ///
-/// A `SyntaxError` for source CPython also rejects, or an `Unsupported` error
-/// for the one literal gap named in `literal`, which is `\N{...}`.
+/// A `SyntaxError` for source CPython also rejects. Every expression the
+/// grammar covers now parses, so nothing here reports itself as a gap.
 pub fn parse_expression(source: &str) -> Result<Mod> {
     let tokens = crate::tokenize(source)?;
     let mut parser = Parser::new(source, &tokens);
@@ -220,6 +220,29 @@ fn label(kind: Interpolated) -> &'static str {
         Interpolated::Format => "f-string",
         Interpolated::Template => "t-string",
     }
+}
+
+/// Whether the chunk's last character is the `}` that closes a `\N{...}`.
+///
+/// The lexer breaks the chunk right after such an escape so that a name is
+/// never split across two tokens, which means a chunk with one in it has it at
+/// the end and nowhere else. Telling this apart from a doubled brace matters
+/// because the doubled one has a second character to claim and this does not.
+fn ends_with_named_escape(text: &str, raw: bool) -> bool {
+    if raw || !text.ends_with('}') {
+        return false;
+    }
+    let Some(open) = text.rfind("\\N{") else {
+        return false;
+    };
+    // A backslash the escape's own backslash is escaped by would make it plain
+    // text, so what is in front of it decides whether this is an escape at all.
+    let leading = text[..open]
+        .chars()
+        .rev()
+        .take_while(|c| *c == '\\')
+        .count();
+    leading % 2 == 0 && !text[open + 3..text.len() - 1].contains('}')
 }
 
 /// The literal text between two replacement fields.
@@ -1412,9 +1435,10 @@ impl<'a> Parser<'a> {
         // A doubled brace is one character to the reader and two in the source,
         // and the lexer stops the chunk between them because that is where
         // CPython's tokenizer stops it. The `Constant` covers both, so the
-        // second one is added back here. Only a doubled brace can leave a raw
-        // brace at the end of a chunk, since a single one would open a field.
-        let doubled = u32::from(text.ends_with(['{', '}']));
+        // second one is added back here. Two things can leave a brace at the
+        // end of a chunk, since a single one on its own would open a field, and
+        // only the doubled one has a second half waiting to be claimed.
+        let doubled = u32::from(text.ends_with(['{', '}']) && !ends_with_named_escape(text, raw));
         let span = Span::new(span.start, span.end + doubled);
         if span.start == span.end {
             // An empty chunk carries no text and no position. The lexer emits

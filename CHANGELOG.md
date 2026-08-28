@@ -6,9 +6,21 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+`\N{GREEK SMALL LETTER ALPHA}`, which was the last thing between the parser and the whole standard library. All 1870 files in CPython 3.14.7's standard library now parse to a tree whose dump is identical to CPython's, attributes included, with nothing refused and nothing wrong.
+
+The name table is generated from the CPython we are matching rather than pulled from a crate, which is the same call `source::charmap` made. The requirement is not to resolve Unicode names, it is to resolve exactly the names CPython 3.14 resolves and refuse exactly the ones it refuses, and the obvious crate ships Unicode 17.0 while CPython 3.14 ships 16.0. A name from the newer one would be accepted here and rejected there, and a false accept is worse than a gap because nothing reports it.
+
+Of the 148853 names, only 34137 are stored. The rest are rules: 109689 code points across 19 ranges write their own hex into the name, and 11172 Hangul syllables spell out their three jamo. The stored ones are 872KB of very repetitive text, so each entry keeps how much of the previous name it shares and only writes the rest, with every sixteenth stored whole so a binary search has something to compare against. That is 414KB, and the decoder is ten lines.
+
+Both directions are checked rather than sampled. The generator resolves all 148853 names its own way and compares each against the interpreter, and a test decodes the whole table forward and looks every entry back up. A front coded table that goes wrong at one entry stays wrong for the fifteen after it, and a fixture of a few dozen cases would sail past that.
+
+Aliases are names, which is the part that is easy to miss. No control character has a name of its own, so `\N{NULL}` and `\N{LINE FEED}` come from `NameAliases.txt`. Named sequences are not names, even though `unicodedata.lookup` resolves them, so `\N{KEYCAP DIGIT ZERO}` is a `SyntaxError` here exactly as it is in CPython.
+
+One position bug came out of the fixture for this. The brace that closes a name and the first brace of a doubled pair both end a chunk of f-string text, and the parser was treating them the same and reaching one character past the end of `f'a\N{BULLET}{x}b'`. Only the doubled brace has a second half to claim.
+
 Lone surrogates in string literals, which was the larger of the two gaps the parser had left. A Python string is a sequence of code points and not of characters, so `'\ud800'` is a perfectly ordinary one character string that a Rust `str` cannot hold, and until now we refused it rather than mangling it. `Value::Str` is now two cases: a `Box<str>` for the ordinary string and a boxed slice of code points for a string with a surrogate in it. Nothing reaches the second case until a surrogate actually turns up, so every other string costs what it did before.
 
-That takes the standard library from 1797 of 1870 files parsing to an identical tree to 1850 of 1870, with no wrong answers on either side of the change. All 20 files still refused want `\N{...}`, which is the last thing between the parser and the whole corpus.
+That takes the standard library from 1797 of 1870 files parsing to an identical tree to 1850 of 1870, with no wrong answers on either side of the change.
 
 Two escapes that look like a surrogate pair stay two code points. `'\ud83d\ude00'` is not an emoji in Python, it is a two character string holding two lone surrogates, and joining them into the character they would encode in UTF-16 is the obvious wrong thing to do here.
 

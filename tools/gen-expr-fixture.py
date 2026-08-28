@@ -51,6 +51,24 @@ OK = [
     r"'\ud800'",
     r"'a' '\ud800' 'b'",
     r"f'a\ud800{x}b'",
+    # A named escape in the same three places, and one of each kind the name
+    # table resolves differently: a stored name, an alias, a Hangul syllable
+    # spelled out of its jamo, and a range that writes its own code point.
+    r"'\N{BULLET}'",
+    r"'a' '\N{BULLET}' 'b'",
+    r"f'a\N{BULLET}{x}b'",
+    r"'\N{ALERT}'",
+    r"'\N{HANGUL SYLLABLE GAG}'",
+    r"'\N{CJK UNIFIED IDEOGRAPH-4E00}'",
+    # The brace that closes a name and the first brace of a doubled pair both
+    # end a chunk of f-string text, and only one of them has a second half the
+    # `Constant` has to reach over. These are the shapes where mixing the two up
+    # moves an end column.
+    r"f'\N{BULLET}'",
+    r"f'\N{BULLET}}}'",
+    r"f'{{\N{BULLET}}}'",
+    r"f'\\\N{BULLET}'",
+    r"rf'\N{x}'",
     # Unary and binary.
     "-1",
     "+1",

@@ -150,21 +150,3 @@ fn every_refused_expression_is_refused_for_the_same_reason() {
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
-
-/// The gap that is left is in the literals rather than in the grammar, and it
-/// says so rather than being reported as the user's mistake.
-///
-/// A gap that reports itself as a `SyntaxError` would tell the user their
-/// program is wrong when it is fine, and would hide the gap from anyone
-/// measuring coverage.
-#[test]
-fn the_unwritten_part_of_the_grammar_reports_itself() {
-    for source in [r"'\N{BULLET}'", r"f'{x}\N{BULLET}'"] {
-        let error = parse_expression(source).expect_err("not written yet");
-        assert_eq!(
-            error.class,
-            ErrorClass::Unsupported,
-            "{source} should be reported as our gap, not as the user's mistake"
-        );
-    }
-}

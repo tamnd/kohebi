@@ -158,12 +158,22 @@ fn every_literal_decodes_the_way_cpython_evaluates_it() {
 }
 
 #[test]
-fn the_fixture_still_covers_the_three_verdicts() {
+fn nothing_in_the_fixture_is_a_gap_any_more() {
     let cases = fixture();
-    for verdict in [Verdict::Ok, Verdict::Error, Verdict::Unsupported] {
+    for verdict in [Verdict::Ok, Verdict::Error] {
         assert!(
             cases.iter().any(|c| c.verdict == verdict),
             "the fixture no longer has any {verdict:?} cases"
         );
     }
+    // Every literal CPython evaluates, we evaluate. The verdict and the arms
+    // that read it stay because the next gap will want somewhere to go, and a
+    // format that cannot say "known gap" invites the gap being recorded as a
+    // correct refusal instead.
+    let gaps: Vec<&str> = cases
+        .iter()
+        .filter(|c| c.verdict == Verdict::Unsupported)
+        .map(|c| c.source.as_str())
+        .collect();
+    assert!(gaps.is_empty(), "still refusing on purpose: {gaps:?}");
 }
