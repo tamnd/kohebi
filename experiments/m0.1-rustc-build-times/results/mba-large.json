@@ -1,0 +1,202 @@
+{
+  "environment": {
+    "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "cpu_count": "10",
+    "host": "mba",
+    "nightly": "cargo 1.99.0-nightly (eb98b54bc 2026-08-11)",
+    "platform": "macOS-15.8-arm64-arm-64bit-Mach-O",
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)"
+  },
+  "results": [
+    {
+      "binary_bytes": 8772768,
+      "cold_s": [
+        5.641107290997752,
+        5.343346791996737
+      ],
+      "config": "dev",
+      "error": "",
+      "full_s": 6.865457458996389,
+      "functions": 4400,
+      "incremental_s": [
+        1.1024255829979666,
+        1.198916334004025
+      ],
+      "modules": 200,
+      "rust_lines": 104666,
+      "size": 50000,
+      "suspect": ""
+    },
+    {
+      "binary_bytes": 3769792,
+      "cold_s": [
+        9.08819341599883,
+        8.906603708004695
+      ],
+      "config": "release",
+      "error": "",
+      "full_s": 9.277901583001949,
+      "functions": 4400,
+      "incremental_s": [
+        9.170090458006598,
+        8.487363291998918
+      ],
+      "modules": 200,
+      "rust_lines": 104666,
+      "size": 50000,
+      "suspect": ""
+    },
+    {
+      "binary_bytes": 3762864,
+      "cold_s": [
+        8.722060541993415,
+        13.496925457999168
+      ],
+      "config": "release-lto",
+      "error": "",
+      "full_s": 9.019043541004066,
+      "functions": 4400,
+      "incremental_s": [
+        8.70559270800004,
+        11.226604124996811
+      ],
+      "modules": 200,
+      "rust_lines": 104666,
+      "size": 50000,
+      "suspect": ""
+    },
+    {
+      "binary_bytes": 3736784,
+      "cold_s": [
+        10.034213625003758,
+        10.655505167000229
+      ],
+      "config": "release-incr",
+      "error": "",
+      "full_s": 10.425019750000502,
+      "functions": 4400,
+      "incremental_s": [
+        1.035817167001369,
+        1.065893833998416
+      ],
+      "modules": 200,
+      "rust_lines": 104666,
+      "size": 50000,
+      "suspect": ""
+    },
+    {
+      "binary_bytes": 12331824,
+      "cold_s": [
+        4.530785499999183,
+        4.736644292002893
+      ],
+      "config": "cranelift",
+      "error": "",
+      "full_s": 5.4251887909995276,
+      "functions": 4400,
+      "incremental_s": [
+        1.3793815419994644,
+        1.073776083001576
+      ],
+      "modules": 200,
+      "rust_lines": 104666,
+      "size": 50000,
+      "suspect": ""
+    },
+    {
+      "binary_bytes": 16839328,
+      "cold_s": [
+        13.04843599999731,
+        10.01174304199958
+      ],
+      "config": "dev",
+      "error": "",
+      "full_s": 11.247833207999065,
+      "functions": 8800,
+      "incremental_s": [
+        2.1116143749968614,
+        2.032160542003112
+      ],
+      "modules": 400,
+      "rust_lines": 209298,
+      "size": 100000,
+      "suspect": ""
+    },
+    {
+      "binary_bytes": 7071264,
+      "cold_s": [
+        18.71494708299724,
+        17.10744474999956
+      ],
+      "config": "release",
+      "error": "",
+      "full_s": 17.980351416001213,
+      "functions": 8800,
+      "incremental_s": [
+        17.740845167005318,
+        17.382759833999444
+      ],
+      "modules": 400,
+      "rust_lines": 209298,
+      "size": 100000,
+      "suspect": ""
+    },
+    {
+      "binary_bytes": 7064368,
+      "cold_s": [
+        20.966968332999386,
+        25.492643457997474
+      ],
+      "config": "release-lto",
+      "error": "",
+      "full_s": 19.0991107919981,
+      "functions": 8800,
+      "incremental_s": [
+        25.1407066249958,
+        24.434345791996748
+      ],
+      "modules": 400,
+      "rust_lines": 209298,
+      "size": 100000,
+      "suspect": ""
+    },
+    {
+      "binary_bytes": 7005232,
+      "cold_s": [
+        21.625501250004163,
+        16.34209641599591
+      ],
+      "config": "release-incr",
+      "error": "",
+      "full_s": 23.920419500005664,
+      "functions": 8800,
+      "incremental_s": [
+        2.1766044169999077,
+        2.2300648339951294
+      ],
+      "modules": 400,
+      "rust_lines": 209298,
+      "size": 100000,
+      "suspect": ""
+    },
+    {
+      "binary_bytes": 23896256,
+      "cold_s": [
+        8.027726707994589,
+        8.063195833994541
+      ],
+      "config": "cranelift",
+      "error": "",
+      "full_s": 8.498520792003546,
+      "functions": 8800,
+      "incremental_s": [
+        1.9804935830034083,
+        1.7337535839978955
+      ],
+      "modules": 400,
+      "rust_lines": 209298,
+      "size": 100000,
+      "suspect": ""
+    }
+  ]
+}

@@ -137,15 +137,19 @@ Controls:
 
 This is the biggest practical risk in the AOT mode and it deserves a plain statement: **`rustc` is slow, and emitting a lot of Rust makes it slower.**
 
-The target from `00-README.md` is under 60 seconds cold for 10,000 lines and under 5 seconds for an incremental rebuild after one file changed. Both are guesses and both need measuring early, because if the real numbers are 10 minutes and 2 minutes, nobody will use this mode regardless of how fast the output is.
+The target from `00-README.md` is under 60 seconds cold for 10,000 lines and under 5 seconds for an incremental rebuild after one file changed. Both were guesses. M0.1 has now measured them and they are not close: 2.1 seconds cold and 0.3 seconds incremental at 10,000 Python lines, on a laptop, in the profile we would ship. Build time is linear in program size out to 100,000 Python lines with no cliff. The full result is in `experiments/m0.1-rustc-build-times/`.
+
+That changes the tone of this section but not its content. The mitigations below are still worth building, because a 20x margin at 10,000 lines is not a 20x margin once specialization multiplies the emitted volume, and the whole point of the section is that this is the risk most likely to be underestimated.
+
+One mitigation did get promoted from idea to requirement by the measurement. Cargo disables incremental compilation in release profiles, so an edit to one Python file rebuilds the entire crate at `opt-level = 3`. At 10,000 lines that is 1.9 seconds and invisible. At 100,000 lines it is 17.6 seconds and intolerable. `kohebi build` must therefore emit a manifest whose default profile sets `incremental = true` on top of release, which costs at most 15 percent on the cold build and takes the edit-rebuild loop from 17.6 seconds back to 2.2. The stock release profile is for final builds only.
 
 Mitigations, in order of expected value:
 
 **Per-module crates and a real incremental model.** One Python module maps to one Rust module, and changing one module should not recompile the others. This conflicts with whole-program sealing, which wants to see everything. The resolution is a two-phase build: a fast analysis phase over all modules that produces a sealing summary, then per-module codegen that only reruns where the summary or the source changed.
 
-**`codegen-units` and no LTO by default.** LTO is where the last few percent of runtime performance is, and it is also where most of the build time is. Make it opt-in for release builds.
+**`codegen-units` and no LTO by default.** LTO is where the last few percent of runtime performance is, and it is also where most of the build time is. Make it opt-in for release builds. M0.1 measured thin LTO costing up to 4x the release build time at small sizes and producing a binary identical in size to one decimal place at every size, which is what you would expect when the emitted code is already monomorphic. Whether it buys any runtime speed is still unmeasured and belongs in M8.
 
-**Cranelift as the `rustc` backend for development builds.** `rustc_codegen_cranelift` exists and is dramatically faster than the LLVM backend at `-O0`. For `kohebi build --dev`, that is the right choice.
+**Cranelift as the `rustc` backend for development builds.** `rustc_codegen_cranelift` exists and is faster than the LLVM backend at `-O0`. M0.1 confirms it: fastest backend at every size measured, 2.2x faster than LLVM release at 100,000 lines, and it produces a working binary from emitted-shaped code. It is also a nightly toolchain plus a rustup component to require, and LLVM already clears the gate on its own, so this is an opt-in flag rather than a dependency.
 
 **Aggressive caching.** Emitted Rust for an unchanged module with an unchanged sealing summary is byte-identical, so the object file is cacheable. `sccache`-style, keyed on the module hash plus the summary hash.
 
@@ -171,7 +175,7 @@ A traceback from a compiled binary has to look like a Python traceback, with Pyt
 
 ## Open questions for this document
 
-1. What are real `rustc` build times for realistically-sized emitted Rust? Measure at M0 with hand-written representative output, before building the compiler that generates it. If the answer is bad, the whole mode needs rethinking and it is much cheaper to learn that now.
+1. ~~What are real `rustc` build times for realistically-sized emitted Rust?~~ Answered by M0.1. Fine, linear, and about 20x inside the gate. See `experiments/m0.1-rustc-build-times/`. The follow-on question is the one that experiment could not answer: how much does specialization multiply emitted volume in practice? A 5x expansion over the model used there still passes, a 50x one does not.
 2. Is the two-phase build (global sealing summary, then per-module codegen) sound? Specifically, can a sealing summary be made stable enough that one module's change does not invalidate everything?
 3. Does `--frozen` justify existing, given it is the one thing here that breaks the compatibility promise? Or should the highest performance level be reachable purely through profile-guided speculation with deopt?
 4. Should `kohebi build --fast` exist, skipping `rustc` and emitting through the T2 backend? It might be more useful than the `rustc` path for most users.

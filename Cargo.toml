@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# M0 experiments are measurement rigs rather than product code. They have
+# their own workspaces so that a build of kohebi never compiles them.
+exclude = ["experiments"]
 
 [workspace.package]
 version = "0.0.0"

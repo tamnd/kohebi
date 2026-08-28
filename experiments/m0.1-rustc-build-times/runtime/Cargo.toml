@@ -1,0 +1,16 @@
+[package]
+name = "m01-runtime"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Stand-in for kohebi-core, used to measure rustc build times on emitted Rust"
+
+# Its own workspace, deliberately. M0 experiments are not product code, they
+# must not appear in `cargo build --workspace`, and they must not be a CI gate.
+[workspace]
+
+[lints.clippy]
+# The point of this crate is to be shaped like the emitted code's callee, not to
+# be exemplary. Pedantic lints on a measurement rig cost time and buy nothing.
+all = "warn"
