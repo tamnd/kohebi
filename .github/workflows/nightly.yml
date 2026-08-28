@@ -20,11 +20,11 @@ jobs:
     name: Miri
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.2
       - name: Miri over the crates with unsafe in them
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check
@@ -40,11 +40,11 @@ jobs:
       matrix:
         sanitizer: [address, thread, leak]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-src
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.2
       - name: Test under ${{ matrix.sanitizer }}Sanitizer
         env:
           RUSTFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
@@ -58,9 +58,9 @@ jobs:
     name: Loom
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.2
       - env:
           RUSTFLAGS: --cfg loom
         run: cargo test -p kohebi-core --features loom --release -- --test-threads=1
@@ -73,9 +73,9 @@ jobs:
       matrix:
         mode: [gc-stress, deopt-stress, osr-stress, tier-shuffle, no-cache]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo build --release --bin kohebi
       - name: Full corpus under --${{ matrix.mode }}
         run: |
@@ -86,8 +86,8 @@ jobs:
     name: Security advisories
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@v7.0.1
+      - uses: taiki-e/install-action@v2.87.0
         with:
           tool: cargo-deny
       - run: cargo deny check advisories
