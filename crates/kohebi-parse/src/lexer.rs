@@ -376,9 +376,13 @@ impl<'src> Lexer<'src> {
             self.line_has_code = false;
             return Ok(Token::new(TokenKind::Newline, self.here()));
         }
+        // Every block still open closes here, one DEDENT each. This one is
+        // returned and the rest are queued, and the stack is emptied in the
+        // same breath, because queued dedents do not pop it themselves and
+        // leaving levels on it means arriving back here and closing them twice.
         if self.indents.len() > 1 {
-            self.indents.pop();
-            self.pending_dedents = u32::try_from(self.indents.len() - 1).unwrap_or(u32::MAX);
+            self.pending_dedents = u32::try_from(self.indents.len() - 2).unwrap_or(u32::MAX);
+            self.indents.truncate(1);
             return Ok(Token::new(TokenKind::Dedent, self.here()));
         }
         self.state = State::Finished;
