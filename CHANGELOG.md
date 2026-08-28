@@ -12,6 +12,8 @@ Four merged pull requests since 0.0.4, and between them they close the two gaps 
 
 `kohebi ast` arrived in the same stretch, which is what made measuring any of this a single command instead of a script.
 
+The release workflow built six binaries for 0.0.4 and published none of them. `dist/*.{tar.gz,zip}` is a shell brace expansion and the upload action's globs are not a shell's, so it matched nothing and the job that would have said so ran after the one that failed. Fixed, along with the dispatch input that named a tag nobody read.
+
 What is left in M1 is the error messages, which is item 9 and a pass of its own.
 
 `\N{GREEK SMALL LETTER ALPHA}`, which was the last thing between the parser and the whole standard library. All 1870 files in CPython 3.14.7's standard library now parse to a tree whose dump is identical to CPython's, attributes included, with nothing refused and nothing wrong.

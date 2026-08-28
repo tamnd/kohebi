@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+# A dispatch has no tag in `github.ref_name`, so the tag to build is named once
+# here and everything else reads it from here.
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
 jobs:
   build:
     name: ${{ matrix.target }}
@@ -34,6 +39,8 @@ jobs:
             os: windows-11-arm
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -43,7 +50,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          name="kohebi-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          name="kohebi-${TAG}-${{ matrix.target }}"
           mkdir -p "dist/$name"
           if [[ "${{ matrix.target }}" == *windows* ]]; then
             cp "target/${{ matrix.target }}/release/kohebi.exe" "dist/$name/"
@@ -60,7 +67,13 @@ jobs:
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: dist-${{ matrix.target }}
-          path: dist/*.{tar.gz,zip}
+          # One pattern per line. The upload action's globs are not a shell's,
+          # so `dist/*.{tar.gz,zip}` matches a file with a literal brace in its
+          # name and nothing else, which is how 0.0.4 built six binaries and
+          # published none of them.
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
           if-no-files-found: error
 
   publish:
@@ -73,6 +86,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/download-artifact@v8.0.1
         with:
           pattern: dist-*
@@ -88,6 +103,7 @@ jobs:
           subject-path: dist/*
       - uses: softprops/action-gh-release@v3.0.2
         with:
+          tag_name: ${{ env.TAG }}
           files: dist/*
           generate_release_notes: true
           fail_on_unmatched_files: true
