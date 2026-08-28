@@ -6,6 +6,14 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+## 0.0.5
+
+Four merged pull requests since 0.0.4, and between them they close the two gaps the parser had left. Every one of the 1870 files in CPython 3.14.7's standard library now parses to a tree whose dump is identical to CPython's, attributes and all, with nothing refused and no wrong answers. Both gaps were in the string literals rather than in the grammar, which is why the token comparison had been at 100% for a while without them showing up.
+
+`kohebi ast` arrived in the same stretch, which is what made measuring any of this a single command instead of a script.
+
+What is left in M1 is the error messages, which is item 9 and a pass of its own.
+
 `\N{GREEK SMALL LETTER ALPHA}`, which was the last thing between the parser and the whole standard library. All 1870 files in CPython 3.14.7's standard library now parse to a tree whose dump is identical to CPython's, attributes included, with nothing refused and nothing wrong.
 
 The name table is generated from the CPython we are matching rather than pulled from a crate, which is the same call `source::charmap` made. The requirement is not to resolve Unicode names, it is to resolve exactly the names CPython 3.14 resolves and refuse exactly the ones it refuses, and the obvious crate ships Unicode 17.0 while CPython 3.14 ships 16.0. A name from the newer one would be accepted here and rejected there, and a false accept is worse than a gap because nothing reports it.
@@ -32,7 +40,7 @@ Reading a file and deciding what encoding it is in is now one function shared by
 
 ## 0.0.4
 
-Eight merged pull requests since 0.0.3, and the whole of it is the parser. Every statement Python has is read now, from `lambda` and f-strings through to `match` and its pattern grammar, and a file's encoding declaration is honoured before any of it is text. The frontend reads all 1870 files in CPython 3.14.7's standard library and builds the same tree CPython builds for every one of them.
+Eight merged pull requests since 0.0.3, and the whole of it is the parser. Every statement Python has is read now, from `lambda` and f-strings through to `match` and its pattern grammar, and a file's encoding declaration is honoured before any of it is text. The frontend reads all 1870 files in CPython 3.14.7's standard library and builds the same tree CPython builds for 1797 of them, with the rest refused on purpose over two gaps in the string literals.
 
 What is left in M1 is the error messages, which is item 9 and a pass of its own.
 
