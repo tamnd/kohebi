@@ -6,6 +6,12 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+## 0.0.4
+
+Eight merged pull requests since 0.0.3, and the whole of it is the parser. Every statement Python has is read now, from `lambda` and f-strings through to `match` and its pattern grammar, and a file's encoding declaration is honoured before any of it is text. The frontend reads all 1870 files in CPython 3.14.7's standard library and builds the same tree CPython builds for every one of them.
+
+What is left in M1 is the error messages, which is item 9 and a pass of its own.
+
 Encoding declarations, which is the part of Python that decides what a file's bytes say before any of them are text. A byte order mark, a `# coding:` comment on the first or second line, the alias lookup, and then the decode. That closes the last gap in the corpus: every file in CPython's standard library now goes through the frontend, including the three that are not UTF-8.
 
 The declaration is not found with a regular expression, however much it looks like one. CPython walks the line for the six letters `coding` followed by a colon or an equals, and abandons the whole search the moment it sees anything before the `#` that is not a space, a tab, or a form feed. That is why `x = 1 # coding: latin-1` declares nothing at all, `# codingcoding: latin-1` declares latin-1, and a line shorter than seven bytes can never declare anything.
