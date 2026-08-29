@@ -9,10 +9,12 @@
 #![doc(html_root_url = "https://docs.rs/kohebi-core/0.0.0")]
 
 pub mod float;
+pub mod int;
 pub mod printable;
 pub mod text;
 
 pub use float::{DotZero, float_repr};
+pub use int::{DivideByZero, Int};
 pub use printable::is_printable;
 pub use text::{Str, StrBuf, bytes_repr, str_repr};
 

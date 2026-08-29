@@ -958,7 +958,7 @@ fn trees() -> Vec<(&'static str, Mod)> {
                     cst(Value::Bool(false)),
                     int(1),
                     cst(Value::Int(
-                        Int::from_decimal("10000000000000000000000")
+                        Int::parse("10000000000000000000000", 10)
                             .expect("a decimal literal parses"),
                     )),
                     cst(Value::Float(1.5)),

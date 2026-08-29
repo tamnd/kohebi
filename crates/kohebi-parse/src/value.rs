@@ -17,7 +17,7 @@
 //! holds. `Str`, `StrBuf` and `str_repr` are re-exported so that a caller who
 //! only cares about literals has one place to look.
 
-pub use kohebi_core::{Str, StrBuf, str_repr};
+pub use kohebi_core::{Int, Str, StrBuf, str_repr};
 
 use kohebi_core::float::{DotZero, float_repr};
 use kohebi_core::text::bytes_repr;
@@ -66,50 +66,6 @@ impl Value {
     }
 }
 
-/// An integer literal, which has no upper bound in Python.
-///
-/// The common case is a machine word and gets one. Anything larger is kept as
-/// the decimal digits it will be printed as, because the only thing this crate
-/// does with an integer is print it, and turning `0xFFFF_FFFF_FFFF_FFFF_FFFF`
-/// into those digits is the parser's job rather than this type's.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Int {
-    /// Fits in a machine word.
-    Small(i64),
-    /// Does not. Holds decimal digits, no sign and no leading zeros.
-    Big(Box<str>),
-}
-
-impl Int {
-    /// An integer from decimal digits, using the small form where it fits.
-    ///
-    /// Leading zeros are dropped, since `007` and `7` are the same integer and
-    /// print the same way. Returns `None` if `digits` is empty or holds
-    /// anything that is not an ASCII digit, which is a caller bug rather than a
-    /// syntax error: the lexer has already decided what a number looks like.
-    #[must_use]
-    pub fn from_decimal(digits: &str) -> Option<Self> {
-        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        let trimmed = digits.trim_start_matches('0');
-        let trimmed = if trimmed.is_empty() { "0" } else { trimmed };
-        Some(match trimmed.parse::<i64>() {
-            Ok(small) => Int::Small(small),
-            Err(_) => Int::Big(trimmed.into()),
-        })
-    }
-}
-
-impl std::fmt::Display for Int {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Int::Small(n) => write!(f, "{n}"),
-            Int::Big(digits) => f.write_str(digits),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,33 +80,6 @@ mod tests {
         assert_eq!(repr(&Value::Bool(true)), "True");
         assert_eq!(repr(&Value::Bool(false)), "False");
         assert_eq!(repr(&Value::Ellipsis), "Ellipsis");
-    }
-
-    #[test]
-    fn an_integer_too_large_for_a_word_keeps_its_digits() {
-        let huge = "9".repeat(40);
-        assert_eq!(
-            Int::from_decimal(&huge),
-            Some(Int::Big(huge.as_str().into()))
-        );
-        assert_eq!(Int::from_decimal("42"), Some(Int::Small(42)));
-    }
-
-    #[test]
-    fn leading_zeros_are_not_part_of_the_number() {
-        assert_eq!(Int::from_decimal("007"), Some(Int::Small(7)));
-        assert_eq!(Int::from_decimal("000"), Some(Int::Small(0)));
-        assert_eq!(
-            Int::from_decimal(&format!("000{}", "1".repeat(30))),
-            Some(Int::Big("1".repeat(30).as_str().into()))
-        );
-    }
-
-    #[test]
-    fn digits_are_the_callers_job_to_get_right() {
-        assert_eq!(Int::from_decimal(""), None);
-        assert_eq!(Int::from_decimal("0x10"), None);
-        assert_eq!(Int::from_decimal("-1"), None);
     }
 
     #[test]
