@@ -101,7 +101,7 @@ impl Compare {
 pub fn add(left: &Object, right: &Object) -> Result<Object> {
     if let Some(pair) = promote(left, right)? {
         return Ok(match pair {
-            Pair::Ints(a, b) => Object::Int(a.add(&b)),
+            Pair::Ints(a, b) => Object::Int(a.add(b)),
             Pair::Floats(a, b) => Object::Float(a + b),
         });
     }
@@ -137,7 +137,7 @@ pub fn add(left: &Object, right: &Object) -> Result<Object> {
 pub fn sub(left: &Object, right: &Object) -> Result<Object> {
     if let Some(pair) = promote(left, right)? {
         return Ok(match pair {
-            Pair::Ints(a, b) => Object::Int(a.sub(&b)),
+            Pair::Ints(a, b) => Object::Int(a.sub(b)),
             Pair::Floats(a, b) => Object::Float(a - b),
         });
     }
@@ -158,7 +158,7 @@ pub fn sub(left: &Object, right: &Object) -> Result<Object> {
 pub fn mul(left: &Object, right: &Object) -> Result<Object> {
     if let Some(pair) = promote(left, right)? {
         return Ok(match pair {
-            Pair::Ints(a, b) => Object::Int(a.mul(&b)),
+            Pair::Ints(a, b) => Object::Int(a.mul(b)),
             Pair::Floats(a, b) => Object::Float(a * b),
         });
     }
@@ -178,7 +178,7 @@ pub fn true_div(left: &Object, right: &Object) -> Result<Object> {
         return Err(unsupported("/", left, right));
     };
     match pair {
-        Pair::Ints(a, b) => match a.true_div(&b) {
+        Pair::Ints(a, b) => match a.true_div(b) {
             Ok(Some(value)) => Ok(Object::Float(value)),
             Ok(None) => Err(Error::overflow(
                 "integer division result too large for a float",
@@ -202,7 +202,7 @@ pub fn floor_div(left: &Object, right: &Object) -> Result<Object> {
     };
     match pair {
         Pair::Ints(a, b) => a
-            .floor_div(&b)
+            .floor_div(b)
             .map(Object::Int)
             .map_err(|DivideByZero| divide_by_zero()),
         Pair::Floats(a, b) => Ok(Object::Float(float_div_mod(a, b)?.0)),
@@ -223,7 +223,7 @@ pub fn modulo(left: &Object, right: &Object) -> Result<Object> {
     };
     match pair {
         Pair::Ints(a, b) => a
-            .modulo(&b)
+            .modulo(b)
             .map(Object::Int)
             .map_err(|DivideByZero| divide_by_zero()),
         Pair::Floats(a, b) => Ok(Object::Float(float_div_mod(a, b)?.1)),
@@ -238,7 +238,7 @@ pub fn div_mod(left: &Object, right: &Object) -> Result<Object> {
     };
     let (quotient, remainder) = match pair {
         Pair::Ints(a, b) => {
-            let (q, r) = a.div_mod(&b).map_err(|DivideByZero| divide_by_zero())?;
+            let (q, r) = a.div_mod(b).map_err(|DivideByZero| divide_by_zero())?;
             (Object::Int(q), Object::Int(r))
         }
         Pair::Floats(a, b) => {
@@ -260,7 +260,7 @@ pub fn pow(base: &Object, exponent: &Object) -> Result<Object> {
         return Err(unsupported("** or pow()", base, exponent));
     };
     match pair {
-        Pair::Ints(a, b) if !b.is_negative() => match a.pow(&b) {
+        Pair::Ints(a, b) if !b.is_negative() => match a.pow(b) {
             Some(value) => Ok(Object::Int(value)),
             // The result is past the ceiling in `Int::pow`. CPython has no
             // ceiling and would spend the memory, so this arrives sooner than
@@ -269,7 +269,7 @@ pub fn pow(base: &Object, exponent: &Object) -> Result<Object> {
         },
         // A negative integer exponent leaves the integers, which is why
         // `2 ** -1` is `0.5` and not `0`.
-        Pair::Ints(a, b) => float_pow(to_float(&a)?, to_float(&b)?),
+        Pair::Ints(a, b) => float_pow(to_float(a)?, to_float(b)?),
         Pair::Floats(a, b) => float_pow(a, b),
     }
 }
@@ -323,7 +323,7 @@ pub fn neg(value: &Object) -> Result<Object> {
 /// `+value`, which is not a no-op: it turns a `bool` into the `int` it is.
 pub fn pos(value: &Object) -> Result<Object> {
     match number(value) {
-        Some(Num::Int(value)) => Ok(Object::Int(value)),
+        Some(Num::Int(value)) => Ok(Object::Int(value.clone())),
         Some(Num::Float(value)) => Ok(Object::Float(value)),
         None => Err(bad_unary("+", value)),
     }
@@ -404,22 +404,33 @@ pub fn contains(container: &Object, value: &Object) -> Result<Object> {
 }
 
 /// A numeric value with `bool` folded into the `int` it is.
-enum Num {
-    Int(Int),
+///
+/// The integer is borrowed rather than owned. An operator only reads its
+/// operands, and owning them meant copying a machine word twice for every
+/// addition in a loop and allocating twice for every addition on a bignum, for
+/// two values thrown away on the next line.
+enum Num<'a> {
+    Int(&'a Int),
     Float(f64),
 }
 
 /// Two numbers of the same kind, which is what an arithmetic operator wants.
-enum Pair {
-    Ints(Int, Int),
+enum Pair<'a> {
+    Ints(&'a Int, &'a Int),
     Floats(f64, f64),
 }
 
+/// The two integers a `bool` is, so that [`number`] has something to point at.
+/// A `bool` in Python is an `int`, and these are the two it can be.
+static FALSE: Int = Int::Small(0);
+static TRUE: Int = Int::Small(1);
+
 /// This value seen as a number, if it is one.
-fn number(value: &Object) -> Option<Num> {
+fn number(value: &Object) -> Option<Num<'_>> {
     match value {
-        Object::Bool(value) => Some(Num::Int(Int::Small(i64::from(*value)))),
-        Object::Int(value) => Some(Num::Int(value.clone())),
+        Object::Bool(true) => Some(Num::Int(&TRUE)),
+        Object::Bool(false) => Some(Num::Int(&FALSE)),
+        Object::Int(value) => Some(Num::Int(value)),
         Object::Float(value) => Some(Num::Float(*value)),
         _ => None,
     }
@@ -430,15 +441,15 @@ fn number(value: &Object) -> Option<Num> {
 /// Mixing an int with a float converts the int, and an int with more than about
 /// three hundred digits has no float to convert to. CPython reports that rather
 /// than rounding to infinity, which is why this returns a `Result` at all.
-fn promote(left: &Object, right: &Object) -> Result<Option<Pair>> {
+fn promote<'a>(left: &'a Object, right: &'a Object) -> Result<Option<Pair<'a>>> {
     let (Some(left), Some(right)) = (number(left), number(right)) else {
         return Ok(None);
     };
     Ok(Some(match (left, right) {
         (Num::Int(a), Num::Int(b)) => Pair::Ints(a, b),
         (Num::Float(a), Num::Float(b)) => Pair::Floats(a, b),
-        (Num::Int(a), Num::Float(b)) => Pair::Floats(to_float(&a)?, b),
-        (Num::Float(a), Num::Int(b)) => Pair::Floats(a, to_float(&b)?),
+        (Num::Int(a), Num::Float(b)) => Pair::Floats(to_float(a)?, b),
+        (Num::Float(a), Num::Int(b)) => Pair::Floats(a, to_float(b)?),
     }))
 }
 
@@ -518,7 +529,7 @@ fn shift(
     if b.is_negative() {
         return Err(Error::value_error("negative shift count"));
     }
-    match apply(&a, &b) {
+    match apply(a, b) {
         Some(value) => Ok(Object::Int(value)),
         None => Err(Error::new(Kind::MemoryError, "")),
     }
@@ -533,7 +544,7 @@ fn bitwise(
     on_sets: impl Fn(&Set, &Set) -> Set,
 ) -> Result<Object> {
     if let (Some(Num::Int(a)), Some(Num::Int(b))) = (number(left), number(right)) {
-        let value = on_ints(&a, &b);
+        let value = on_ints(a, b);
         // Two bools give a bool, which is the one place a bitwise operator does
         // not widen to `int`. `True & True` is `True` and `True + True` is `2`.
         if matches!((left, right), (Object::Bool(_), Object::Bool(_))) {
@@ -682,12 +693,12 @@ fn sequence_order(op: Compare, left: &[Object], right: &[Object]) -> Result<bool
 /// Nothing here converts. An integer with a thousand digits compares against a
 /// float exactly, which is why `2 ** 2000 > 1e308` is an answer and
 /// `2 ** 2000 + 1.0` is an `OverflowError`.
-fn numeric_order(left: Num, right: Num) -> Option<Ordering> {
+fn numeric_order(left: Num<'_>, right: Num<'_>) -> Option<Ordering> {
     match (left, right) {
-        (Num::Int(a), Num::Int(b)) => Some(a.cmp(&b)),
+        (Num::Int(a), Num::Int(b)) => Some(a.cmp(b)),
         (Num::Float(a), Num::Float(b)) => a.partial_cmp(&b),
-        (Num::Int(a), Num::Float(b)) => int_cmp_float(&a, b),
-        (Num::Float(a), Num::Int(b)) => int_cmp_float(&b, a).map(Ordering::reverse),
+        (Num::Int(a), Num::Float(b)) => int_cmp_float(a, b),
+        (Num::Float(a), Num::Int(b)) => int_cmp_float(b, a).map(Ordering::reverse),
     }
 }
 
