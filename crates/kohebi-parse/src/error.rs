@@ -172,34 +172,73 @@ impl SyntaxError {
         let lines = LineMap::new(source);
         let start = lines.position(at);
 
-        let line = start.line_text(source).trim_end_matches(['\n', '\r']);
-        let body = line.trim_start();
-        let stripped = line.len() - body.len();
+        let text = start.line_text(source);
+        // `rstrip('\n')` and then `lstrip(' \n\f')`, both as narrow as they
+        // look. A tab is not on the second list, so a line indented with tabs
+        // keeps every one of them, and the carets underneath have to keep them
+        // too or the two rows come apart wherever the terminal puts a tab stop.
+        // The carriage return is ours to take off rather than CPython's: its
+        // tokenizer has already normalised the line endings by the time the
+        // error is holding a line, and ours has not.
+        let rtext = text.trim_end_matches(['\n', '\r']);
+        let ltext = rtext.trim_start_matches([' ', '\n', '\u{c}']);
+        // Everything that came off is one byte wide, so this is a character
+        // count as well as a byte count, which the caret arithmetic below needs
+        // it to be.
+        let spaces = rtext.len() - ltext.len();
 
-        let mut out = format!("  File \"{filename}\", line {}\n    {body}\n", start.line);
+        let mut out = format!("  File \"{filename}\", line {}\n    {ltext}\n", start.line);
         let Site::Span(span) = self.site else {
             out.push_str(&self.to_string());
             return out;
         };
 
-        // Carets are placed by character and not by byte, so that a line with
-        // non-ASCII text in front of the error still lines up in a terminal.
-        // The leading whitespace has already been taken off the line, so both
-        // ends are measured from where the text now starts.
-        let indent = line[..stripped].chars().count();
-        let lead = chars_into(line, start.column as usize).saturating_sub(indent);
-        let end = (span.end as usize).saturating_sub(start.line_start as usize);
-        let width = chars_into(line, end).saturating_sub(indent + lead).max(1);
+        // `offset` and `end_offset` as the exception carries them: one based,
+        // and counted in characters, which is the one place CPython does not
+        // count bytes. A span that runs past the end of its first line is
+        // underlined to the end of that line and no further.
+        let within = |at: u32| {
+            chars_into(
+                rtext,
+                (at as usize).saturating_sub(start.line_start as usize),
+            )
+        };
+        let end_of_line = rtext.chars().count() + 1;
+        let mut offset = within(span.start) + 1;
+        let mut end_offset = if (span.end as usize) <= start.line_start as usize + rtext.len() {
+            within(span.end) + 1
+        } else {
+            end_of_line
+        };
+        // The line as the exception holds it still has its newline on, which is
+        // why these two are allowed one character further than the text shown.
+        let limit = text.chars().count();
+        if offset > limit {
+            offset = end_of_line;
+        }
+        if end_offset > limit {
+            end_offset = end_of_line;
+        }
+        if offset >= end_offset {
+            end_offset = offset + 1;
+        }
 
         // A caret that would land in the whitespace that was stripped is not
         // drawn at all, which is CPython's rule and not a nicety. It is the
         // whole rendering of `unexpected indent`, whose position is the indent
         // itself, and it is why an error that knows only which line it is on
         // can be given the start of that line and come out right.
-        if chars_into(line, start.column as usize) >= indent {
+        if let Some(colno) = offset.checked_sub(1 + spaces) {
             out.push_str("    ");
-            out.extend(std::iter::repeat_n(' ', lead));
-            out.extend(std::iter::repeat_n('^', width));
+            // Whitespace in front of the error is copied rather than replaced,
+            // so a tab under a tab stays a tab.
+            out.extend(
+                ltext
+                    .chars()
+                    .take(colno)
+                    .map(|c| if c.is_whitespace() { c } else { ' ' }),
+            );
+            out.extend(std::iter::repeat_n('^', end_offset - 1 - spaces - colno));
             out.push('\n');
         }
         out.push_str(&self.to_string());

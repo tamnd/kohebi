@@ -51,10 +51,15 @@ impl Parser<'_> {
     /// One statement: a compound one, or a line of simple ones.
     pub(super) fn statement(&mut self, body: &mut Vec<Stmt>) -> Result<()> {
         if self.at(TokenKind::Indent) {
+            // Blamed on the last character of the indentation rather than on
+            // the whole of it, and with no end position, so one caret comes
+            // out. On a space indented line the traceback then swallows it,
+            // which is why this refusal usually prints with nothing underneath.
+            let end = self.current().span.end.saturating_sub(1);
             return Err(SyntaxError::new(
                 ErrorClass::Indentation,
                 "unexpected indent",
-                self.current().span,
+                Span::new(end, end),
             ));
         }
         // `match` is a name until the whole line says otherwise, so it is not
@@ -69,6 +74,27 @@ impl Parser<'_> {
             }
             None => self.logical_line(body),
         }
+    }
+
+    /// `unexpected unindent`, and the two places CPython puts it.
+    ///
+    /// A block that closes because a later line is less indented is blamed on
+    /// that line and given no column at all, so the line prints with nothing
+    /// under it. A block that closes because the file ran out is blamed on the
+    /// character just past the end of the last line that had anything on it,
+    /// which is a caret hanging off the right hand side. The dedent that
+    /// reaches here is zero width in both cases, so which one it is has to be
+    /// read off the source rather than off the token.
+    pub(super) fn unexpected_unindent(&self) -> SyntaxError {
+        let at = self.current().span.start as usize;
+        let site = if self.source[at..].trim().is_empty() {
+            let end = self.source[..at].trim_end().len();
+            let end = u32::try_from(end).unwrap_or(u32::MAX);
+            Site::Span(Span::new(end, end))
+        } else {
+            Site::Line(self.current().span.start)
+        };
+        SyntaxError::class_at(ErrorClass::Indentation, "unexpected unindent", site)
     }
 
     /// A compound statement, if one starts here.

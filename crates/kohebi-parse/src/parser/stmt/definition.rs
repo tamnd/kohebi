@@ -29,7 +29,6 @@
 //! `class` as ordinary, so `class C(B) pass` says `invalid syntax`.
 
 use crate::ast::{Expr, Stmt, StmtKind, TypeParam};
-use crate::error::{ErrorClass, SyntaxError};
 use crate::token::{Keyword, TokenKind};
 
 use crate::parser::{ParamStyle, Parser, Result};
@@ -55,11 +54,7 @@ impl Parser<'_> {
             }
             // A decorator at the end of an indented block leaves nothing for it
             // to decorate, and the tokenizer notices before the parser does.
-            TokenKind::Dedent => Err(SyntaxError::new(
-                ErrorClass::Indentation,
-                "unexpected unindent",
-                self.current().span,
-            )),
+            TokenKind::Dedent => Err(self.unexpected_unindent()),
             _ => Err(self.invalid_syntax()),
         }
     }
