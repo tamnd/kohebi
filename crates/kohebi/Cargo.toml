@@ -23,6 +23,7 @@ path = "src/main.rs"
 [dependencies]
 kohebi-aot.workspace = true
 kohebi-core.workspace = true
+kohebi-hir.workspace = true
 kohebi-interp.workspace = true
 kohebi-jit.workspace = true
 kohebi-parse.workspace = true
