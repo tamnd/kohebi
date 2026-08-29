@@ -46,7 +46,11 @@ fn an_expression_statement_is_evaluated_and_dropped() {
 
 #[test]
 fn a_binary_operator_keeps_its_operands_in_order() {
-    assert_eq!(hir("x = a + b * c\n"), "x = a + b * c");
+    // Bracketed because the HIR is a tree and has no precedence. Printing this
+    // flat would be asking the reader to supply Python's rules from memory and
+    // hope they match what the tree really says.
+    assert_eq!(hir("x = a + b * c\n"), "x = a + (b * c)");
+    assert_eq!(hir("x = (a + b) * c\n"), "x = (a + b) * c");
 }
 
 #[test]
@@ -311,11 +315,44 @@ fn a_raise_keeps_its_cause() {
 
 #[test]
 fn deleting_an_item_is_a_place_like_any_other() {
+    // Nothing is held in a temporary, because a `del` goes through the place
+    // once and there is no reason to evaluate its parts before anything else.
+    assert_eq!(hir("del a[i]\n"), "delete a[i]");
+}
+
+/// The value of an assignment is evaluated before the target, and this is the
+/// case where it shows. `a.b = c` reads `c` and then `a`, so if both are
+/// undefined it is `c` that gets named in the `NameError`.
+#[test]
+fn a_plain_assignment_leaves_its_target_to_be_evaluated_after_the_value() {
+    assert_eq!(hir("a.b = c\n"), "a.b = c");
+    assert_eq!(hir("a[i] = v\n"), "a[i] = v");
+}
+
+/// The exception, and the reason the rule above needs stating rather than just
+/// happening. A target whose own parts branch has to emit statements, and those
+/// statements would run before the value if the value were not held first.
+#[test]
+fn a_target_that_branches_forces_the_value_to_be_held() {
     assert_eq!(
-        hir("del a[i]\n"),
+        hir("(a or b).x = c\n"),
+        "$0 = c\n\
+         $1 = a\n\
+         if not truthy($1):\n\
+         \x20   $1 = b\n\
+         $1.x = $0"
+    );
+}
+
+/// An augmented assignment is the other way round, because it reads through the
+/// place before it writes through it and both have to reach the same object.
+#[test]
+fn an_augmented_target_is_still_evaluated_once_and_held() {
+    assert_eq!(
+        hir("a[i] += 1\n"),
         "$0 = a\n\
          $1 = i\n\
-         delete $0[$1]"
+         $0[$1] = $0[$1] += 1"
     );
 }
 

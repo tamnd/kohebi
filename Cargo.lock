@@ -256,6 +256,7 @@ dependencies = [
  "anyhow",
  "clap",
  "kohebi-aot",
+ "kohebi-bc",
  "kohebi-core",
  "kohebi-hir",
  "kohebi-interp",
@@ -289,10 +290,8 @@ dependencies = [
 name = "kohebi-bc"
 version = "0.0.11"
 dependencies = [
- "bitflags",
- "kohebi-core",
  "kohebi-hir",
- "smallvec",
+ "kohebi-parse",
 ]
 
 [[package]]

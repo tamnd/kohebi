@@ -121,30 +121,30 @@ fn expr(body: &Body, value: &Expr) -> String {
         Expr::Global(name) => name.to_string(),
         Expr::Binary { op, left, right } => format!(
             "{} {} {}",
-            expr(body, left),
+            operand(body, left),
             binary_symbol(*op),
-            expr(body, right)
+            operand(body, right)
         ),
         Expr::Inplace { op, left, right } => format!(
             "{} {}= {}",
-            expr(body, left),
+            operand(body, left),
             binary_symbol(*op),
-            expr(body, right)
+            operand(body, right)
         ),
-        Expr::Unary { op, operand } => {
-            format!("{}{}", unary_symbol(*op), expr(body, operand))
+        Expr::Unary { op, operand: value } => {
+            format!("{}{}", unary_symbol(*op), operand(body, value))
         }
         Expr::Compare { op, left, right } => format!(
             "{} {} {}",
-            expr(body, left),
+            operand(body, left),
             compare_symbol(*op),
-            expr(body, right)
+            operand(body, right)
         ),
-        Expr::Not(value) => format!("not {}", expr(body, value)),
+        Expr::Not(value) => format!("not {}", operand(body, value)),
         Expr::Truthy(value) => format!("truthy({})", expr(body, value)),
-        Expr::Attr { object, name } => format!("{}.{name}", expr(body, object)),
+        Expr::Attr { object, name } => format!("{}.{name}", operand(body, object)),
         Expr::Item { object, index } => {
-            format!("{}[{}]", expr(body, object), expr(body, index))
+            format!("{}[{}]", operand(body, object), expr(body, index))
         }
         Expr::Call {
             callee,
@@ -191,6 +191,24 @@ fn expr(body: &Body, value: &Expr) -> String {
     }
 }
 
+/// One operand of an operator, bracketed when it is an operator itself.
+///
+/// The HIR is a tree and has no precedence, so printing `a + b * c` flat would
+/// be asking the reader to supply Python's rules and hope they match what the
+/// tree really says. `a + (b * c)` says it.
+fn operand(body: &Body, value: &Expr) -> String {
+    let compound = matches!(
+        value,
+        Expr::Binary { .. }
+            | Expr::Inplace { .. }
+            | Expr::Unary { .. }
+            | Expr::Compare { .. }
+            | Expr::Not(_)
+    );
+    let text = expr(body, value);
+    if compound { format!("({text})") } else { text }
+}
+
 fn joined(body: &Body, values: &[Expr]) -> String {
     values
         .iter()
@@ -200,7 +218,11 @@ fn joined(body: &Body, values: &[Expr]) -> String {
 }
 
 /// A literal, in the form Python writes it.
-fn constant(value: &Value) -> String {
+///
+/// Public because the bytecode listing prints the same constant pool and there
+/// is no reason for two tables that have to agree.
+#[must_use]
+pub fn constant(value: &Value) -> String {
     match value {
         Value::None => "None".to_owned(),
         Value::Bool(true) => "True".to_owned(),
