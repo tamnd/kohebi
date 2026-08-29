@@ -492,6 +492,69 @@ CASES = [
     # `return'a'` parses and is still rejected, and `rr'a'` gets nothing.
     "nonlocal x\n",
     "rr'a'\n",
+    # An `=` written where a value belongs. A bare name could have been meant
+    # as a walrus, so it is offered both signs and the carets cover the value
+    # as well. Anything else could not, so it is named and only the part in
+    # front of the sign is quoted back.
+    "[b=1]\n",
+    "(b=1)\n",
+    "{b=1}\n",
+    "d[a=1]\n",
+    "if b=1:\n    pass\n",
+    "while b=1:\n    pass\n",
+    "x = [a=1 for x in y]\n",
+    "x[a=1:2]\n",
+    "[a.b=1]\n",
+    "[a[0]=1]\n",
+    "[f()=1]\n",
+    "[1=2]\n",
+    "[...=1]\n",
+    "[{}=1]\n",
+    "[a+b=1]\n",
+    "[~a=1]\n",
+    "[await a=1]\n",
+    "[(a)=1]\n",
+    "[(lambda: x)=1]\n",
+    # Six shapes CPython steps over before it will explain an `=`, and it looks
+    # at the tokens rather than at what they parsed into. So a list or a tuple
+    # or one of the three constants at the front is enough to silence it, even
+    # when the thing being assigned to is something else entirely.
+    "[[1]=2]\n",
+    "[[1][0]=2]\n",
+    "[()=1]\n",
+    "[(a,)=1]\n",
+    "[(1,2)+a=3]\n",
+    "[(a for a in b)=1]\n",
+    "[True=1]\n",
+    "[None.x=1]\n",
+    # And the two lookaheads. Both sides of the sign have to be a `bitwise_or`,
+    # which leaves out `or`, `and`, `not`, the comparisons, a conditional and a
+    # bare lambda, and nothing may follow the value that would be another sign.
+    "[a or b=1]\n",
+    "[not a=1]\n",
+    "[a is b=1]\n",
+    "[a if b else c=1]\n",
+    "[lambda: x=1]\n",
+    "[b=1=2]\n",
+    "[a.b=1=2]\n",
+    "[a.b=]\n",
+    "[a.b=*c]\n",
+    # `:=` with something in front of it that cannot be given a name. This one
+    # takes a whole expression rather than a `bitwise_or`, so it reaches the
+    # shapes the `=` rules do not.
+    "[a.b:=1]\n",
+    "[a[0]:=1]\n",
+    "[(1,2):=3]\n",
+    "[True:=1]\n",
+    "[a==b:=1]\n",
+    "[a if b else c:=1]\n",
+    "[lambda: x:=1]\n",
+    "[a+b:=1]\n",
+    # An argument list says something else for the same mistake, so the rules
+    # above must not reach into one. `f(a.b=1)` and `f(1=2)` are up with the
+    # rest of the argument list refusals.
+    "f(a.b:=1)\n",
+    "class C(a.b=1): pass\n",
 ]
 
 
