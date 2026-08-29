@@ -1169,6 +1169,11 @@ impl<'src> Lexer<'src> {
             (b'>', ..) => (TokenKind::Greater, 1),
             (b'!', ..) => (TokenKind::Exclamation, 1),
 
+            // See `TokenKind::Unknown`: a printable character with no token of
+            // its own is handed on rather than raised, because CPython hands it
+            // on and keeps tokenizing the file.
+            (c, ..) if c.is_ascii_graphic() => (TokenKind::Unknown, 1),
+
             _ => return Err(self.bad_character(start)),
         };
 
@@ -1243,11 +1248,6 @@ impl<'src> Lexer<'src> {
         let code = c as u32;
         if !c.is_ascii() {
             SyntaxError::syntax(format!("invalid character '{c}' (U+{code:04X})"), span)
-        } else if c.is_ascii_graphic() {
-            // `$`, `?` and a backtick are all things CPython simply has no
-            // token for, and it reports them the way it reports any other
-            // sentence it cannot parse.
-            SyntaxError::syntax("invalid syntax", span)
         } else {
             SyntaxError::syntax(
                 format!("invalid non-printable character U+{code:04X}"),

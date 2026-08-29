@@ -260,6 +260,15 @@ pub enum TokenKind {
     Indent,
     Dedent,
     EndMarker,
+    /// One ASCII character Python has no token for, such as `$` or a backtick.
+    ///
+    /// Not an error here, which is the point of it. CPython's `_PyToken_OneChar`
+    /// falls through to a plain `OP` for anything it does not recognise, so the
+    /// character travels to the parser like any other and the parser is what
+    /// says `invalid syntax`. A tokenizer that stopped on it instead would never
+    /// reach an unterminated string further down the file, and that string is
+    /// what CPython reports.
+    Unknown,
 
     LParen,
     RParen,

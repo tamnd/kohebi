@@ -20,6 +20,10 @@ A suggestion is only kept if swapping the keyword in gives something `codeop.com
 
 Ten more recorded blocks in the fixture, which is at 404. Over the twelve hundred broken modules this goes from 97.42% to 98.00%, and the standard library and the hand written corpus are both unchanged at 100%.
 
+A stray `$`, `?` or backtick no longer stops the tokenizer. Python has no token for any of them, and our lexer took that to mean the file was over, so it raised there and never read another line. CPython does the opposite: the function that turns a single character into a token falls through to a plain `OP` for anything it does not recognise, the character travels to the parser like any other, and the parser is what says `invalid syntax`. The difference only shows below the character. A file with a backtick on line 2 and an unterminated triple quoted string on line 3 is reported as the string, because CPython got as far as the string and we did not. Non-ASCII and non-printable characters are unaffected and are still real tokenizer errors, since those are the two cases CPython genuinely raises on.
+
+Eight more recorded blocks in the fixture, which is at 412. Over the twelve hundred broken modules this goes from 98.00% to 98.25%, and the standard library and the hand written corpus are both unchanged at 100%.
+
 ## 0.0.10
 
 Three merged pull requests since 0.0.9, still item 9, and this time the corpus of twelve hundred real modules with one line broken in each moved properly: 96.42% to 97.00%. Both families here are about a punctuation mark in the wrong place, which is the kind of mistake people actually make, so they show up in real broken files in a way the last release's did not. The standard library is unchanged and the hand written corpus of files written to be refused is at 100% over 100.
