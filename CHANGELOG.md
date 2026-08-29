@@ -14,6 +14,16 @@ Which errors fall on which side was settled by asking CPython 3.14.7, with a fil
 
 Measured over 1200 files made by breaking one random line of a real standard library module, this takes agreement on the whole printed block from 55.33% to 66.33%. It changes nothing about a file that parses: the standard library is still identical to CPython's trees, file for file.
 
+Where the carets go under an indentation error, which is a third of what was left after that. Some of these are printed with no carets at all, and that is not a special case in CPython so much as a consequence of one. The traceback module strips the leading whitespace off the source line, then works out the caret column by subtracting that same amount, so a position that was inside the indentation comes out negative and no caret line is printed. `unexpected indent` is reported against the indentation, so it never gets carets. Neither does a `TabError`, or a block that never arrived because the next line dedented past its header.
+
+`unindent does not match any outer indentation level` moved too. It was reported against the token that started the line and CPython reports it one character past the end of the line, so it gets a single caret hanging off the right hand side.
+
+A block that never arrived now picks between three shapes rather than always using one. A statement sitting at the header's own indentation is a real token and gets carets under it. A line indented less than the header is a dedent, a dedent has no width, and the line prints bare. At the end of the file there is no line below to blame at all, so the caret goes just past the last thing anyone typed. `expected 'except' or 'finally' block` uses the same three, since it is the same question about a different keyword.
+
+Carets are also counted in characters now rather than bytes, so a line with an accent in front of the error is underlined in the right place.
+
+Together this takes the same corpus from 66.33% to 86.25%, and it retires the two largest remaining buckets. Twenty more recorded blocks in the fixture cover it, and the standard library still produces trees identical to CPython's, file for file.
+
 ## 0.0.6
 
 Three merged pull requests since 0.0.5, and all of them are item 9, the error messages. A file kohebi refuses now prints what CPython prints for it, character for character and line for line, over 87 recorded blocks and a corpus of 46 files written to be refused.

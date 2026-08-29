@@ -68,9 +68,12 @@ pub enum Site {
     File,
     /// A line, and no column in it, given as a byte offset anywhere on the line.
     ///
-    /// A coding cookie contradicting a byte order mark is the only one. The
-    /// file did decode, so the line exists and is worth showing, but what is
-    /// wrong is the declaration rather than any character in it.
+    /// A coding cookie contradicting a byte order mark is one. The file did
+    /// decode, so the line exists and is worth showing, but what is wrong is
+    /// the declaration rather than any character in it. A block that is missing
+    /// because the next line is less indented than its header is the other: the
+    /// dedent that CPython blames has no width, so the line comes out with
+    /// nothing underneath it.
     Line(u32),
     /// A run of source with carets under it, which is every other error.
     Span(Span),
@@ -103,8 +106,17 @@ impl SyntaxError {
 
     /// A `SyntaxError` somewhere other than at a run of characters.
     pub(crate) fn at(message: impl Into<Cow<'static, str>>, site: Site) -> Self {
+        Self::class_at(ErrorClass::Syntax, message, site)
+    }
+
+    /// An error of any class somewhere other than at a run of characters.
+    pub(crate) fn class_at(
+        class: ErrorClass,
+        message: impl Into<Cow<'static, str>>,
+        site: Site,
+    ) -> Self {
         Self {
-            class: ErrorClass::Syntax,
+            class,
             message: message.into(),
             site,
         }
@@ -158,20 +170,36 @@ impl SyntaxError {
 
         // Carets are placed by character and not by byte, so that a line with
         // non-ASCII text in front of the error still lines up in a terminal.
-        let column = (start.column as usize).saturating_sub(stripped);
-        let lead = body.char_indices().take_while(|(i, _)| *i < column).count();
-        let end = (span.end as usize).min(start.line_start as usize + line.len());
-        let width = source
-            .get(span.start as usize..end)
-            .map_or(1, |s| s.chars().count().max(1));
+        // The leading whitespace has already been taken off the line, so both
+        // ends are measured from where the text now starts.
+        let indent = line[..stripped].chars().count();
+        let lead = chars_into(line, start.column as usize).saturating_sub(indent);
+        let end = (span.end as usize).saturating_sub(start.line_start as usize);
+        let width = chars_into(line, end).saturating_sub(indent + lead).max(1);
 
-        out.push_str("    ");
-        out.extend(std::iter::repeat_n(' ', lead));
-        out.extend(std::iter::repeat_n('^', width));
-        out.push('\n');
+        // A caret that would land in the whitespace that was stripped is not
+        // drawn at all, which is CPython's rule and not a nicety. It is the
+        // whole rendering of `unexpected indent`, whose position is the indent
+        // itself, and it is why an error that knows only which line it is on
+        // can be given the start of that line and come out right.
+        if chars_into(line, start.column as usize) >= indent {
+            out.push_str("    ");
+            out.extend(std::iter::repeat_n(' ', lead));
+            out.extend(std::iter::repeat_n('^', width));
+            out.push('\n');
+        }
         out.push_str(&self.to_string());
         out
     }
+}
+
+/// How many characters of `line` come before byte `offset`.
+///
+/// Carets are drawn per character while everything else here counts bytes, and
+/// a line with an accent in front of the error would otherwise be underlined in
+/// the wrong place.
+fn chars_into(line: &str, offset: usize) -> usize {
+    line.char_indices().take_while(|(i, _)| *i < offset).count()
 }
 
 /// A position in the source, in the units CPython reports them in.

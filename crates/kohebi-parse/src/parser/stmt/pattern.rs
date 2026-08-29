@@ -39,7 +39,7 @@ use crate::ast::{
     Expr, ExprContext, ExprKind, Ident, MatchCase, Operator, Pattern, PatternKind, Stmt, StmtKind,
     UnaryOp,
 };
-use crate::error::{ErrorClass, SyntaxError};
+use crate::error::ErrorClass;
 use crate::literal;
 use crate::token::{Keyword, NumberKind, Span, TokenKind};
 use crate::value::Value;
@@ -77,10 +77,9 @@ impl Parser<'_> {
         self.block_colon()?;
         self.expect(TokenKind::Newline)?;
         if !self.eat(TokenKind::Indent) {
-            return Err(SyntaxError::new(
+            return Err(self.missing_block(
                 ErrorClass::Indentation,
                 format!("expected an indented block after 'match' statement on line {line}"),
-                self.current().span,
             ));
         }
         let mut cases = Vec::new();
