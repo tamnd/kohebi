@@ -239,6 +239,52 @@ CASES = [
     "f(x): 1+\n",
     "[a]: int\n",
     "1: int\n",
+    # Two expressions written side by side, which is a comma left out. The
+    # bracket is the whole of the reason CPython says so: `x = 1 2` gets the
+    # generic message, because a statement of two expressions is not a shape
+    # anybody was reaching for, and `[1 2]` is a list somebody slipped up in.
+    "x = [1 2]\n",
+    "f(a b)\n",
+    "x = {1 2}\n",
+    "x[a b]\n",
+    "f(k=a b)\n",
+    "x = [a, b c]\n",
+    "x = [[a b]]\n",
+    "x = {k: v w}\n",
+    "f(a b for c in d)\n",
+    "x = 1 2\n",
+    # The left side is a disjunction rather than a whole expression, so a
+    # ternary is not covered by it and the rule is asked again from inside the
+    # `else` branch. The right side is a whole expression, so a ternary there
+    # is. `[x if y else z w]` blames `z w` and `[a b if c else d]` blames all
+    # five tokens, which looks inconsistent until you know which side is which.
+    "x = [x if y else z w]\n",
+    "x = [a b if c else d]\n",
+    "x = [a lambda: 1]\n",
+    "x = [x not in y z]\n",
+    "x = [await a b]\n",
+    "x = [f(1) g(2)]\n",
+    "x = [a.b c.d]\n",
+    # Three ways out of it. A name in front of a string, because `kf'x'` is a
+    # bad prefix rather than a missing comma. A soft keyword, because those are
+    # ordinary names half the time and the grammar cannot tell which half. And
+    # `print` or `exec`, which have had a message of their own since Python 2.
+    "x = [a 's']\n",
+    "x = [match x]\n",
+    "x = [case x]\n",
+    "x = [type x]\n",
+    "x = [_ x]\n",
+    # The comprehension's iterable is a disjunction and not an expression, so
+    # the rule is never asked there at all.
+    "x = [a for b in c d]\n",
+    # Spread over two lines, where the carets stop at the end of the first.
+    "x = (a\nb)\n",
+    # An unclosed bracket beats it. CPython weighs the bracket against the last
+    # line it managed to tokenize rather than against where the rule matched,
+    # and for a file with a bracket left open that is the end of the file, so
+    # the bracket wins from anywhere above it.
+    "x = (a b\n",
+    "x = [\n1 2\n",
     # Everything below here parses. `ast.parse` hands back an ordinary tree for
     # all of them and `compile` refuses every one, because what is wrong is not
     # a shape the grammar can rule out. Two passes find these: `symtable.c`,
