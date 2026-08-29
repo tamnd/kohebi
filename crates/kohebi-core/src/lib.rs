@@ -11,12 +11,14 @@
 #![doc(html_root_url = "https://docs.rs/kohebi-core/0.0.0")]
 
 pub mod float;
+pub mod hash;
 pub mod int;
 pub mod object;
 pub mod printable;
 pub mod text;
 
 pub use float::{DotZero, float_repr};
+pub use hash::{Key, Unhashable};
 pub use int::{DivideByZero, Int};
 pub use object::Object;
 pub use printable::is_printable;
