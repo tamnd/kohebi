@@ -1718,6 +1718,25 @@ pub fn del_item(container: &Object, index: &Object) -> Result<()> {
     }
 }
 
+/// How many elements a builtin container holds, or `None` for a value that has
+/// no length.
+///
+/// `None` is not an error here. A `range` has a length too and is defined
+/// above this crate, so the caller checks that itself before deciding nothing
+/// has an answer.
+#[must_use]
+pub fn len(value: &Object) -> Option<usize> {
+    Some(match value {
+        Object::Str(text) => text.len(),
+        Object::Bytes(bytes) => bytes.len(),
+        Object::Tuple(items) => items.len(),
+        Object::List(items) => items.borrow().len(),
+        Object::Dict(entries) => entries.borrow().len(),
+        Object::Set(members) => members.borrow().len(),
+        _ => return None,
+    })
+}
+
 /// The values inside something that can be walked without the iteration
 /// protocol, or `None` when it cannot be walked without one.
 ///

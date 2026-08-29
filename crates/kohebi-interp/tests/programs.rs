@@ -163,6 +163,30 @@ fn an_in_place_operator_on_a_list_is_visible_through_an_alias() {
     );
 }
 
+/// `s |= t` and `s -= t` only touch the members of the right hand side, which
+/// is the difference between a loop that grows a set and a loop that copies one
+/// twice per step. The cases that catch a naive version of that are a set on
+/// both sides, which is read while it is being written, and a right hand side
+/// that is not a set at all, which still has to be refused.
+#[test]
+fn the_in_place_set_operators_only_look_at_the_right_hand_side() {
+    assert_eq!(out("a = {1, 2}\na |= a\nprint(a)\n"), "{1, 2}\n");
+    assert_eq!(out("a = {1, 2}\na -= a\nprint(a, len(a))\n"), "set() 0\n");
+    assert_eq!(
+        out("a = {1, 2}\nb = {2, 3}\na |= b\nprint(a, b)\n"),
+        "{1, 2, 3} {2, 3}\n"
+    );
+    assert_eq!(out("a = {1, 2, 3}\na -= {2, 9}\nprint(a)\n"), "{1, 3}\n");
+    // Growing a set one member at a time, which is the shape the benchmark
+    // suite walks. If this ever goes back to rebuilding the whole set per step
+    // it will not fail here, it will just stop finishing.
+    assert_eq!(
+        out("a = {0}\nfor i in range(1, 5000):\n    a |= {i}\nprint(len(a))\n"),
+        "5000\n"
+    );
+    assert!(raises("a = {1}\na |= [2]\n").contains("unsupported operand"));
+}
+
 /// A list added to itself reads what it is about to write, and reading and
 /// writing the same list at once is the sort of thing that panics rather than
 /// answering if nobody thought about it.
@@ -325,10 +349,6 @@ fn a_list_grows_only_from_things_it_can_walk() {
 /// needs one stops on it instead of getting an answer nobody checked.
 #[test]
 fn what_is_not_implemented_names_itself() {
-    assert_eq!(
-        raises("for x in [1]:\n    pass\n"),
-        "NotImplementedError: iteration is not implemented yet"
-    );
     assert_eq!(
         raises("a = 1\nprint(a.bit_length)\n"),
         "NotImplementedError: attribute access is not implemented yet"
@@ -637,5 +657,262 @@ fn a_list_can_be_extended_with_any_container_now() {
     assert_eq!(
         raises("x = []\nx += 1\n"),
         "TypeError: 'int' object is not iterable"
+    );
+}
+
+#[test]
+fn a_for_loop_walks_every_builtin_container() {
+    assert_eq!(
+        out("for x in [1, 2]:\n    print(x, end='|')\nprint()\n"),
+        "1|2|\n"
+    );
+    assert_eq!(
+        out("for x in (1, 2):\n    print(x, end='|')\nprint()\n"),
+        "1|2|\n"
+    );
+    // A string walks code points and a bytes walks integers, which is the one
+    // place the two sequence types stop looking alike.
+    assert_eq!(
+        out("for x in 'aé日':\n    print(x, end='|')\nprint()\n"),
+        "a|é|日|\n"
+    );
+    assert_eq!(
+        out("for x in b'ab':\n    print(x, end='|')\nprint()\n"),
+        "97|98|\n"
+    );
+    assert_eq!(
+        out("for x in {'a': 1, 'b': 2}:\n    print(x, end='|')\nprint()\n"),
+        "a|b|\n"
+    );
+    assert_eq!(out("for x in {7}:\n    print(x)\n"), "7\n");
+    assert_eq!(
+        out("for x in range(4):\n    print(x, end='|')\nprint()\n"),
+        "0|1|2|3|\n"
+    );
+}
+
+#[test]
+fn a_for_loop_over_nothing_runs_nothing_and_leaves_the_name_alone() {
+    assert_eq!(
+        out("for x in []:\n    print('never')\nprint('done')\n"),
+        "done\n"
+    );
+    // The loop variable is not bound by a loop that never ran, and it outlives
+    // one that did. Both are Python and both surprise people.
+    assert_eq!(
+        raises("for x in []:\n    pass\nprint(x)\n"),
+        "NameError: name 'x' is not defined"
+    );
+    assert_eq!(out("for x in [1, 2]:\n    pass\nprint(x)\n"), "2\n");
+}
+
+#[test]
+fn break_and_continue_and_else_work_the_way_they_do_in_a_while_loop() {
+    assert_eq!(
+        out(
+            "for i in range(5):\n    if i == 3:\n        break\nelse:\n    print('no break')\nprint(i)\n"
+        ),
+        "3\n"
+    );
+    assert_eq!(
+        out("for i in range(2):\n    pass\nelse:\n    print('ran out')\n"),
+        "ran out\n"
+    );
+    assert_eq!(
+        out(
+            "for i in range(4):\n    if i % 2:\n        continue\n    print(i, end='|')\nprint()\n"
+        ),
+        "0|2|\n"
+    );
+    // A `break` in the inner loop leaves the outer one running, which is worth
+    // a test because getting it wrong reads as working on one level.
+    assert_eq!(
+        out(
+            "for i in range(3):\n    for j in range(3):\n        if j == 1:\n            break\n        print(i, j, end='|')\nprint()\n"
+        ),
+        "0 0|1 0|2 0|\n"
+    );
+}
+
+#[test]
+fn a_list_being_walked_shows_what_happens_to_it() {
+    // CPython's list iterator holds the list and an index, so a list that grows
+    // while it is walked keeps the walk going and one that shrinks ends it
+    // early. Copying the list up front would be easier and would be wrong.
+    assert_eq!(
+        out(
+            "xs = [1, 2, 3]\nout = []\nfor x in xs:\n    out += [x]\n    if x == 1:\n        del xs[2]\nprint(out, xs)\n"
+        ),
+        "[1, 2] [1, 2]\n"
+    );
+    assert_eq!(
+        out(
+            "xs = [1, 2, 3]\nfor x in xs:\n    xs += [x]\n    if len(xs) > 6:\n        break\nprint(xs)\n"
+        ),
+        "[1, 2, 3, 1, 2, 3, 1]\n"
+    );
+}
+
+#[test]
+fn a_dict_or_a_set_that_changes_size_during_a_walk_says_so() {
+    // Not the same sentence twice: CPython spells one lowercase and the other
+    // with a capital, and a compatibility suite will notice.
+    assert_eq!(
+        raises("d = {1: 2}\nfor k in d:\n    d[k + 1] = 3\n"),
+        "RuntimeError: dictionary changed size during iteration"
+    );
+    assert_eq!(
+        raises("s = {1}\nfor x in s:\n    s.add\n"),
+        "NotImplementedError: attribute access is not implemented yet"
+    );
+    // Deleting from a dict during a walk is the same complaint, and the reason
+    // the position is into the entry table rather than a count of live entries
+    // is that without it the walk would silently skip an entry instead.
+    assert_eq!(
+        raises("d = {1: 2, 3: 4}\nfor k in d:\n    del d[3]\n"),
+        "RuntimeError: dictionary changed size during iteration"
+    );
+}
+
+#[test]
+fn a_range_is_never_built() {
+    // A million integers is not a million integers here, and neither is a
+    // number no machine word holds.
+    assert_eq!(
+        out("n = 0\nfor i in range(1000000):\n    n += 1\nprint(n)\n"),
+        "1000000\n"
+    );
+    assert_eq!(
+        out("for i in range(2 ** 70, 2 ** 70 + 2):\n    print(i)\n"),
+        "1180591620717411303424\n1180591620717411303425\n"
+    );
+}
+
+#[test]
+fn a_range_counts_the_way_python_says() {
+    assert_eq!(
+        out("print(len(range(0)), len(range(-5)), len(range(1, 1)))\n"),
+        "0 0 0\n"
+    );
+    // Rounding up rather than down, in both directions, which is the one line
+    // of this that anybody gets wrong.
+    assert_eq!(
+        out("print(len(range(0, 10, 3)), len(range(10, 0, -3)), len(range(0, 7, 2)))\n"),
+        "4 4 4\n"
+    );
+    assert_eq!(
+        out("for i in range(10, 0, -3):\n    print(i, end='|')\nprint()\n"),
+        "10|7|4|1|\n"
+    );
+    assert_eq!(
+        out("print(range(3), range(0, 10, 3))\n"),
+        "range(0, 3) range(0, 10, 3)\n"
+    );
+    // A range is a class, not a function, and `print(range)` says so.
+    assert_eq!(out("print(range)\n"), "<class 'range'>\n");
+    assert_eq!(
+        raises("range(2, 3, 0)\n"),
+        "ValueError: range() arg 3 must not be zero"
+    );
+    assert_eq!(
+        raises("range(1.0)\n"),
+        "TypeError: 'float' object cannot be interpreted as an integer"
+    );
+    assert_eq!(
+        raises("range()\n"),
+        "TypeError: range expected at least 1 argument, got 0"
+    );
+    assert_eq!(
+        raises("range(1, 2, 3, 4)\n"),
+        "TypeError: range expected at most 3 arguments, got 4"
+    );
+    assert_eq!(
+        raises("range(x=1)\n"),
+        "TypeError: range() takes no keyword arguments"
+    );
+    // A bool is an int in Python, so this is `range(1)` rather than a refusal.
+    assert_eq!(out("for i in range(True):\n    print(i)\n"), "0\n");
+}
+
+#[test]
+fn len_works_on_everything_that_has_one_and_refuses_the_rest() {
+    assert_eq!(
+        out(
+            "print(len('aé日'), len([1]), len((1, 2)), len({1: 2}), len({1, 2, 3}), len(b'abcd'))\n"
+        ),
+        "3 1 2 1 3 4\n"
+    );
+    assert_eq!(
+        out("print(len(''), len(b''), len(()), len([]))\n"),
+        "0 0 0 0\n"
+    );
+    assert_eq!(
+        raises("len(None)\n"),
+        "TypeError: object of type 'NoneType' has no len()"
+    );
+    assert_eq!(
+        raises("len(1)\n"),
+        "TypeError: object of type 'int' has no len()"
+    );
+    // Its own wording for the wrong number of arguments, which is not the
+    // wording the rest of the builtins use.
+    assert_eq!(
+        raises("len()\n"),
+        "TypeError: len() takes exactly one argument (0 given)"
+    );
+    assert_eq!(
+        raises("len([], [])\n"),
+        "TypeError: len() takes exactly one argument (2 given)"
+    );
+    assert_eq!(
+        raises("len(x=1)\n"),
+        "TypeError: len() takes no keyword arguments"
+    );
+    // The one length that is a real number and still refused, because it has
+    // to fit in a machine word to be returned at all.
+    assert_eq!(
+        raises("len(range(2 ** 70))\n"),
+        "OverflowError: Python int too large to convert to C ssize_t"
+    );
+}
+
+#[test]
+fn iter_and_next_are_the_loop_taken_apart() {
+    assert_eq!(
+        out("it = iter([1, 2])\nprint(next(it), next(it), next(it, 'gone'))\n"),
+        "1 2 gone\n"
+    );
+    // An iterator is its own iterator, which is what makes `iter(iter(x))` one
+    // iterator rather than a wrapper around one.
+    assert_eq!(out("it = iter([1])\nprint(iter(it) is it)\n"), "True\n");
+    assert_eq!(out("it = iter('ab')\nprint(next(it), next(it))\n"), "a b\n");
+    // Running off the end without a default is where the sentinel turns back
+    // into the exception Python says it is.
+    assert_eq!(raises("next(iter([]))\n"), "StopIteration");
+    assert_eq!(
+        raises("iter(3)\n"),
+        "TypeError: 'int' object is not iterable"
+    );
+    assert_eq!(
+        raises("for x in 3:\n    pass\n"),
+        "TypeError: 'int' object is not iterable"
+    );
+    assert_eq!(
+        raises("next([])\n"),
+        "TypeError: 'list' object is not an iterator"
+    );
+    assert_eq!(
+        raises("iter()\n"),
+        "TypeError: iter expected at least 1 argument, got 0"
+    );
+    assert_eq!(
+        raises("next(iter([1]), 2, 3)\n"),
+        "TypeError: next expected at most 2 arguments, got 3"
+    );
+    // The two argument form needs to call something, and there is nothing to
+    // call yet but a builtin.
+    assert_eq!(
+        raises("iter(len, 1)\n"),
+        "NotImplementedError: the two argument form of iter() is not implemented yet"
     );
 }

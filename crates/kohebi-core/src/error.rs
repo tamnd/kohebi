@@ -34,6 +34,9 @@ pub enum Kind {
     IndexError,
     KeyError,
     StopIteration,
+    /// Nothing more specific fits, which so far means a container that changed
+    /// size while something was walking it.
+    RuntimeError,
     RecursionError,
     NotImplementedError,
     /// The operating system said no, which for now only happens on the way to
@@ -57,6 +60,7 @@ impl Kind {
             Kind::IndexError => "IndexError",
             Kind::KeyError => "KeyError",
             Kind::StopIteration => "StopIteration",
+            Kind::RuntimeError => "RuntimeError",
             Kind::RecursionError => "RecursionError",
             Kind::NotImplementedError => "NotImplementedError",
             Kind::OSError => "OSError",
