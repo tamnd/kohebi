@@ -2452,7 +2452,7 @@ impl<'a> Parser<'a> {
                 keys.push(None);
                 values.push(self.binary(1)?);
             } else {
-                let key = self.expression()?;
+                let key = self.dict_key()?;
                 let colon = self.dict_colon(&key)?;
                 keys.push(Some(key));
                 values.push(self.dict_value(colon)?);
@@ -2463,6 +2463,27 @@ impl<'a> Parser<'a> {
         }
         let close = self.expect(TokenKind::RBrace)?;
         Ok(self.expr(ExprKind::Dict { keys, values }, open.start, close.span.end))
+    }
+
+    /// A dict key, read without the missing comma rule looking over its shoulder.
+    ///
+    /// `{'a': 1, 'b' 50}` is a missing colon to CPython and not a missing
+    /// comma, even though both rules match it and the comma rule is the one
+    /// that wins everywhere else inside a bracket. What settles it is that the
+    /// key is already a complete expression on its own, so the rule about what
+    /// has to follow a key gets there first. A key that is not complete on its
+    /// own, like `{'a': 1, (b c)}`, is a missing comma again, which is why the
+    /// ordinary reading is tried once the quiet one has failed.
+    fn dict_key(&mut self) -> Result<Expr> {
+        let resume = self.pos;
+        let saved = std::mem::replace(&mut self.no_diagnostics, true);
+        let quiet = self.expression();
+        self.no_diagnostics = saved;
+        if quiet.is_ok() {
+            return quiet;
+        }
+        self.pos = resume;
+        self.expression()
     }
 
     /// The `:` between a dict key and its value, and what a missing one says.

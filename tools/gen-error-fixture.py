@@ -579,6 +579,18 @@ CASES = [
     "{*a, b: 1}\n",
     "{a: 1, *b}\n",
     "{a: *}\n",
+    # A key with no comma in front of it matches both the missing colon rule
+    # and the missing comma rule, and the colon one wins, but only while the
+    # key is a complete expression on its own. A key that is not, like the two
+    # with brackets in them, is a missing comma again.
+    "{'a': 1, 'b' 50}\n",
+    "{'a': 1, b c d}\n",
+    "{'a': 1, b if c else d e}\n",
+    "{'a': 1, 'b' 50: 2}\n",
+    "{'a': 1, (b c)}\n",
+    "{'a': 1, [b c]: 2}\n",
+    "{'a': 1, b: c d}\n",
+    "{'a' 50}\n",
 ]
 
 
