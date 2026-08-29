@@ -1,20 +1,24 @@
 //! Values, shapes, collections, allocator, and garbage collector for the kohebi Python runtime
 //!
-//! Status: the object model itself is scaffolding. What is here is the part of
-//! it two crates already need and have to agree on, which is what a Python
-//! string is and how `repr` prints one. The design the rest of this crate is
-//! meant to implement lives in `docs/spec/03-object-model.md` and
-//! `docs/spec/04-memory-and-gc.md`.
+//! Status: what is here is the shape of a Python value and the arithmetic and
+//! printing that go with it, which is what M1 needs to run a program. The
+//! representation is not the one in `docs/spec/03-object-model.md`: that is a
+//! tagged 64-bit word over shaped heap objects, and it is what the memory
+//! target depends on. M1 is correctness, so [`Object`] is an enum for now and
+//! the swap is a job for the crate rather than for its callers. The allocator
+//! and collector in `docs/spec/04-memory-and-gc.md` do not exist yet.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-core/0.0.0")]
 
 pub mod float;
 pub mod int;
+pub mod object;
 pub mod printable;
 pub mod text;
 
 pub use float::{DotZero, float_repr};
 pub use int::{DivideByZero, Int};
+pub use object::Object;
 pub use printable::is_printable;
 pub use text::{Str, StrBuf, bytes_repr, str_repr};
 
