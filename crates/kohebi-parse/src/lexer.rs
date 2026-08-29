@@ -430,10 +430,17 @@ impl<'src> Lexer<'src> {
                 }
                 let top = *self.indents.last().expect("the zero level is never popped");
                 if top.col != col {
+                    // Reported against the end of the line rather than against
+                    // the indentation, which is where CPython puts it: one
+                    // caret just past the last character. The mistake is the
+                    // whole line sitting at a level nothing opened, so there is
+                    // no character on it to blame, and the end is the only
+                    // place a single caret says that.
+                    let end = self.line_end_from(line_begin);
                     return Err(self.defer(SyntaxError::new(
                         ErrorClass::Indentation,
                         "unindent does not match any outer indentation level",
-                        indent_span,
+                        Span::new(end, end + 1),
                     )));
                 }
                 if top.alt != alt {
@@ -442,6 +449,18 @@ impl<'src> Lexer<'src> {
                 Ok(None)
             }
         }
+    }
+
+    /// Byte offset of the line terminator on the line starting at `from`, or of
+    /// the end of the file if it is the last line and has none.
+    fn line_end_from(&self, from: usize) -> u32 {
+        let end = memchr::memchr(b'\n', &self.bytes[from..]).map_or(self.bytes.len(), |i| from + i);
+        let end = if self.bytes.get(end.wrapping_sub(1)) == Some(&b'\r') {
+            end - 1
+        } else {
+            end
+        };
+        u32::try_from(end).unwrap_or(u32::MAX)
     }
 
     /// Consume the indentation at the start of a line and measure it twice.

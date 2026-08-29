@@ -166,6 +166,36 @@ CASES = [
     "ur'a'",
     "bf'a'",
     "rr'a'",
+    # The indentation family, which is here for where the carets land rather
+    # than for the messages. CPython reports `unexpected indent` against the
+    # indentation itself, and the traceback module measures the caret from the
+    # line after that same indentation has been stripped off, so the count
+    # comes out negative and no caret line is printed at all. Two of these
+    # print a source line and nothing under it, which is not a shape any other
+    # case in this file has.
+    "a = 1\n    b = 2\n",
+    "if x:\n        a = 1\n     b = 2\n",
+    "def f(self): def\n",
+    "def f():\n\tif x:\n        pass\n",
+    "if x:\npass\n",
+    "def f():\npass\n",
+    "for i in x:\npass\n",
+    "with a:\npass\n",
+    "try:\n    pass\n",
+    # The same missing block, but with the next line indented less than the
+    # header rather than the same as it. That is a dedent, a dedent has no
+    # width, and the block comes out with no carets under the line.
+    "class C:\n    def f():\nx = 1\n",
+    "if a:\n    def f():\n    x = 1\n",
+    "if a:\n    if b:\n        def f():\n    x = 1\n",
+    "class C:\n    if a:\nx = 1\n",
+    # And the same block missing because the file ended. There is no line
+    # below to blame, so the caret goes just past the header itself.
+    "def f():\n",
+    "match x:\n",
+    "if a:\n    if b:\n",
+    "try:\n    pass",
+    "class C:\n    def f():\n        try:\n            pass\n",
 ]
 
 

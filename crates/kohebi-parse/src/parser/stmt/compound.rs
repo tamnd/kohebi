@@ -31,7 +31,7 @@
 //! `expected ':'` while `if x y: pass` does not.
 
 use crate::ast::{ExceptHandler, Expr, ExprContext, ExprKind, Ident, Stmt, StmtKind, WithItem};
-use crate::error::{ErrorClass, SyntaxError};
+use crate::error::{ErrorClass, Site, SyntaxError};
 use crate::token::{Keyword, Span, TokenKind};
 
 use crate::parser::{Parser, Result, assignment_target_name};
@@ -130,6 +130,44 @@ impl Parser<'_> {
 
     // ----- the block itself -------------------------------------------------
 
+    /// Whether nothing but the closing dedents stands between here and the end
+    /// of the file. False on a truncated stream, whose end marker is one the
+    /// parser was handed rather than one the file earned.
+    fn only_dedents_left(&self) -> bool {
+        !self.truncated
+            && self
+                .rest()
+                .iter()
+                .find(|token| token.kind != TokenKind::Dedent)
+                .is_none_or(|token| token.kind == TokenKind::EndMarker)
+    }
+
+    /// Where a block that never arrived is reported.
+    ///
+    /// Three shapes, one for each thing that can be sitting where the block
+    /// should have been, and all three are CPython's rather than a choice.
+    ///
+    /// A statement on a line at the header's own indentation is a real token
+    /// with a width, so it gets carets under it. A line indented less than the
+    /// header is a dedent first, and a dedent has no width, so the line prints
+    /// with nothing underneath. At the end of the file there is no line below
+    /// to blame at all, and CPython puts a single caret just past the last
+    /// thing anyone typed.
+    pub(super) fn missing_block(&self, class: ErrorClass, message: String) -> SyntaxError {
+        // The end of the file is checked first, because the dedents that close
+        // every open block are sitting in front of the end marker and one of
+        // them is the token we are on.
+        if self.only_dedents_left() {
+            let end = self.typed_end();
+            return SyntaxError::new(class, message, Span::new(end, end + 1));
+        }
+        if self.at(TokenKind::Dedent) {
+            let at = self.current().span.start;
+            return SyntaxError::class_at(class, message, Site::Line(at));
+        }
+        SyntaxError::new(class, message, self.current().span)
+    }
+
     /// The body of a statement that opens one with a keyword.
     ///
     /// `opener` and `line` are only for the message when the block is missing,
@@ -151,10 +189,9 @@ impl Parser<'_> {
             return Ok(body);
         }
         if !self.eat(TokenKind::Indent) {
-            return Err(SyntaxError::new(
+            return Err(self.missing_block(
                 ErrorClass::Indentation,
                 format!("expected an indented block after {subject} on line {line}"),
-                self.current().span,
             ));
         }
         loop {
@@ -418,9 +455,9 @@ impl Parser<'_> {
             Vec::new()
         };
         if handlers.is_empty() && finalbody.is_empty() {
-            return Err(Self::error(
-                "expected 'except' or 'finally' block",
-                self.current().span,
+            return Err(self.missing_block(
+                ErrorClass::Syntax,
+                "expected 'except' or 'finally' block".to_owned(),
             ));
         }
 

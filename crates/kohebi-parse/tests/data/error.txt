@@ -85,3 +85,21 @@ SyntaxError	f"abc	  File "<case>", line 1\n    f"abc\n    ^\nSyntaxError: unterm
 SyntaxError	ur'a'	  File "<case>", line 1\n    ur'a'\n    ^^\nSyntaxError: 'u' and 'r' prefixes are incompatible
 SyntaxError	bf'a'	  File "<case>", line 1\n    bf'a'\n    ^^\nSyntaxError: 'b' and 'f' prefixes are incompatible
 SyntaxError	rr'a'	  File "<case>", line 1\n    rr'a'\n      ^^^\nSyntaxError: invalid syntax
+IndentationError	a = 1\n    b = 2\n	  File "<case>", line 2\n    b = 2\nIndentationError: unexpected indent
+IndentationError	if x:\n        a = 1\n     b = 2\n	  File "<case>", line 3\n    b = 2\n         ^\nIndentationError: unindent does not match any outer indentation level
+SyntaxError	def f(self): def\n	  File "<case>", line 1\n    def f(self): def\n                 ^^^\nSyntaxError: invalid syntax
+TabError	def f():\n\tif x:\n        pass\n	  File "<case>", line 3\n    pass\nTabError: inconsistent use of tabs and spaces in indentation
+IndentationError	if x:\npass\n	  File "<case>", line 2\n    pass\n    ^^^^\nIndentationError: expected an indented block after 'if' statement on line 1
+IndentationError	def f():\npass\n	  File "<case>", line 2\n    pass\n    ^^^^\nIndentationError: expected an indented block after function definition on line 1
+IndentationError	for i in x:\npass\n	  File "<case>", line 2\n    pass\n    ^^^^\nIndentationError: expected an indented block after 'for' statement on line 1
+IndentationError	with a:\npass\n	  File "<case>", line 2\n    pass\n    ^^^^\nIndentationError: expected an indented block after 'with' statement on line 1
+SyntaxError	try:\n    pass\n	  File "<case>", line 2\n    pass\n        ^\nSyntaxError: expected 'except' or 'finally' block
+IndentationError	class C:\n    def f():\nx = 1\n	  File "<case>", line 3\n    x = 1\nIndentationError: expected an indented block after function definition on line 2
+IndentationError	if a:\n    def f():\n    x = 1\n	  File "<case>", line 3\n    x = 1\n    ^\nIndentationError: expected an indented block after function definition on line 2
+IndentationError	if a:\n    if b:\n        def f():\n    x = 1\n	  File "<case>", line 4\n    x = 1\nIndentationError: expected an indented block after function definition on line 3
+IndentationError	class C:\n    if a:\nx = 1\n	  File "<case>", line 3\n    x = 1\nIndentationError: expected an indented block after 'if' statement on line 2
+IndentationError	def f():\n	  File "<case>", line 1\n    def f():\n            ^\nIndentationError: expected an indented block after function definition on line 1
+IndentationError	match x:\n	  File "<case>", line 1\n    match x:\n            ^\nIndentationError: expected an indented block after 'match' statement on line 1
+IndentationError	if a:\n    if b:\n	  File "<case>", line 2\n    if b:\n         ^\nIndentationError: expected an indented block after 'if' statement on line 2
+SyntaxError	try:\n    pass	  File "<case>", line 2\n    pass\n        ^\nSyntaxError: expected 'except' or 'finally' block
+SyntaxError	class C:\n    def f():\n        try:\n            pass\n	  File "<case>", line 4\n    pass\n        ^\nSyntaxError: expected 'except' or 'finally' block

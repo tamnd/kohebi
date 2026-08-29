@@ -97,7 +97,7 @@ fn lexed<T>(source: &str, parse: impl FnOnce(&mut Parser<'_>) -> Result<T>) -> R
     // which is how running out of tokens is told apart from failing.
     let cut = tokens.last().map_or(0, |token| token.span.end);
     tokens.push(Token::new(TokenKind::EndMarker, Span::new(cut, cut)));
-    let mut parser = Parser::new(source, &tokens);
+    let mut parser = Parser::over(source, &tokens, true);
     let Err(ours) = parse(&mut parser) else {
         return Err(error);
     };
@@ -338,10 +338,20 @@ struct Parser<'a> {
     tokens: Vec<Token>,
     pos: usize,
     lines: LineMap,
+    /// Whether the tokenizer stopped early and the end marker is one `lexed`
+    /// added rather than the real end of the file.
+    ///
+    /// It matters wherever the parser asks what comes after the last statement,
+    /// because on a truncated stream the honest answer is that nobody knows.
+    truncated: bool,
 }
 
 impl<'a> Parser<'a> {
     fn new(source: &'a str, tokens: &[Token]) -> Self {
+        Self::over(source, tokens, false)
+    }
+
+    fn over(source: &'a str, tokens: &[Token], truncated: bool) -> Self {
         let tokens = tokens
             .iter()
             .filter(|t| !matches!(t.kind, TokenKind::Comment | TokenKind::NonLogicalNewline))
@@ -352,6 +362,7 @@ impl<'a> Parser<'a> {
             tokens,
             pos: 0,
             lines: LineMap::new(source),
+            truncated,
         }
     }
 
@@ -383,6 +394,12 @@ impl<'a> Parser<'a> {
 
     fn current(&self) -> Token {
         self.tokens[self.pos.min(self.tokens.len() - 1)]
+    }
+
+    /// Everything from the current token to the end, for the few places that
+    /// need to look further ahead than a fixed number of tokens.
+    fn rest(&self) -> &[Token] {
+        &self.tokens[self.pos.min(self.tokens.len())..]
     }
 
     /// Byte offset the next token starts at, which is where a node beginning
