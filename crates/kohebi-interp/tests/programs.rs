@@ -1220,3 +1220,174 @@ fn the_recursion_limit_counts_the_module_body_the_way_python_does() {
         "RecursionError: maximum recursion depth exceeded"
     );
 }
+
+// Closures
+
+#[test]
+fn a_closure_reads_the_frame_that_defined_it() {
+    // Three functions from the same `def`, each holding a different `step`,
+    // which is what makes a closure a value rather than a shorthand.
+    assert_eq!(
+        out("def adder(step):\n\
+             \x20   def go(x):\n\
+             \x20       return x + step\n\
+             \x20   return go\n\
+             a = adder(10)\n\
+             print(a(1), a(2), adder(100)(1))\n"),
+        "11 12 101\n"
+    );
+}
+
+#[test]
+fn a_nonlocal_writes_the_frame_that_defined_it() {
+    // The second counter has a count of its own, and the first one carries on
+    // from where it was, so what is shared is the frame and not the `def`.
+    assert_eq!(
+        out("def counter():\n\
+             \x20   n = 0\n\
+             \x20   def bump():\n\
+             \x20       nonlocal n\n\
+             \x20       n += 1\n\
+             \x20       return n\n\
+             \x20   return bump\n\
+             c = counter()\n\
+             print(c(), c(), c())\n\
+             print(counter()(), c())\n"),
+        "1 2 3\n1 4\n"
+    );
+}
+
+#[test]
+fn two_functions_in_one_frame_share_the_name_rather_than_a_copy() {
+    // This is the test that a cell is one place rather than two. Handing each
+    // closure the value would print 0 here.
+    assert_eq!(
+        out("def shared():\n\
+             \x20   total = 0\n\
+             \x20   def add(v):\n\
+             \x20       nonlocal total\n\
+             \x20       total += v\n\
+             \x20   def get():\n\
+             \x20       return total\n\
+             \x20   add(1)\n\
+             \x20   add(2)\n\
+             \x20   return get()\n\
+             print(shared())\n"),
+        "3\n"
+    );
+}
+
+#[test]
+fn a_name_two_functions_deep_is_carried_by_the_one_in_between() {
+    // `middle` never mentions `x` and still has to take the cell, because a
+    // capture list only reaches the frame that wrote the `def`.
+    assert_eq!(
+        out("def outer():\n\
+             \x20   x = 10\n\
+             \x20   def middle():\n\
+             \x20       def inner():\n\
+             \x20           return x\n\
+             \x20       return inner\n\
+             \x20   return middle()\n\
+             print(outer()())\n"),
+        "10\n"
+    );
+}
+
+#[test]
+fn every_def_in_a_loop_closes_over_the_same_binding() {
+    // The famous one. All three print 3 because there is one `j` and one cell
+    // holding it, and the loop finished before any of them was called.
+    assert_eq!(
+        out("def make():\n\
+             \x20   fns = []\n\
+             \x20   j = 0\n\
+             \x20   while j < 3:\n\
+             \x20       def g():\n\
+             \x20           return j\n\
+             \x20       fns += [g]\n\
+             \x20       j += 1\n\
+             \x20   return fns\n\
+             fns = make()\n\
+             print(fns[0](), fns[1](), fns[2]())\n"),
+        "3 3 3\n"
+    );
+}
+
+#[test]
+fn a_parameter_can_be_the_name_a_closure_captures() {
+    // The argument arrives in a register and then goes into the cell, so the
+    // write through the closure is visible to the frame that was passed it.
+    assert_eq!(
+        out("def rebind(x):\n\
+             \x20   def set(v):\n\
+             \x20       nonlocal x\n\
+             \x20       x = v\n\
+             \x20   def get():\n\
+             \x20       return x\n\
+             \x20   set(99)\n\
+             \x20   return get(), x\n\
+             print(rebind(1))\n"),
+        "(99, 99)\n"
+    );
+}
+
+#[test]
+fn a_lambda_closes_over_what_a_def_does() {
+    assert_eq!(
+        out("def make(n):\n\
+             \x20   return lambda k=1: n * k\n\
+             f = make(3)\n\
+             print(f(), f(4))\n"),
+        "3 12\n"
+    );
+}
+
+#[test]
+fn a_global_declaration_beats_an_enclosing_frame() {
+    // The `global` in `inner` stops the search before it reaches `outer`, so
+    // the two spellings of `x` are two different names.
+    assert_eq!(
+        out("x = \"module\"\n\
+             def outer():\n\
+             \x20   x = \"outer\"\n\
+             \x20   def inner():\n\
+             \x20       global x\n\
+             \x20       return x\n\
+             \x20   return inner(), x\n\
+             print(outer())\n"),
+        "('module', 'outer')\n"
+    );
+}
+
+#[test]
+fn a_free_name_with_nothing_in_it_says_which_variable_and_where() {
+    // Two ways to get an empty cell: read one before the enclosing frame has
+    // written it, and read one a `del` emptied. Both are the same sentence,
+    // and it is not the sentence an ordinary unbound local gets.
+    let unwritten = "def outer():\n\
+                     \x20   def inner():\n\
+                     \x20       return x\n\
+                     \x20   v = inner()\n\
+                     \x20   x = 1\n\
+                     \x20   return v\n\
+                     outer()\n";
+    assert_eq!(
+        raises(unwritten),
+        "NameError: cannot access free variable 'x' where it is not associated \
+         with a value in enclosing scope"
+    );
+    let deleted = "def outer():\n\
+                   \x20   x = 1\n\
+                   \x20   def inner():\n\
+                   \x20       nonlocal x\n\
+                   \x20       del x\n\
+                   \x20       return x\n\
+                   \x20   return inner()\n\
+                   outer()\n";
+    assert_eq!(
+        raises(deleted),
+        "NameError: cannot access free variable 'x' where it is not associated \
+         with a value in enclosing scope"
+    );
+}

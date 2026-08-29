@@ -14,7 +14,7 @@ use kohebi_parse::Value;
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 use kohebi_parse::value::Str;
 
-use crate::hir::{Block, Body, Expr, Local, Place, Stmt};
+use crate::hir::{Block, Body, Expr, FuncId, Local, Place, Slot, Stmt};
 
 /// The whole body, one statement per line, ending in a newline.
 ///
@@ -32,7 +32,18 @@ pub fn print(body: &Body) -> String {
 
 fn nested(out: &mut String, body: &Body) {
     for func in &body.functions {
-        let _ = writeln!(out, "body {}({}):", func.name, params(func, func, &[], &[]));
+        let taken: Vec<String> = func.free.iter().map(|l| func.slot_name(*l)).collect();
+        let over = if taken.is_empty() {
+            String::new()
+        } else {
+            format!(" over {}", taken.join(", "))
+        };
+        let _ = writeln!(
+            out,
+            "body {}({}){over}:",
+            func.name,
+            params(func, func, &[], &[])
+        );
         block(out, func, &func.block, 1);
         nested(out, func);
     }
@@ -88,6 +99,21 @@ fn params(outer: &Body, func: &Body, defaults: &[Expr], kw_defaults: &[Option<Ex
         parts.push(format!("**{}", name(next)));
     }
     parts.join(", ")
+}
+
+/// A slot, saying so when it holds a cell rather than the value.
+///
+/// Which it is is a fact about the slot rather than about this use of it, so
+/// nothing in the tree carries it and the printer has to ask. Printing it on
+/// every use is the point: a reader should not have to hold the slot table in
+/// their head to know whether `x = 1` writes a register or a cell.
+fn slot(body: &Body, local: Local) -> String {
+    let name = body.slot_name(local);
+    match body.slots.get(local.index()) {
+        Some(Slot::Cell(_)) => format!("cell {name}"),
+        Some(Slot::Free(_)) => format!("free {name}"),
+        _ => name,
+    }
 }
 
 fn indent(out: &mut String, depth: usize) {
@@ -170,7 +196,7 @@ fn statement(out: &mut String, body: &Body, stmt: &Stmt, depth: usize) {
 
 fn target(body: &Body, place: &Place) -> String {
     match place {
-        Place::Local(local) => body.slot_name(*local),
+        Place::Local(local) => slot(body, *local),
         Place::Global(name) => name.to_string(),
         Place::Attr { object, name } => format!("{}.{name}", expr(body, object)),
         Place::Item { object, index } => {
@@ -182,7 +208,7 @@ fn target(body: &Body, place: &Place) -> String {
 fn expr(body: &Body, value: &Expr) -> String {
     match value {
         Expr::Const(value) => constant(value),
-        Expr::Local(local) => body.slot_name(*local),
+        Expr::Local(local) => slot(body, *local),
         Expr::Global(name) => name.to_string(),
         Expr::Binary { op, left, right } => format!(
             "{} {} {}",
@@ -270,17 +296,36 @@ fn expr(body: &Body, value: &Expr) -> String {
             id,
             defaults,
             kw_defaults,
-        } => match body.functions.get(id.0 as usize) {
-            Some(func) => format!(
-                "function {}({})",
-                func.name,
-                params(body, func, defaults, kw_defaults)
-            ),
-            // Only reachable from a tree somebody built by hand, and saying so
-            // beats a panic in a printer.
-            None => format!("function ?{}", id.0),
-        },
+            captures,
+        } => function(body, *id, defaults, kw_defaults, captures),
     }
+}
+
+/// What a `def` or a `lambda` builds, with the parts of it the surrounding
+/// frame supplies: the defaults it evaluated and the cells it handed over.
+fn function(
+    body: &Body,
+    id: FuncId,
+    defaults: &[Expr],
+    kw_defaults: &[Option<Expr>],
+    captures: &[Local],
+) -> String {
+    // Only reachable from a tree somebody built by hand, and saying so beats a
+    // panic in a printer.
+    let Some(func) = body.functions.get(id.0 as usize) else {
+        return format!("function ?{}", id.0);
+    };
+    let over = if captures.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<String> = captures.iter().map(|local| slot(body, *local)).collect();
+        format!(" over {}", names.join(", "))
+    };
+    format!(
+        "function {}({}){over}",
+        func.name,
+        params(body, func, defaults, kw_defaults)
+    )
 }
 
 /// One operand of an operator, bracketed when it is an operator itself.

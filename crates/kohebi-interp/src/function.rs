@@ -37,16 +37,26 @@ pub struct Function {
     defaults: Vec<Object>,
     /// Defaults for the keyword-only ones, with a hole where there is none.
     kw_defaults: Vec<Option<Object>>,
+    /// The cells this function closed over, in the order the body's free
+    /// registers take them. Shared with the frame that defined it, which is
+    /// what makes it a closure rather than a copy.
+    captures: Vec<Object>,
 }
 
 impl Function {
     /// A function object, as a `def` or a `lambda` leaves it.
     #[must_use]
-    pub fn new(ready: Rc<Ready>, defaults: Vec<Object>, kw_defaults: Vec<Option<Object>>) -> Self {
+    pub fn new(
+        ready: Rc<Ready>,
+        defaults: Vec<Object>,
+        kw_defaults: Vec<Option<Object>>,
+        captures: Vec<Object>,
+    ) -> Self {
         Function {
             ready,
             defaults,
             kw_defaults,
+            captures,
         }
     }
 
@@ -238,6 +248,15 @@ impl Function {
 
         if shape.double_star {
             registers[double_star_slot] = Some(Object::dict(collected));
+        }
+
+        // Last, because a captured name can have the same spelling as a
+        // parameter of an enclosing function and nothing above should be able
+        // to reach these slots.
+        for (reg, cell) in code.free.iter().zip(&self.captures) {
+            if let Some(slot) = registers.get_mut(reg.0 as usize) {
+                *slot = Some(cell.clone());
+            }
         }
         Ok(registers)
     }

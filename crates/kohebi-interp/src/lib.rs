@@ -24,12 +24,14 @@
 #![doc(html_root_url = "https://docs.rs/kohebi-interp/0.0.0")]
 
 pub mod builtin;
+pub mod cell;
 pub mod function;
 pub mod iterate;
 pub mod ready;
 pub mod vm;
 
 pub use builtin::{Args, Builtin, Flavour};
+pub use cell::Cell;
 pub use function::Function;
 pub use iterate::{Iter, Range};
 pub use ready::Ready;

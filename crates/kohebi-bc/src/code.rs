@@ -148,6 +148,11 @@ pub struct Code {
     /// function object that outlives the frame that built it, and because a
     /// `def` in a loop builds a new function every turn out of the same code.
     pub functions: Vec<Rc<Code>>,
+    /// The registers a call fills with the cells this body captured, in the
+    /// order [`Instr::MakeFunction`] collected them.
+    ///
+    /// Empty for anything that is not a closure, which is most bodies.
+    pub free: Vec<Reg>,
 }
 
 impl Code {
@@ -206,6 +211,31 @@ pub enum Instr {
     /// holding `None`. Reading it afterwards raises.
     DeleteLocal {
         reg: Reg,
+    },
+
+    /// Put a cell in a register, holding whatever was already there.
+    ///
+    /// One instruction rather than two because the two cases are the same
+    /// sentence: a parameter this body shares with a function inside it starts
+    /// out holding the argument, and every other shared name starts out holding
+    /// nothing, which is exactly the state that makes reading it an
+    /// `UnboundLocalError`.
+    Cell {
+        reg: Reg,
+    },
+    /// Read through a cell, which is what a name shared between two frames is.
+    LoadCell {
+        dst: Reg,
+        cell: Reg,
+    },
+    StoreCell {
+        cell: Reg,
+        src: Reg,
+    },
+    /// `del` on a shared name, which empties the cell rather than the register,
+    /// so the other frames holding it see the name go away too.
+    ClearCell {
+        cell: Reg,
     },
 
     LoadAttr {
@@ -294,6 +324,9 @@ pub enum Instr {
         /// Defaults for the keyword-only ones, into [`Code::optional`], one
         /// entry per keyword-only parameter and a hole where there is none.
         kw_defaults: Span,
+        /// Registers of this frame holding the cells the new function closes
+        /// over, into [`Code::regs`], in the order [`Code::free`] takes them.
+        captures: Span,
     },
     BuildTuple {
         dst: Reg,

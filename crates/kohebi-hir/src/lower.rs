@@ -59,7 +59,49 @@ impl std::fmt::Display for Unsupported {
 
 impl std::error::Error for Unsupported {}
 
-type Result<T> = std::result::Result<T, Unsupported>;
+/// What can stop a lowering.
+///
+/// Two things rather than one, because a program can also be wrong in a way
+/// CPython refuses at compile time and this is the first pass in a position to
+/// notice. A `nonlocal` naming something no enclosing function binds is not a
+/// feature that is missing, and saying it is would send somebody looking
+/// through the milestones for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Failed {
+    /// A construct that has no lowering yet.
+    Unsupported(Unsupported),
+    /// A program CPython would not compile.
+    Syntax {
+        /// The message, word for word what CPython says.
+        message: String,
+        /// One-based, the way a traceback counts.
+        line: u32,
+    },
+}
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Failed::Unsupported(unsupported) => unsupported.fmt(f),
+            Failed::Syntax { message, line } => write!(f, "line {line}: SyntaxError: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for Failed {}
+
+impl From<Unsupported> for Failed {
+    fn from(unsupported: Unsupported) -> Self {
+        Failed::Unsupported(unsupported)
+    }
+}
+
+type Result<T> = std::result::Result<T, Failed>;
+
+/// A `SyntaxError` at a line, which is always an `Err`.
+fn syntax<T>(message: String, line: u32) -> Result<T> {
+    Err(Failed::Syntax { message, line })
+}
 
 /// Lower a parsed module.
 ///
@@ -68,10 +110,10 @@ type Result<T> = std::result::Result<T, Unsupported>;
 /// [`Unsupported`] for a construct this pass does not handle yet.
 pub fn lower_module(module: &Mod, name: &str) -> Result<Body> {
     let Mod::Module { body, .. } = module else {
-        return Err(Unsupported {
+        return Err(Failed::Unsupported(Unsupported {
             what: "this compilation mode",
             line: 1,
-        });
+        }));
     };
     let mut lower = Lower::new();
     let block = lower.lower_block(body)?;
@@ -84,6 +126,7 @@ pub fn lower_module(module: &Mod, name: &str) -> Result<Body> {
         slots: scope.slots,
         block,
         functions: scope.functions,
+        free: Vec::new(),
     })
 }
 
@@ -190,8 +233,8 @@ struct Binder {
     bound: Vec<Name>,
     /// The names a `global` statement took back out.
     declared: HashSet<Name>,
-    /// The line of the first `nonlocal`, which has no lowering yet.
-    nonlocal: Option<u32>,
+    /// The names a `nonlocal` statement pointed at an enclosing function.
+    nonlocals: Vec<(Name, u32)>,
 }
 
 impl Binder {
@@ -349,8 +392,10 @@ impl Binder {
                 }
             }
             StmtKind::Global { names } => self.declared.extend(names.iter().cloned()),
-            StmtKind::Nonlocal { .. } => {
-                self.nonlocal.get_or_insert(stmt.attrs.lineno);
+            StmtKind::Nonlocal { names } => {
+                let line = stmt.attrs.lineno;
+                self.nonlocals
+                    .extend(names.iter().map(|name| (name.clone(), line)));
             }
             StmtKind::Expr { value } => self.expr(value),
             StmtKind::Return { value } => {
@@ -434,6 +479,14 @@ struct Scope {
     declared: HashSet<Name>,
     /// The functions defined directly in this frame.
     functions: Vec<Body>,
+    /// The names this frame took from an enclosing one, and their slots here.
+    free: HashMap<Name, Local>,
+    /// Those slots in the order they were taken, which is the order a call
+    /// fills them and so the order a `def` hands the cells over in.
+    order: Vec<Local>,
+    /// For each of those, the slot of the enclosing frame the cell comes from.
+    /// Parallel to `order`, because the two are read together and never apart.
+    from: Vec<Local>,
 }
 
 impl Scope {
@@ -444,7 +497,19 @@ impl Scope {
             locals: HashMap::new(),
             declared: HashSet::new(),
             functions: Vec::new(),
+            free: HashMap::new(),
+            order: Vec::new(),
+            from: Vec::new(),
         }
+    }
+
+    /// Where a name lives in this frame, whether it is a local or a captured
+    /// cell. Both are slots, which is the whole point of capturing into one.
+    fn slot_of(&self, name: &Name) -> Option<Local> {
+        self.locals
+            .get(name)
+            .or_else(|| self.free.get(name))
+            .copied()
     }
 }
 
@@ -499,49 +564,84 @@ impl Lower {
         local
     }
 
-    /// Reading a name: a slot if this frame has one, and the module namespace
-    /// otherwise.
-    fn read(&self, name: &Name, line: u32) -> Result<Expr> {
-        if let Some(local) = self.scope().locals.get(name) {
-            return Ok(Expr::Local(*local));
+    /// Reading a name: a slot if this frame has one, a cell if an enclosing
+    /// function does, and the module namespace otherwise.
+    fn read(&mut self, name: &Name) -> Expr {
+        match self.resolve(name) {
+            Some(local) => Expr::Local(local),
+            None => Expr::Global(name.clone()),
         }
-        self.not_free(name, line)?;
-        Ok(Expr::Global(name.clone()))
     }
 
     /// Writing a name, which lands in the same place reading it comes from.
-    fn write(&self, name: &Name, line: u32) -> Result<Place> {
-        if let Some(local) = self.scope().locals.get(name) {
-            return Ok(Place::Local(*local));
+    fn write(&mut self, name: &Name) -> Place {
+        match self.resolve(name) {
+            Some(local) => Place::Local(local),
+            None => Place::Global(name.clone()),
         }
-        self.not_free(name, line)?;
-        Ok(Place::Global(name.clone()))
     }
 
-    /// Refuse a name that belongs to an enclosing function.
-    ///
-    /// Without this the name would quietly become a global of the same spelling,
-    /// which is a wrong answer rather than a missing feature. Closures are the
-    /// next piece of work and this is the line that says so.
+    /// The slot a name is in, capturing it from an enclosing frame if that is
+    /// where it lives. `None` means it is a global.
+    fn resolve(&mut self, name: &Name) -> Option<Local> {
+        if let Some(local) = self.scope().slot_of(name) {
+            return Some(local);
+        }
+        if self.scope().declared.contains(name) {
+            return None;
+        }
+        self.capture(name)
+    }
+
+    /// Take a name from the nearest enclosing function that has it.
     ///
     /// The module frame is not searched, because a name at module level really
-    /// is a global and reading one from inside a function is not a closure.
-    fn not_free(&self, name: &Name, line: u32) -> Result<()> {
-        if self.scope().declared.contains(name) {
-            return Ok(());
+    /// is a global and reading one from inside a function is not a closure. A
+    /// `global` declaration in a frame in between stops the search there, since
+    /// from that frame inwards the name is the module's.
+    fn capture(&mut self, name: &Name) -> Option<Local> {
+        let here = self.scopes.len().checked_sub(1)?;
+        let mut owner = None;
+        for at in (1..here).rev() {
+            if self.scopes[at].declared.contains(name) {
+                return None;
+            }
+            if let Some(local) = self.scopes[at].slot_of(name) {
+                owner = Some((at, local));
+                break;
+            }
         }
-        let end = self.scopes.len().saturating_sub(1);
-        let enclosing = &self.scopes[end.min(1)..end];
-        if enclosing
-            .iter()
-            .any(|scope| scope.locals.contains_key(name))
+        let (at, local) = owner?;
+        // The frame that owns it keeps it in a cell from now on, so that the
+        // two frames share the binding rather than a copy of the value. It may
+        // be one already, if this is the second function to capture it.
+        if let Some(slot) = self.scopes[at].slots.get_mut(local.index())
+            && matches!(slot, Slot::Named(_))
         {
-            return Err(Unsupported {
-                what: "a name from an enclosing function",
-                line,
-            });
+            *slot = Slot::Cell(name.clone());
         }
-        Ok(())
+        // Then down through every frame in between. A capture list only
+        // reaches one frame, so a name three deep is carried by the function
+        // in the middle whether that function mentions it or not.
+        let mut from = local;
+        for step in at + 1..=here {
+            from = self.take(step, name, from);
+        }
+        Some(from)
+    }
+
+    /// Give one frame a slot for a cell the frame around it holds.
+    fn take(&mut self, at: usize, name: &Name, from: Local) -> Local {
+        let scope = &mut self.scopes[at];
+        if let Some(local) = scope.free.get(name) {
+            return *local;
+        }
+        let local = Local(count(scope.slots.len()));
+        scope.slots.push(Slot::Free(name.clone()));
+        scope.free.insert(name.clone(), local);
+        scope.order.push(local);
+        scope.from.push(from);
+        local
     }
 
     /// Put a value in a temporary and hand back the way to read it.
@@ -574,11 +674,21 @@ impl Lower {
     fn lower_stmt(&mut self, stmt: &AStmt, out: &mut Block) -> Result<()> {
         let line = stmt.attrs.lineno;
         match &stmt.kind {
-            // A `pass` is nothing, and a `global` is nothing by the time it is
-            // reached: the names it claims were taken out of this frame's
-            // locals before a line of it was lowered. At module level it never
-            // had an effect at all, since everything there is a global already.
-            StmtKind::Pass | StmtKind::Global { .. } => out.push(Stmt::Nop),
+            // Every name at module level is a global already, so there is
+            // nothing outside for a `nonlocal` there to point at.
+            StmtKind::Nonlocal { .. } if self.scopes.len() == 1 => {
+                return syntax(
+                    "nonlocal declaration not allowed at module level".to_owned(),
+                    stmt.attrs.lineno,
+                );
+            }
+            // A `pass` is nothing, and the two declarations are nothing by the
+            // time they are reached: both are statements about the whole body
+            // rather than steps in the middle of it, and both were acted on
+            // before a line of it was lowered.
+            StmtKind::Pass | StmtKind::Global { .. } | StmtKind::Nonlocal { .. } => {
+                out.push(Stmt::Nop);
+            }
             StmtKind::Expr { value } => {
                 let value = self.lower_expr(value, out)?;
                 out.push(Stmt::Eval(value));
@@ -669,10 +779,10 @@ impl Lower {
                 ..
             } => {
                 if !type_params.is_empty() {
-                    return Err(Unsupported {
+                    return Err(Failed::Unsupported(Unsupported {
                         what: "a function with type parameters",
                         line,
-                    });
+                    }));
                 }
                 // Loaded before the function is built, in the order they are
                 // written, and applied afterwards from the bottom up. That is
@@ -692,7 +802,7 @@ impl Lower {
                         keywords: Vec::new(),
                     };
                 }
-                let place = self.write(name, line)?;
+                let place = self.write(name);
                 out.push(Stmt::Store { place, value });
             }
             StmtKind::Raise { exc, cause } => {
@@ -704,10 +814,10 @@ impl Lower {
                 out.push(Stmt::Raise { exc, cause });
             }
             other => {
-                return Err(Unsupported {
+                return Err(Failed::Unsupported(Unsupported {
                     what: statement_name(other),
                     line,
-                });
+                }));
             }
         }
         Ok(())
@@ -744,10 +854,10 @@ impl Lower {
                 // Reached only when a star is not inside a tuple or a list, as
                 // in `*a = [1]`. CPython calls that a syntax error rather than
                 // running it, and saying so here is closer than unpacking it.
-                return Err(Unsupported {
+                return Err(Failed::Unsupported(Unsupported {
                     what: "a starred assignment target",
                     line,
-                });
+                }));
             }
             _ => {
                 let place = self.lower_place(target, Reuse::Once, out)?;
@@ -759,10 +869,10 @@ impl Lower {
         let starred = |elt: &AExpr| matches!(elt.kind, ExprKind::Starred { .. });
         let star = elts.iter().position(starred);
         if elts.iter().filter(|elt| starred(elt)).count() > 1 {
-            return Err(Unsupported {
+            return Err(Failed::Unsupported(Unsupported {
                 what: "more than one starred target in one assignment",
                 line,
-            });
+            }));
         }
         let before = star.unwrap_or(elts.len());
         let after = star.map_or(0, |at| elts.len() - at - 1);
@@ -857,11 +967,13 @@ impl Lower {
             slots: scope.slots,
             block,
             functions: scope.functions,
+            free: scope.order,
         });
         Ok(Expr::Function {
             id,
             defaults,
             kw_defaults,
+            captures: scope.from,
         })
     }
 
@@ -897,17 +1009,25 @@ impl Lower {
     fn take_names(&mut self, stmts: &[AStmt]) -> Result<()> {
         let mut binder = Binder::default();
         binder.block(stmts);
-        if let Some(line) = binder.nonlocal {
-            // A `nonlocal` names a slot in an enclosing function, which is the
-            // same thing a closure needs and is not here yet.
-            return Err(Unsupported {
-                what: "a nonlocal declaration",
-                line,
-            });
-        }
         self.scope_mut().declared = binder.declared;
-        for name in binder.bound {
+        // The `nonlocal` declarations go first, because they are what decides
+        // that a name this frame assigns is not a local of it. Doing them after
+        // the bound names would give the name a slot here and then leave the
+        // capture pointing somewhere nothing reads.
+        for (name, line) in binder.nonlocals {
             if self.scope().declared.contains(&name) {
+                return syntax(format!("name '{name}' is nonlocal and global"), line);
+            }
+            if self.scope().locals.contains_key(&name) {
+                // The only names in a frame this early are its parameters.
+                return syntax(format!("name '{name}' is parameter and nonlocal"), line);
+            }
+            if self.capture(&name).is_none() {
+                return syntax(format!("no binding for nonlocal '{name}' found"), line);
+            }
+        }
+        for name in binder.bound {
+            if self.scope().declared.contains(&name) || self.scope().free.contains_key(&name) {
                 continue;
             }
             self.declare(&name);
@@ -986,7 +1106,7 @@ impl Lower {
             Reuse::Twice => lower.pin(out, value),
         };
         match &target.kind {
-            ExprKind::Name { id, .. } => self.write(id, target.attrs.lineno),
+            ExprKind::Name { id, .. } => Ok(self.write(id)),
             ExprKind::Attribute { value, attr, .. } => {
                 let object = self.lower_expr(value, out)?;
                 let object = hold(self, out, object);
@@ -1002,18 +1122,20 @@ impl Lower {
                 let index = hold(self, out, index);
                 Ok(Place::Item { object, index })
             }
-            ExprKind::Tuple { .. } | ExprKind::List { .. } => Err(Unsupported {
-                what: "unpacking assignment",
-                line: target.attrs.lineno,
-            }),
-            ExprKind::Starred { .. } => Err(Unsupported {
+            ExprKind::Tuple { .. } | ExprKind::List { .. } => {
+                Err(Failed::Unsupported(Unsupported {
+                    what: "unpacking assignment",
+                    line: target.attrs.lineno,
+                }))
+            }
+            ExprKind::Starred { .. } => Err(Failed::Unsupported(Unsupported {
                 what: "a starred assignment target",
                 line: target.attrs.lineno,
-            }),
-            other => Err(Unsupported {
+            })),
+            other => Err(Failed::Unsupported(Unsupported {
                 what: expression_name(other),
                 line: target.attrs.lineno,
-            }),
+            })),
         }
     }
 
@@ -1048,7 +1170,7 @@ impl Lower {
         let line = expr.attrs.lineno;
         match &expr.kind {
             ExprKind::Constant { value, .. } => Ok(Expr::Const(value.clone())),
-            ExprKind::Name { id, .. } => self.read(id, line),
+            ExprKind::Name { id, .. } => Ok(self.read(id)),
             ExprKind::Lambda { args, body } => {
                 self.lower_function("<lambda>", args, Source::Value(body), out)
             }
@@ -1121,10 +1243,10 @@ impl Lower {
                     .iter()
                     .any(|a| matches!(a.kind, ExprKind::Starred { .. }))
                 {
-                    return Err(Unsupported {
+                    return Err(Failed::Unsupported(Unsupported {
                         what: "a starred call argument",
                         line,
-                    });
+                    }));
                 }
                 let mut group: Vec<&AExpr> = vec![func];
                 group.extend(args.iter());
@@ -1199,10 +1321,10 @@ impl Lower {
                 }
                 Ok(Expr::Dict(pairs))
             }
-            other => Err(Unsupported {
+            other => Err(Failed::Unsupported(Unsupported {
                 what: expression_name(other),
                 line,
-            }),
+            })),
         }
     }
 

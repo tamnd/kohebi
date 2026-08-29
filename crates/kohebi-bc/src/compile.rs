@@ -52,7 +52,7 @@ fn compile_body(body: &Body, names: &mut Vec<Box<str>>) -> Code {
                 .slots
                 .iter()
                 .map(|slot| match slot {
-                    Slot::Named(name) => name.clone(),
+                    Slot::Named(name) | Slot::Cell(name) | Slot::Free(name) => name.clone(),
                     Slot::Temp(_) => Box::from(""),
                 })
                 .collect(),
@@ -70,12 +70,24 @@ fn compile_body(body: &Body, names: &mut Vec<Box<str>>) -> Code {
                 .iter()
                 .map(|func| Rc::new(compile_body(func, names)))
                 .collect(),
+            free: body.free.iter().map(|local| register(*local)).collect(),
         },
         names,
         scratch: slots,
         high_water: slots,
         loops: Vec::new(),
+        cells: body.slots.iter().map(Slot::is_cell).collect(),
     };
+
+    // Every name this body shares with a function inside it needs its cell
+    // before anything can read or write it. A captured one already has one,
+    // handed over by the call, so only the body's own are made here.
+    for (at, slot) in body.slots.iter().enumerate() {
+        if matches!(slot, Slot::Cell(_)) {
+            let reg = register(Local(u32::try_from(at).unwrap_or(u32::MAX)));
+            compiler.emit(Instr::Cell { reg });
+        }
+    }
 
     compiler.block(&body.block);
 
@@ -108,6 +120,13 @@ struct Compiler<'a> {
     /// The most registers ever in use at once, which is what a frame needs.
     high_water: u32,
     loops: Vec<LoopContext>,
+    /// Whether each slot holds a cell rather than the value, by slot number.
+    ///
+    /// The HIR says this on the slot rather than on every read of it, because
+    /// it is not known until the body is finished: the `def` that captures a
+    /// name can come after every use of it. So this is the one table the
+    /// compiler consults before touching a slot.
+    cells: Vec<bool>,
 }
 
 impl Compiler<'_> {
@@ -219,6 +238,13 @@ impl Compiler<'_> {
         match place {
             // Straight into the slot, which is why an assignment to a name is
             // one instruction and not two.
+            Place::Local(local) if self.is_cell(*local) => {
+                let src = self.operand(value);
+                self.emit(Instr::StoreCell {
+                    cell: register(*local),
+                    src,
+                });
+            }
             Place::Local(local) => self.write_into(value, register(*local)),
             Place::Global(name) => {
                 let src = self.operand(value);
@@ -244,6 +270,11 @@ impl Compiler<'_> {
 
     fn delete(&mut self, place: &Place) {
         match place {
+            Place::Local(local) if self.is_cell(*local) => {
+                self.emit(Instr::ClearCell {
+                    cell: register(*local),
+                });
+            }
             Place::Local(local) => {
                 let reg = register(*local);
                 self.emit(Instr::DeleteLocal { reg });
@@ -342,12 +373,29 @@ impl Compiler<'_> {
     /// A slot read is already in a register and is handed back as it is, which
     /// is what stops every operand from costing a copy.
     fn operand(&mut self, expr: &Expr) -> Reg {
-        if let Expr::Local(local) = expr {
+        if let Expr::Local(local) = expr
+            && !self.is_cell(*local)
+        {
             return register(*local);
         }
         let dst = self.alloc();
         self.write_into(expr, dst);
         dst
+    }
+
+    /// Whether a slot holds a cell.
+    fn is_cell(&self, local: Local) -> bool {
+        self.cells.get(local.index()).copied().unwrap_or(false)
+    }
+
+    /// A span of slots, as themselves rather than as what they hold.
+    fn registers(&mut self, locals: &[Local]) -> Span {
+        let start = u32::try_from(self.code.regs.len()).unwrap_or(u32::MAX);
+        let len = u32::try_from(locals.len()).unwrap_or(u32::MAX);
+        self.code
+            .regs
+            .extend(locals.iter().map(|local| register(*local)));
+        Span { start, len }
     }
 
     /// Registers holding each of these, in order, recorded as a span.
@@ -371,6 +419,12 @@ impl Compiler<'_> {
             Expr::Const(value) => {
                 let value = self.constant(value);
                 self.emit(Instr::Const { dst, value });
+            }
+            Expr::Local(local) if self.is_cell(*local) => {
+                self.emit(Instr::LoadCell {
+                    dst,
+                    cell: register(*local),
+                });
             }
             Expr::Local(local) => {
                 let src = register(*local);
@@ -496,14 +550,21 @@ impl Compiler<'_> {
                 id,
                 defaults,
                 kw_defaults,
+                captures,
             } => {
                 let defaults = self.operands(defaults);
                 let kw_defaults = self.kw_default_operands(kw_defaults);
+                // The cells go over as they are rather than being read
+                // through, which is the whole of what a closure is: the two
+                // frames end up holding the same cell and so see each other's
+                // writes.
+                let captures = self.registers(captures);
                 self.emit(Instr::MakeFunction {
                     dst,
                     func: FuncId(id.0),
                     defaults,
                     kw_defaults,
+                    captures,
                 });
             }
             Expr::Unpack {

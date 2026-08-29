@@ -31,7 +31,7 @@ pub mod lower;
 pub mod print;
 
 pub use hir::{Block, Body, Expr, Local, Place, Slot, Stmt};
-pub use lower::{Unsupported, lower_module};
+pub use lower::{Failed, Unsupported, lower_module};
 pub use print::print;
 
 /// The design documents that govern this crate.
