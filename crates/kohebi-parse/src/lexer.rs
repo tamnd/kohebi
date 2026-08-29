@@ -1246,13 +1246,13 @@ impl<'src> Lexer<'src> {
         self.pos = start + c.len_utf8();
         let span = self.span_from(start);
         let code = c as u32;
-        if !c.is_ascii() {
-            SyntaxError::syntax(format!("invalid character '{c}' (U+{code:04X})"), span)
-        } else {
+        if c.is_ascii() {
             SyntaxError::syntax(
                 format!("invalid non-printable character U+{code:04X}"),
                 span,
             )
+        } else {
+            SyntaxError::syntax(format!("invalid character '{c}' (U+{code:04X})"), span)
         }
     }
 }
