@@ -94,42 +94,7 @@ fn integer(text: &str, span: Span) -> Result<Int, SyntaxError> {
         _ => (text.as_bytes(), 10),
     };
     let digits = std::str::from_utf8(digits).expect("a digit run is ASCII");
-
-    if radix == 10 {
-        return Int::from_decimal(digits)
-            .ok_or_else(|| SyntaxError::syntax("invalid decimal literal", span));
-    }
-    // `0xFF` is small and `0x` followed by forty digits is not, and the second
-    // one still has to print as decimal, so it goes the long way round.
-    match i64::from_str_radix(digits, radix) {
-        Ok(small) => Ok(Int::Small(small)),
-        Err(_) => Ok(Int::Big(to_decimal(digits, radix).into())),
-    }
-}
-
-/// Digits in some radix, as the decimal digits Python prints them as.
-///
-/// Schoolbook multiply and add over a little endian decimal digit vector. The
-/// literals that need it are rare and short, so the simple algorithm is the
-/// right one and a bignum dependency would not earn its place.
-fn to_decimal(digits: &str, radix: u32) -> String {
-    let mut out: Vec<u8> = vec![0];
-    for ch in digits.chars() {
-        let mut carry = ch.to_digit(radix).expect("the lexer validated the digits");
-        for slot in &mut out {
-            let value = u32::from(*slot) * radix + carry;
-            *slot = u8::try_from(value % 10).expect("a remainder mod ten is one digit");
-            carry = value / 10;
-        }
-        while carry > 0 {
-            out.push(u8::try_from(carry % 10).expect("a remainder mod ten is one digit"));
-            carry /= 10;
-        }
-    }
-    while out.len() > 1 && out.last() == Some(&0) {
-        out.pop();
-    }
-    out.iter().rev().map(|d| char::from(b'0' + d)).collect()
+    Int::parse(digits, radix).ok_or_else(|| SyntaxError::syntax("invalid decimal literal", span))
 }
 
 fn float(text: &str, span: Span) -> Result<f64, SyntaxError> {

@@ -81,7 +81,7 @@ fn parse(kind: &str, input: &str) -> Value {
                 .collect::<Vec<_>>()
                 .into(),
         ),
-        "int" => Value::Int(Int::from_decimal(input).expect("the generator writes decimal digits")),
+        "int" => Value::Int(Int::parse(input, 10).expect("the generator writes decimal digits")),
         // Raw IEEE bits, so reading the fixture cannot round the value.
         "float" => Value::Float(f64::from_bits(bits(input))),
         "imag" => Value::Imaginary(f64::from_bits(bits(input))),
