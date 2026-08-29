@@ -1705,3 +1705,338 @@ fn an_exception_is_a_value_like_any_other_until_it_is_raised() {
         "ValueError: q"
     );
 }
+
+// Catching them
+
+/// The whole statement, with all four of its parts, doing what each of them is
+/// there to do.
+#[test]
+fn a_try_runs_its_body_its_handler_its_else_and_its_finally() {
+    assert_eq!(
+        out("try:\n    print('body')\n\
+             except ValueError:\n    print('handler')\n\
+             else:\n    print('else')\n\
+             finally:\n    print('finally')\n"),
+        "body\nelse\nfinally\n"
+    );
+    assert_eq!(
+        out("try:\n    raise ValueError('v')\n\
+             except ValueError:\n    print('handler')\n\
+             else:\n    print('else')\n\
+             finally:\n    print('finally')\n"),
+        "handler\nfinally\n"
+    );
+}
+
+/// A clause catches its own class and everything below it, and the classes are
+/// tried in the order they are written rather than by how well they fit.
+#[test]
+fn a_clause_catches_its_class_and_everything_under_it() {
+    assert_eq!(
+        out("try:\n    1 / 0\n\
+             except ArithmeticError as e:\n    print('arithmetic', e)\n"),
+        "arithmetic division by zero\n"
+    );
+    assert_eq!(
+        out("try:\n    1 / 0\n\
+             except ValueError:\n    print('value')\n\
+             except ArithmeticError:\n    print('arithmetic')\n\
+             except ZeroDivisionError:\n    print('division')\n"),
+        "arithmetic\n"
+    );
+    // A tuple catches whatever any of its members catches.
+    assert_eq!(
+        out("try:\n    1 / 0\n\
+             except (ValueError, LookupError, ArithmeticError):\n    print('one of them')\n"),
+        "one of them\n"
+    );
+}
+
+/// A bare `except` catches everything, including the three that are not
+/// `Exception`, which is the whole reason it is different from `except
+/// Exception`.
+#[test]
+fn a_bare_except_catches_what_except_exception_does_not() {
+    assert_eq!(
+        out("try:\n    raise SystemExit(1)\n\
+             except:\n    print('caught')\n"),
+        "caught\n"
+    );
+    assert_eq!(
+        raises("try:\n    raise KeyboardInterrupt\nexcept Exception:\n    print('no')\n"),
+        "KeyboardInterrupt"
+    );
+}
+
+/// An exception no clause matched carries on out, which is what the `raise` at
+/// the end of the chain the clauses became is for.
+#[test]
+fn an_exception_nothing_matched_carries_on() {
+    assert_eq!(
+        raises("try:\n    1 / 0\nexcept ValueError:\n    print('no')\n"),
+        "ZeroDivisionError: division by zero"
+    );
+    // And is caught by whatever is around the statement that did not want it.
+    assert_eq!(
+        out(
+            "try:\n    try:\n        1 / 0\n    except ValueError:\n        print('no')\n\
+             except ZeroDivisionError:\n    print('outer')\n"
+        ),
+        "outer\n"
+    );
+}
+
+/// An `except` clause naming something that is not an exception class is a
+/// mistake in the handler, which is reported instead of what it was trying to
+/// catch.
+#[test]
+fn a_clause_that_names_something_that_is_not_a_class_says_so() {
+    let complaint = "TypeError: catching classes that do not inherit from \
+                     BaseException is not allowed";
+    assert_eq!(raises("try:\n    1 / 0\nexcept 5:\n    pass\n"), complaint);
+    assert_eq!(
+        raises("try:\n    1 / 0\nexcept (ValueError, 5):\n    pass\n"),
+        complaint
+    );
+}
+
+/// The object a handler binds is the object that was raised, not a copy of it
+/// and not one rebuilt from the message.
+#[test]
+fn what_a_handler_binds_is_the_object_that_was_raised() {
+    assert_eq!(
+        out("e = ValueError('once')\n\
+             try:\n    raise e\n\
+             except ValueError as caught:\n    print(caught is e, caught)\n"),
+        "True once\n"
+    );
+    // One the runtime raised has no object until it is caught, and the one it
+    // makes then has the arguments CPython's has.
+    assert_eq!(
+        out("try:\n    1 / 0\nexcept ZeroDivisionError as e:\n    print([e])\n"),
+        "[ZeroDivisionError('division by zero')]\n"
+    );
+    // A `KeyError` is the one whose message is already a `repr`, so it is the
+    // one that would come back with two pairs of quotes if it were rebuilt
+    // from its message rather than from its key.
+    assert_eq!(
+        out("try:\n    {'a': 1}['b']\nexcept KeyError as e:\n    print(e, [e])\n"),
+        "'b' [KeyError('b')]\n"
+    );
+}
+
+/// `as` takes the name away again at the end, however the handler ended, so a
+/// name left over from one is a `NameError` rather than an exception nobody
+/// asked for.
+#[test]
+fn a_name_an_except_clause_bound_is_gone_after_it() {
+    assert_eq!(
+        out(
+            "try:\n    1 / 0\nexcept ZeroDivisionError as e:\n    print(e)\n\
+             try:\n    e\nexcept NameError as gone:\n    print(gone)\n"
+        ),
+        "division by zero\nname 'e' is not defined\n"
+    );
+    // Even when the handler deleted it itself, which is why the cleanup writes
+    // the name before it takes it away.
+    assert_eq!(
+        out(
+            "try:\n    1 / 0\nexcept ZeroDivisionError as e:\n    del e\n\
+             try:\n    e\nexcept NameError:\n    print('gone')\n"
+        ),
+        "gone\n"
+    );
+    // And when the handler raised, which is why the cleanup is a `finally`.
+    assert_eq!(
+        out(
+            "try:\n    try:\n        1 / 0\n    except ZeroDivisionError as e:\n\
+             \x20       raise ValueError('second')\n\
+             except ValueError:\n    print('outer')\n\
+             try:\n    e\nexcept NameError:\n    print('gone')\n"
+        ),
+        "outer\ngone\n"
+    );
+}
+
+/// A bare `raise` inside a handler raises what that handler caught, which is
+/// the same object rather than a new one saying the same thing.
+#[test]
+fn a_bare_raise_in_a_handler_raises_what_it_caught() {
+    assert_eq!(
+        out("first = ValueError('once')\n\
+             try:\n    try:\n        raise first\n    except ValueError:\n        raise\n\
+             except ValueError as again:\n    print(again is first, again)\n"),
+        "True once\n"
+    );
+    assert_eq!(
+        raises("try:\n    1 / 0\nexcept ZeroDivisionError:\n    raise\n"),
+        "ZeroDivisionError: division by zero"
+    );
+}
+
+/// A `finally` runs on the way out whichever way out was taken, and an
+/// exception it did not handle carries on after it.
+#[test]
+fn a_finally_runs_on_every_way_out() {
+    assert_eq!(
+        out("try:\n    print('body')\nfinally:\n    print('finally')\n"),
+        "body\nfinally\n"
+    );
+    let (printed, raised) =
+        execute("try:\n    raise ValueError('v')\nfinally:\n    print('finally')\n");
+    assert_eq!(printed, "finally\n");
+    assert_eq!(raised.as_deref(), Some("ValueError: v"));
+    // A `finally` that raises replaces what the body raised, since it is the
+    // last thing that happened.
+    assert_eq!(
+        out(
+            "try:\n    try:\n        raise ValueError('first')\n    finally:\n\
+             \x20       raise KeyError('second')\n\
+             except KeyError as e:\n    print('caught', e)\n"
+        ),
+        "caught 'second'\n"
+    );
+}
+
+/// A `return` runs the `finally` clauses it is leaving, innermost first, and
+/// takes the value it read before any of them ran.
+#[test]
+fn a_return_runs_the_finally_clauses_it_leaves() {
+    assert_eq!(
+        out("def f():\n\
+             \x20   try:\n        try:\n            return 'value'\n\
+             \x20       finally:\n            print('inner')\n\
+             \x20   finally:\n        print('outer')\n\
+             print(f())\n"),
+        "inner\nouter\nvalue\n"
+    );
+    // The clause can change the variable the value came out of and the value
+    // is already settled, which is why the `return` holds it.
+    assert_eq!(
+        out("def f():\n    x = 1\n\
+             \x20   try:\n        return x\n    finally:\n        x = 99\n\
+             print(f())\n"),
+        "1\n"
+    );
+    // A `return` in the clause wins, because it is the later of the two.
+    assert_eq!(
+        out(
+            "def f():\n    try:\n        return 1\n    finally:\n        return 2\n\
+             print(f())\n"
+        ),
+        "2\n"
+    );
+}
+
+/// A `break` and a `continue` run the clauses they are leaving too, and only
+/// the ones inside the loop.
+#[test]
+fn a_break_and_a_continue_run_the_finally_clauses_they_leave() {
+    assert_eq!(
+        out("for i in range(3):\n\
+             \x20   try:\n        if i == 1:\n            break\n\
+             \x20       print('body', i)\n\
+             \x20   finally:\n        print('finally', i)\n\
+             print('after')\n"),
+        "body 0\nfinally 0\nfinally 1\nafter\n"
+    );
+    assert_eq!(
+        out("for i in range(3):\n\
+             \x20   try:\n        if i == 1:\n            continue\n\
+             \x20       print('body', i)\n\
+             \x20   finally:\n        print('finally', i)\n"),
+        "body 0\nfinally 0\nfinally 1\nbody 2\nfinally 2\n"
+    );
+    // A `break` inside a clause takes the exception away with it, since it is
+    // the way out and there is nothing left to carry the exception.
+    assert_eq!(
+        out("for i in range(1):\n\
+             \x20   try:\n        raise ValueError('v')\n    finally:\n        break\n\
+             print('survived')\n"),
+        "survived\n"
+    );
+}
+
+/// An `else` clause is not protected by the handlers above it, which is the
+/// difference between writing it and writing the same lines at the end of the
+/// body.
+#[test]
+fn an_else_clause_is_outside_the_handlers() {
+    assert_eq!(
+        raises(
+            "try:\n    print('body')\n\
+                except ValueError:\n    print('no')\n\
+                else:\n    raise ValueError('from the else')\n"
+        ),
+        "ValueError: from the else"
+    );
+    // The `finally` still runs for it, because a `finally` is around
+    // everything.
+    let (printed, raised) = execute(
+        "try:\n    pass\nexcept ValueError:\n    pass\n\
+         else:\n    raise ValueError('v')\nfinally:\n    print('finally')\n",
+    );
+    assert_eq!(printed, "finally\n");
+    assert_eq!(raised.as_deref(), Some("ValueError: v"));
+}
+
+/// A `try` inside a loop pushes and pops one region a turn, so a loop that runs
+/// many turns is not a frame that grows.
+#[test]
+fn a_try_in_a_loop_leaves_nothing_behind() {
+    assert_eq!(
+        out("caught = 0\n\
+             for i in range(500):\n\
+             \x20   try:\n        raise ValueError(i)\n\
+             \x20   except ValueError:\n        caught = caught + 1\n\
+             print(caught)\n"),
+        "500\n"
+    );
+    assert_eq!(
+        out("total = 0\n\
+             for i in range(500):\n\
+             \x20   try:\n        total = total + i\n\
+             \x20   finally:\n        pass\n\
+             print(total)\n"),
+        "124750\n"
+    );
+}
+
+/// An exception raised in a called function is caught by the caller, which is
+/// what makes the handler stack per frame rather than per program.
+#[test]
+fn a_handler_catches_what_a_call_raised() {
+    assert_eq!(
+        out("def boom(word):\n    raise ValueError(word)\n\
+             def guarded(word):\n\
+             \x20   try:\n        boom(word)\n\
+             \x20   except ValueError as e:\n        return e\n\
+             print(guarded('from inside'))\n"),
+        "from inside\n"
+    );
+    // And a function that catches nothing hands it back to whoever called it.
+    assert_eq!(
+        out("def down(n):\n\
+             \x20   if n == 0:\n        raise RuntimeError('bottom')\n\
+             \x20   return down(n - 1)\n\
+             try:\n    down(20)\nexcept RuntimeError as e:\n    print('caught', e)\n"),
+        "caught bottom\n"
+    );
+}
+
+/// The class an `except` clause names is an expression, evaluated when the
+/// clause is reached rather than when the `try` starts, which a clause naming a
+/// call can tell apart.
+#[test]
+fn the_class_a_clause_names_is_evaluated_when_the_clause_is_reached() {
+    assert_eq!(
+        out("def which():\n    print('asked')\n    return ValueError\n\
+             try:\n    print('body')\nexcept which():\n    print('no')\n"),
+        "body\n"
+    );
+    assert_eq!(
+        out("def which():\n    print('asked')\n    return ValueError\n\
+             try:\n    raise ValueError('v')\nexcept which() as e:\n    print('caught', e)\n"),
+        "asked\ncaught v\n"
+    );
+}

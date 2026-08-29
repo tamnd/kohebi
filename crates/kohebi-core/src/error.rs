@@ -222,6 +222,20 @@ impl Error {
         Error::new(Kind::OverflowError, message)
     }
 
+    /// An exception built from the arguments a program would have written.
+    ///
+    /// The message comes out of the arguments rather than being given
+    /// separately, so an exception the runtime raises this way is the one a
+    /// handler catches: `{}['k']` raises a `KeyError` whose `args` really is
+    /// `('k',)` and not a `KeyError` holding the string `'k'` with its quotes
+    /// already in it.
+    #[must_use]
+    pub fn raised(kind: Kind, args: Vec<Object>) -> Self {
+        let raised = Exception::new(kind, args);
+        let message = raised.message();
+        Error::new(kind, message).with_value(Object::native(raised))
+    }
+
     /// The same exception, carrying the object a program raised.
     ///
     /// Carried rather than rebuilt at the catch, because `raise e` and the
@@ -238,6 +252,33 @@ impl Error {
     #[must_use]
     pub fn value(&self) -> Option<&Object> {
         self.value.as_deref()
+    }
+
+    /// The exception as an object, which is what an `except` clause tests and
+    /// what `as` binds.
+    ///
+    /// The one a program raised when there is one, so that `raise e` and the
+    /// `except ... as e` catching it are the same object. One built here
+    /// otherwise, out of the message, because a division by zero never made an
+    /// object and `except ZeroDivisionError as e` still has to have something
+    /// to bind. Its arguments come out the way CPython's do, which is one
+    /// argument holding the sentence, or none when there is no sentence.
+    ///
+    /// A [`Kind::KeyError`] is the one that cannot be rebuilt from its message,
+    /// since its message is already the `repr` of its key. That is why every
+    /// `KeyError` the runtime raises is built with [`Error::raised`] and
+    /// carries its key.
+    #[must_use]
+    pub fn instance(&self) -> Object {
+        if let Some(value) = self.value() {
+            return value.clone();
+        }
+        let args = if self.message.is_empty() {
+            Vec::new()
+        } else {
+            vec![Object::str(self.message.as_str())]
+        };
+        Object::native(Exception::new(self.kind, args))
     }
 
     /// The `raise ... from ...` chain, oldest first, which is the order a
@@ -352,6 +393,40 @@ mod tests {
             assert!(kind.derives_from(Kind::BaseException));
             assert!(!kind.derives_from(Kind::Exception));
         }
+    }
+
+    /// A division by zero never made an object, and
+    /// `except ZeroDivisionError as e` still has to have something to bind.
+    #[test]
+    fn an_error_that_never_had_an_object_grows_one_when_it_is_caught() {
+        let caught = Error::zero_division("division by zero").instance();
+        assert_eq!(caught.repr(), "ZeroDivisionError('division by zero')");
+        // And one with nothing to say has no arguments rather than one empty
+        // one, which is what `raise MemoryError` gives CPython.
+        assert_eq!(
+            Error::new(Kind::MemoryError, "").instance().repr(),
+            "MemoryError()"
+        );
+    }
+
+    /// `raise e` and the `except ... as e` catching it are the same object, so
+    /// an attribute a program put on the instance before raising it is still
+    /// there afterwards.
+    #[test]
+    fn an_error_a_program_raised_is_caught_as_the_object_it_raised() {
+        let raised = Object::native(Exception::new(Kind::ValueError, vec![Object::str("x")]));
+        let error = Error::new(Kind::ValueError, "x").with_value(raised.clone());
+        assert!(error.instance().is(&raised));
+    }
+
+    /// The message of a `KeyError` is already the `repr` of its key, so
+    /// rebuilding one from its message would put a second pair of quotes round
+    /// a string key and a handler reading `e.args[0]` would get `"'k'"`.
+    #[test]
+    fn an_error_built_from_its_arguments_keeps_them() {
+        let error = Error::raised(Kind::KeyError, vec![Object::str("k")]);
+        assert_eq!(error.to_string(), "KeyError: 'k'");
+        assert_eq!(error.instance().repr(), "KeyError('k')");
     }
 
     /// Every class but the root has a base, so walking up from any of them

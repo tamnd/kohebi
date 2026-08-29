@@ -33,7 +33,7 @@
 use std::any::Any;
 use std::cell::RefCell;
 
-use crate::error::{Error, Kind};
+use crate::error::{Error, Kind, Result};
 use crate::native::Native;
 use crate::object::Object;
 
@@ -196,6 +196,42 @@ pub fn instance_of(value: &Object) -> Option<Object> {
     }
     let class = value.downcast::<Class>()?;
     Some(class.instance(Vec::new()))
+}
+
+/// Whether an `except` clause catches this exception.
+///
+/// The clause names a class or a tuple of them, and a class catches an
+/// exception that is an instance of it or of anything below it, which is the
+/// walk [`Kind::derives_from`] does. A tuple catches whatever any of its
+/// members catches, and only one deep: CPython used to allow a tuple inside a
+/// tuple and stopped, so a nested one is the same mistake as writing a number.
+///
+/// # Errors
+///
+/// A `TypeError` when the clause names something that is not an exception
+/// class, which is a mistake in the handler rather than in what it was trying
+/// to catch.
+pub fn matches(raised: &Exception, test: &Object) -> Result<bool> {
+    if let Object::Tuple(members) = test {
+        for member in members.iter() {
+            if caught_by(raised, member)? {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    caught_by(raised, test)
+}
+
+/// One class of an `except` clause, which is the whole of it unless it is a
+/// tuple.
+fn caught_by(raised: &Exception, test: &Object) -> Result<bool> {
+    let Some(class) = test.downcast::<Class>() else {
+        return Err(Error::type_error(
+            "catching classes that do not inherit from BaseException is not allowed",
+        ));
+    };
+    Ok(raised.kind().derives_from(class.kind()))
 }
 
 /// Every builtin exception class, bound to its name.
@@ -372,6 +408,63 @@ mod tests {
             exception(Kind::KeyError, vec![Object::int(1), Object::int(2)]).message(),
             "(1, 2)"
         );
+    }
+
+    /// `except ArithmeticError` catches a `ZeroDivisionError` for the same
+    /// reason `except ZeroDivisionError` does, which is that a class catches
+    /// everything below it as well as itself.
+    #[test]
+    fn a_clause_catches_its_class_and_everything_under_it() {
+        let raised = exception(Kind::ZeroDivisionError, Vec::new());
+        for kind in [
+            Kind::ZeroDivisionError,
+            Kind::ArithmeticError,
+            Kind::Exception,
+            Kind::BaseException,
+        ] {
+            let test = Object::native(Class::new(kind));
+            assert!(
+                matches(&raised, &test).expect("a class is a clause"),
+                "{kind}"
+            );
+        }
+        let test = Object::native(Class::new(Kind::ValueError));
+        assert!(!matches(&raised, &test).expect("a class is a clause"));
+    }
+
+    /// `except (A, B)` catches whatever either of them catches, and only one
+    /// deep, because CPython used to allow a tuple inside a tuple and stopped.
+    #[test]
+    fn a_tuple_catches_what_any_of_its_members_catches() {
+        let raised = exception(Kind::ValueError, Vec::new());
+        let class = |kind| Object::native(Class::new(kind));
+        let test = Object::tuple(vec![class(Kind::KeyError), class(Kind::ValueError)]);
+        assert!(matches(&raised, &test).expect("a tuple is a clause"));
+
+        let test = Object::tuple(vec![class(Kind::KeyError), class(Kind::TypeError)]);
+        assert!(!matches(&raised, &test).expect("a tuple is a clause"));
+
+        // Empty, which is a clause that catches nothing rather than a mistake.
+        assert!(!matches(&raised, &Object::tuple(Vec::new())).expect("a tuple is a clause"));
+
+        let nested = Object::tuple(vec![Object::tuple(vec![class(Kind::ValueError)])]);
+        assert!(matches(&raised, &nested).is_err());
+    }
+
+    /// The mistake is in the handler rather than in what it was trying to
+    /// catch, so it is a `TypeError` and not the exception that was raised.
+    #[test]
+    fn a_clause_that_names_something_that_is_not_a_class_says_so() {
+        let raised = exception(Kind::ValueError, Vec::new());
+        let error = matches(&raised, &Object::int(5)).expect_err("a number is not a clause");
+        assert_eq!(
+            error.to_string(),
+            "TypeError: catching classes that do not inherit from BaseException is not allowed"
+        );
+        // An instance is not a class either, which is the mistake of writing
+        // `except e` where `e` is what a previous handler bound.
+        let instance = Object::native(exception(Kind::ValueError, Vec::new()));
+        assert!(matches(&raised, &instance).is_err());
     }
 
     #[test]

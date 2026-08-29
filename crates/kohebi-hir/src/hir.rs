@@ -236,9 +236,46 @@ pub enum Stmt {
         exc: Option<Expr>,
         cause: Option<Expr>,
     },
+    /// `try`, with whichever of the three clauses were written.
+    ///
+    /// The `except` clauses are not a list here. Lowering has already turned
+    /// them into one block of ifs, because an `except` clause is a test and a
+    /// body and Python already has a statement for that. What is left is the
+    /// part that is not an if: which region of the program an exception leaves
+    /// through, and what runs on the way out.
+    Try {
+        /// The part an exception is caught leaving.
+        body: Block,
+        /// The `except` clauses, once they are one block. `None` for a `try`
+        /// that has none, which is a `try`/`finally` and catches nothing.
+        catch: Option<Catch>,
+        /// The `else` clause, which runs after the body and is not protected by
+        /// the handlers, because an exception in an `else` is not the
+        /// exception the handlers were written for.
+        orelse: Block,
+        /// The `finally` clause, which runs on the way out however the way out
+        /// was reached.
+        finally: Block,
+    },
     /// A statement with nothing in it, which a `pass` at the end of a block
     /// leaves behind and which lowering never has to special case.
     Nop,
+}
+
+/// The `except` clauses of a `try`, after lowering has made one block of them.
+///
+/// The block is a chain of ifs, one per clause, ending in a `raise` of the slot
+/// so that an exception no clause matched carries on out. Writing it that way
+/// rather than as a list of handlers means the order the clauses are tried in,
+/// and the fact that an unmatched exception keeps going, are both in the HIR
+/// where a reader can see them rather than in a rule the interpreter knows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Catch {
+    /// The slot the exception lands in, which the tests read and which an `as`
+    /// clause copies out of.
+    pub caught: Local,
+    /// The chain of clauses.
+    pub block: Block,
 }
 
 /// What a comprehension adds to what it is building, which is one thing per
@@ -304,6 +341,17 @@ pub enum Expr {
     /// What `if` and `while` ask of a value: `__bool__`, then `__len__`, then
     /// true. Written out because it is a protocol and not a cast.
     Truthy(Box<Expr>),
+    /// Whether the exception in a slot is one an `except` clause catches.
+    ///
+    /// Not a comparison and not an `isinstance` call. It reads a slot only the
+    /// `try` that made it can name, so no program can shadow what it does, and
+    /// it answers with a boolean the surrounding `if` can branch on without
+    /// asking anything for its truth.
+    Matches {
+        caught: Local,
+        /// The class, or the tuple of classes, the clause named.
+        test: Box<Expr>,
+    },
     Attr {
         object: Box<Expr>,
         name: Name,

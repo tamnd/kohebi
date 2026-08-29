@@ -45,17 +45,29 @@
 //! than being skipped or guessed at, so a program that needs one stops on it
 //! and says so.
 //!
-//! `raise` works and `try` does not, so an exception leaves the run rather than
-//! being caught by it. The handler stack and the unwinding that goes with it
-//! are the next piece of work, and both are listed in
-//! `docs/spec/10-milestones.md`.
+//! `__context__`, which is the exception a handler was already handling when it
+//! raised another one. CPython prints it above the new one under "During
+//! handling of the above exception, another exception occurred", and nothing
+//! here records it yet, so the second exception prints on its own.
+//!
+//! ## Exceptions
+//!
+//! A frame keeps a stack of the `try` regions it is inside. Every instruction
+//! returns its failure rather than jumping, and the loop around them is the one
+//! place that looks at that stack, so the arms stay written as though nothing
+//! could go wrong and the unwinding is in one place instead of sixty.
+//!
+//! There is no separate `finally` mechanism. A `finally` clause is compiled
+//! twice, once for the way out that worked and once for the way out that did
+//! not, so the interpreter never has to remember what it was in the middle of
+//! doing when the clause interrupted it.
 
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{self, Write};
 use std::rc::Rc;
 
-use kohebi_bc::code::{Code, Instr, Module, NameId, Reg, Span};
+use kohebi_bc::code::{Code, Instr, Module, NameId, Offset, Reg, Span};
 use kohebi_core::dict::{Dict, Set};
 use kohebi_core::{Error, Kind, Object, Result, Slice, exception, ops};
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
@@ -153,14 +165,6 @@ impl Vm {
         outcome
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "an instruction dispatch is one arm per instruction and there \
-                  is no shorter honest shape for it. Splitting the arms across \
-                  functions by some category would put the loop in one place \
-                  and the work in another, which is harder to read rather than \
-                  easier and is not how any interpreter worth copying is written"
-    )]
     fn execute(
         &mut self,
         ready: &Ready,
@@ -171,261 +175,313 @@ impl Vm {
 
         while let Some(&instr) = code.instrs.get(frame.pc) {
             frame.pc += 1;
-            match instr {
-                Instr::Move { dst, src } => {
-                    let value = frame.get(src)?.clone();
-                    frame.set(dst, value);
-                }
-                Instr::Const { dst, value } => {
-                    let value = ready.constant(value)?;
-                    frame.set(dst, value);
-                }
-
-                Instr::LoadGlobal { dst, name } => {
-                    // A hit is an index. Only a miss pays for the name, and a
-                    // miss at module scope is a builtin or a `NameError`.
-                    let value = if let Some(value) = globals.get(name) {
-                        value.clone()
-                    } else {
-                        let name = globals.name(name);
-                        let found = self.builtins.get(name);
-                        found.ok_or_else(|| undefined(name))?.clone()
+            match self.step(instr, ready, globals, &mut frame) {
+                Ok(Flow::Next) => {}
+                Ok(Flow::Done(value)) => return Ok(value),
+                // The only place an exception is caught, which is what lets
+                // every instruction below be written as though it could not
+                // be. A frame with nothing on its handler stack hands the
+                // exception to whoever called it, and the same thing happens
+                // there.
+                Err(error) => {
+                    let Some(handler) = frame.handlers.pop() else {
+                        return Err(error);
                     };
-                    frame.set(dst, value);
-                }
-                Instr::StoreGlobal { name, src } => {
-                    let value = frame.get(src)?.clone();
-                    globals.set(name, value);
-                }
-                Instr::DeleteGlobal { name } => {
-                    // Builtins are not deleted by `del`, which is why this only
-                    // looks at the globals: `del print` before anything has
-                    // shadowed it is a `NameError`.
-                    if globals.take(name).is_none() {
-                        return Err(undefined(globals.name(name)));
-                    }
-                }
-                Instr::Cell { reg } => {
-                    // Whatever the register held goes into the cell, which for
-                    // a parameter is the argument and for everything else is
-                    // nothing at all.
-                    let held = frame.registers.get(reg.0 as usize).and_then(Clone::clone);
-                    frame.set(reg, Object::native(Cell::new(held)));
-                }
-                Instr::LoadCell { dst, cell } => {
-                    let value = through(code, &frame, cell)?;
-                    frame.set(dst, value);
-                }
-                Instr::StoreCell { cell, src } => {
-                    let value = frame.get(src)?.clone();
-                    cell_at(&frame, cell).set(value);
-                }
-                Instr::ClearCell { cell } => cell_at(&frame, cell).clear(),
-                Instr::DeleteLocal { reg } => {
-                    frame.get(reg)?;
-                    frame.clear(reg);
-                }
-
-                Instr::Binary {
-                    op,
-                    dst,
-                    left,
-                    right,
-                } => {
-                    let value = binary(op, frame.get(left)?, frame.get(right)?)?;
-                    frame.set(dst, value);
-                }
-                Instr::Inplace {
-                    op,
-                    dst,
-                    left,
-                    right,
-                } => {
-                    let value = inplace(op, frame.get(left)?, frame.get(right)?)?;
-                    frame.set(dst, value);
-                }
-                Instr::Unary { op, dst, operand } => {
-                    let value = unary(op, frame.get(operand)?)?;
-                    frame.set(dst, value);
-                }
-                Instr::Compare {
-                    op,
-                    dst,
-                    left,
-                    right,
-                } => {
-                    let value = compare(op, frame.get(left)?, frame.get(right)?)?;
-                    frame.set(dst, value);
-                }
-                Instr::Not { dst, src } => {
-                    let value = ops::not(frame.get(src)?);
-                    frame.set(dst, value);
-                }
-                Instr::Truthy { dst, src } => {
-                    let value = Object::Bool(frame.get(src)?.truthy());
-                    frame.set(dst, value);
-                }
-
-                Instr::Call {
-                    dst,
-                    callee,
-                    args,
-                    keywords,
-                } => {
-                    let value = self.call(code, &frame, globals, callee, args, keywords)?;
-                    frame.set(dst, value);
-                }
-                Instr::MakeFunction {
-                    dst,
-                    func,
-                    defaults,
-                    kw_defaults,
-                    captures,
-                } => {
-                    let Some(body) = ready.function(func) else {
-                        unreachable!("a def is numbered into the body that holds it")
-                    };
-                    // Evaluated here and kept, which is the whole of why
-                    // `def f(x=[])` shares one list between calls.
-                    let defaults = operands(code, &frame, defaults)?;
-                    let mut optional = Vec::with_capacity(kw_defaults.len as usize);
-                    for value in &code.optional[kw_defaults.range()] {
-                        optional.push(match value {
-                            Some(reg) => Some(frame.get(*reg)?.clone()),
-                            None => None,
-                        });
-                    }
-                    // The cells go over as they are. Reading through them here
-                    // would hand the new function the values rather than the
-                    // bindings, and the two frames would stop being able to see
-                    // each other's writes.
-                    let captures = operands(code, &frame, captures)?;
-                    let function = Function::new(Rc::clone(body), defaults, optional, captures);
-                    frame.set(dst, Object::native(function));
-                }
-                Instr::BuildTuple { dst, items } => {
-                    let items = operands(code, &frame, items)?;
-                    frame.set(dst, Object::tuple(items));
-                }
-                Instr::BuildList { dst, items } => {
-                    let items = operands(code, &frame, items)?;
-                    frame.set(dst, Object::list(items));
-                }
-                Instr::BuildSet { dst, items } => {
-                    let mut members = Set::new();
-                    for item in operands(code, &frame, items)? {
-                        members.insert(ops::key(&item, "set element")?);
-                    }
-                    frame.set(dst, Object::set(members));
-                }
-                Instr::BuildDict { dst, entries } => {
-                    let value = build_dict(code, &frame, entries)?;
-                    frame.set(dst, value);
-                }
-
-                Instr::Jump { to } => frame.pc = to.0 as usize,
-                Instr::JumpIfFalse { test, to } => {
-                    if !frame.get(test)?.truthy() {
-                        frame.pc = to.0 as usize;
-                    }
-                }
-                Instr::JumpIfTrue { test, to } => {
-                    if frame.get(test)?.truthy() {
-                        frame.pc = to.0 as usize;
-                    }
-                }
-                Instr::Return { src } => return Ok(frame.get(src)?.clone()),
-
-                Instr::LoadAttr { .. } | Instr::StoreAttr { .. } | Instr::DeleteAttr { .. } => {
-                    return Err(later("attribute access"));
-                }
-                Instr::LoadItem { dst, object, index } => {
-                    let value = ops::get_item(frame.get(object)?, frame.get(index)?)?;
-                    frame.set(dst, value);
-                }
-                Instr::StoreItem { object, index, src } => {
-                    // The value is read before the container is borrowed, so
-                    // that `x[0] = x` is a write and not a panic.
-                    let value = frame.get(src)?.clone();
-                    ops::set_item(frame.get(object)?, frame.get(index)?, &value)?;
-                }
-                Instr::DeleteItem { object, index } => {
-                    ops::del_item(frame.get(object)?, frame.get(index)?)?;
-                }
-                Instr::Append { into, value } => {
-                    // The value is cloned before the list is borrowed, because
-                    // `[xs for _ in ...]` can be appending the list to itself.
-                    let value = frame.get(value)?.clone();
-                    let Object::List(items) = frame.get(into)? else {
-                        unreachable!("the compiler emits this for a list it made itself")
-                    };
-                    items.borrow_mut().push(value);
-                }
-                Instr::Insert { into, value } => {
-                    let member = ops::key(frame.get(value)?, "set element")?;
-                    let Object::Set(members) = frame.get(into)? else {
-                        unreachable!("the compiler emits this for a set it made itself")
-                    };
-                    members.borrow_mut().insert(member);
-                }
-                Instr::BuildSlice {
-                    dst,
-                    lower,
-                    upper,
-                    step,
-                } => {
-                    // A bound nobody wrote down is `None`, which is a value the
-                    // slice keeps rather than a hole it has to remember.
-                    let part = |reg: Option<Reg>| match reg {
-                        Some(reg) => frame.get(reg).cloned(),
-                        None => Ok(Object::None),
-                    };
-                    let slice = Slice::new(part(lower)?, part(upper)?, part(step)?);
-                    frame.set(dst, Object::Slice(Rc::new(slice)));
-                }
-                Instr::GetIter { dst, src } => {
-                    let iter = iterate::over(frame.get(src)?)?;
-                    frame.set(dst, iter);
-                }
-                Instr::Next { dst, iter } => {
-                    // The end of a walk is a value rather than a raise, so this
-                    // arm has no error path of its own. See [`iterate`].
-                    let value = iterate::step(frame.get(iter)?)?;
-                    frame.set(dst, value.unwrap_or_else(iterate::done));
-                }
-                Instr::Exhausted { dst, src } => {
-                    let end = iterate::is_done(frame.get(src)?);
-                    frame.set(dst, Object::Bool(end));
-                }
-                Instr::Unpack {
-                    dst,
-                    src,
-                    before,
-                    star,
-                    after,
-                } => {
-                    let laid_out = unpack(frame.get(src)?, before, star, after)?;
-                    frame.set(dst, laid_out);
-                }
-                Instr::Raise { exc, cause } => {
-                    // Both are read out before either is used, so that a
-                    // `raise` naming an unbound variable stops on that rather
-                    // than on what it was going to raise.
-                    let raised = match exc {
-                        Some(reg) => Some(frame.get(reg)?.clone()),
-                        None => None,
-                    };
-                    let from = match cause {
-                        Some(reg) => Some(frame.get(reg)?.clone()),
-                        None => None,
-                    };
-                    return Err(exception::raise(raised.as_ref(), from.as_ref()));
+                    frame.set(handler.exc, error.instance());
+                    frame.pc = handler.to.0 as usize;
                 }
             }
         }
         // A body the compiler ended without a `ret`, which a module body is
         // not, so this is only reachable from a hand-written `Code`.
         Ok(Object::None)
+    }
+
+    /// One instruction.
+    ///
+    /// Apart from the dispatch this is where every instruction that can fail
+    /// says so, by returning rather than by jumping, which is what leaves
+    /// [`Vm::execute`] as the one place that knows about handlers.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "an instruction dispatch is one arm per instruction and there \
+                  is no shorter honest shape for it. Splitting the arms across \
+                  functions by some category would put the loop in one place \
+                  and the work in another, which is harder to read rather than \
+                  easier and is not how any interpreter worth copying is written"
+    )]
+    fn step(
+        &mut self,
+        instr: Instr,
+        ready: &Ready,
+        globals: &mut Globals<'_>,
+        frame: &mut Frame<'_>,
+    ) -> Result<Flow> {
+        let code = ready.code();
+        match instr {
+            Instr::Move { dst, src } => {
+                let value = frame.get(src)?.clone();
+                frame.set(dst, value);
+            }
+            Instr::Const { dst, value } => {
+                let value = ready.constant(value)?;
+                frame.set(dst, value);
+            }
+
+            Instr::LoadGlobal { dst, name } => {
+                // A hit is an index. Only a miss pays for the name, and a
+                // miss at module scope is a builtin or a `NameError`.
+                let value = if let Some(value) = globals.get(name) {
+                    value.clone()
+                } else {
+                    let name = globals.name(name);
+                    let found = self.builtins.get(name);
+                    found.ok_or_else(|| undefined(name))?.clone()
+                };
+                frame.set(dst, value);
+            }
+            Instr::StoreGlobal { name, src } => {
+                let value = frame.get(src)?.clone();
+                globals.set(name, value);
+            }
+            Instr::DeleteGlobal { name } => {
+                // Builtins are not deleted by `del`, which is why this only
+                // looks at the globals: `del print` before anything has
+                // shadowed it is a `NameError`.
+                if globals.take(name).is_none() {
+                    return Err(undefined(globals.name(name)));
+                }
+            }
+            Instr::Cell { reg } => {
+                // Whatever the register held goes into the cell, which for
+                // a parameter is the argument and for everything else is
+                // nothing at all.
+                let held = frame.registers.get(reg.0 as usize).and_then(Clone::clone);
+                frame.set(reg, Object::native(Cell::new(held)));
+            }
+            Instr::LoadCell { dst, cell } => {
+                let value = through(code, frame, cell)?;
+                frame.set(dst, value);
+            }
+            Instr::StoreCell { cell, src } => {
+                let value = frame.get(src)?.clone();
+                cell_at(frame, cell).set(value);
+            }
+            Instr::ClearCell { cell } => cell_at(frame, cell).clear(),
+            Instr::DeleteLocal { reg } => {
+                frame.get(reg)?;
+                frame.clear(reg);
+            }
+
+            Instr::Binary {
+                op,
+                dst,
+                left,
+                right,
+            } => {
+                let value = binary(op, frame.get(left)?, frame.get(right)?)?;
+                frame.set(dst, value);
+            }
+            Instr::Inplace {
+                op,
+                dst,
+                left,
+                right,
+            } => {
+                let value = inplace(op, frame.get(left)?, frame.get(right)?)?;
+                frame.set(dst, value);
+            }
+            Instr::Unary { op, dst, operand } => {
+                let value = unary(op, frame.get(operand)?)?;
+                frame.set(dst, value);
+            }
+            Instr::Compare {
+                op,
+                dst,
+                left,
+                right,
+            } => {
+                let value = compare(op, frame.get(left)?, frame.get(right)?)?;
+                frame.set(dst, value);
+            }
+            Instr::Not { dst, src } => {
+                let value = ops::not(frame.get(src)?);
+                frame.set(dst, value);
+            }
+            Instr::Truthy { dst, src } => {
+                let value = Object::Bool(frame.get(src)?.truthy());
+                frame.set(dst, value);
+            }
+
+            Instr::Call {
+                dst,
+                callee,
+                args,
+                keywords,
+            } => {
+                let value = self.call(code, frame, globals, callee, args, keywords)?;
+                frame.set(dst, value);
+            }
+            Instr::MakeFunction {
+                dst,
+                func,
+                defaults,
+                kw_defaults,
+                captures,
+            } => {
+                let Some(body) = ready.function(func) else {
+                    unreachable!("a def is numbered into the body that holds it")
+                };
+                // Evaluated here and kept, which is the whole of why
+                // `def f(x=[])` shares one list between calls.
+                let defaults = operands(code, frame, defaults)?;
+                let mut optional = Vec::with_capacity(kw_defaults.len as usize);
+                for value in &code.optional[kw_defaults.range()] {
+                    optional.push(match value {
+                        Some(reg) => Some(frame.get(*reg)?.clone()),
+                        None => None,
+                    });
+                }
+                // The cells go over as they are. Reading through them here
+                // would hand the new function the values rather than the
+                // bindings, and the two frames would stop being able to see
+                // each other's writes.
+                let captures = operands(code, frame, captures)?;
+                let function = Function::new(Rc::clone(body), defaults, optional, captures);
+                frame.set(dst, Object::native(function));
+            }
+            Instr::BuildTuple { dst, items } => {
+                let items = operands(code, frame, items)?;
+                frame.set(dst, Object::tuple(items));
+            }
+            Instr::BuildList { dst, items } => {
+                let items = operands(code, frame, items)?;
+                frame.set(dst, Object::list(items));
+            }
+            Instr::BuildSet { dst, items } => {
+                let mut members = Set::new();
+                for item in operands(code, frame, items)? {
+                    members.insert(ops::key(&item, "set element")?);
+                }
+                frame.set(dst, Object::set(members));
+            }
+            Instr::BuildDict { dst, entries } => {
+                let value = build_dict(code, frame, entries)?;
+                frame.set(dst, value);
+            }
+
+            Instr::Jump { to } => frame.pc = to.0 as usize,
+            Instr::JumpIfFalse { test, to } => {
+                if !frame.get(test)?.truthy() {
+                    frame.pc = to.0 as usize;
+                }
+            }
+            Instr::JumpIfTrue { test, to } => {
+                if frame.get(test)?.truthy() {
+                    frame.pc = to.0 as usize;
+                }
+            }
+            Instr::Return { src } => return Ok(Flow::Done(frame.get(src)?.clone())),
+
+            Instr::LoadAttr { .. } | Instr::StoreAttr { .. } | Instr::DeleteAttr { .. } => {
+                return Err(later("attribute access"));
+            }
+            Instr::LoadItem { dst, object, index } => {
+                let value = ops::get_item(frame.get(object)?, frame.get(index)?)?;
+                frame.set(dst, value);
+            }
+            Instr::StoreItem { object, index, src } => {
+                // The value is read before the container is borrowed, so
+                // that `x[0] = x` is a write and not a panic.
+                let value = frame.get(src)?.clone();
+                ops::set_item(frame.get(object)?, frame.get(index)?, &value)?;
+            }
+            Instr::DeleteItem { object, index } => {
+                ops::del_item(frame.get(object)?, frame.get(index)?)?;
+            }
+            Instr::Append { into, value } => {
+                // The value is cloned before the list is borrowed, because
+                // `[xs for _ in ...]` can be appending the list to itself.
+                let value = frame.get(value)?.clone();
+                let Object::List(items) = frame.get(into)? else {
+                    unreachable!("the compiler emits this for a list it made itself")
+                };
+                items.borrow_mut().push(value);
+            }
+            Instr::Insert { into, value } => {
+                let member = ops::key(frame.get(value)?, "set element")?;
+                let Object::Set(members) = frame.get(into)? else {
+                    unreachable!("the compiler emits this for a set it made itself")
+                };
+                members.borrow_mut().insert(member);
+            }
+            Instr::BuildSlice {
+                dst,
+                lower,
+                upper,
+                step,
+            } => {
+                // A bound nobody wrote down is `None`, which is a value the
+                // slice keeps rather than a hole it has to remember.
+                let part = |reg: Option<Reg>| match reg {
+                    Some(reg) => frame.get(reg).cloned(),
+                    None => Ok(Object::None),
+                };
+                let slice = Slice::new(part(lower)?, part(upper)?, part(step)?);
+                frame.set(dst, Object::Slice(Rc::new(slice)));
+            }
+            Instr::GetIter { dst, src } => {
+                let iter = iterate::over(frame.get(src)?)?;
+                frame.set(dst, iter);
+            }
+            Instr::Next { dst, iter } => {
+                // The end of a walk is a value rather than a raise, so this
+                // arm has no error path of its own. See [`iterate`].
+                let value = iterate::step(frame.get(iter)?)?;
+                frame.set(dst, value.unwrap_or_else(iterate::done));
+            }
+            Instr::Exhausted { dst, src } => {
+                let end = iterate::is_done(frame.get(src)?);
+                frame.set(dst, Object::Bool(end));
+            }
+            Instr::Unpack {
+                dst,
+                src,
+                before,
+                star,
+                after,
+            } => {
+                let laid_out = unpack(frame.get(src)?, before, star, after)?;
+                frame.set(dst, laid_out);
+            }
+            Instr::Raise { exc, cause } => {
+                // Both are read out before either is used, so that a
+                // `raise` naming an unbound variable stops on that rather
+                // than on what it was going to raise.
+                let raised = match exc {
+                    Some(reg) => Some(frame.get(reg)?.clone()),
+                    None => None,
+                };
+                let from = match cause {
+                    Some(reg) => Some(frame.get(reg)?.clone()),
+                    None => None,
+                };
+                return Err(exception::raise(raised.as_ref(), from.as_ref()));
+            }
+
+            Instr::PushHandler { to, exc } => frame.handlers.push(Handler { to, exc }),
+            Instr::PopHandler => {
+                frame.handlers.pop();
+            }
+            Instr::Matches { dst, exc, test } => {
+                let Some(raised) = frame.get(exc)?.exception() else {
+                    unreachable!("the only thing that fills this register is a raise")
+                };
+                let caught = exception::matches(raised, frame.get(test)?)?;
+                frame.set(dst, Object::Bool(caught));
+            }
+        }
+        Ok(Flow::Next)
     }
 
     /// What a name is bound to in this run, for a caller that wants to look at
@@ -599,10 +655,33 @@ impl<'a> Globals<'a> {
     }
 }
 
+/// What running one instruction leaves the interpreter wanting to do next.
+enum Flow {
+    /// Carry on with whatever comes after it, which is almost everything.
+    Next,
+    /// Leave the frame with this value, which is what a `return` does.
+    Done(Object),
+}
+
+/// A region of a body an exception leaves through.
+///
+/// Pushed by `try` and popped either by the `endtry` that closes it or by the
+/// exception that uses it, whichever comes first. See
+/// [`Instr::PushHandler`](kohebi_bc::code::Instr::PushHandler).
+#[derive(Debug, Clone, Copy)]
+struct Handler {
+    /// Where to carry on, which is an `except` chain or a `finally` clause.
+    to: Offset,
+    /// Where to put the exception on the way there.
+    exc: Reg,
+}
+
 /// One call's frame.
 struct Frame<'a> {
     registers: Vec<Option<Object>>,
     pc: usize,
+    /// The `try` statements this frame is inside, innermost last.
+    handlers: Vec<Handler>,
     /// What the registers are called, borrowed from the code so that an empty
     /// one can say which variable it was. Read on the error path only.
     locals: &'a [Box<str>],
@@ -619,6 +698,9 @@ impl<'a> Frame<'a> {
         Frame {
             registers,
             pc: 0,
+            // Nothing until a `try` is reached, and most frames never reach
+            // one, so this stays an empty vector that never allocates.
+            handlers: Vec::new(),
             locals: &code.locals,
         }
     }

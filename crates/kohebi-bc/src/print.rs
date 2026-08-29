@@ -281,6 +281,12 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
             };
             ("raise", text)
         }
+        Instr::PushHandler { to, exc } => ("try", format!("{}, {}", to.0, reg(*exc))),
+        Instr::PopHandler => ("endtry", String::new()),
+        Instr::Matches { dst, exc, test } => (
+            "matches",
+            format!("{}, {}, {}", reg(*dst), reg(*exc), reg(*test)),
+        ),
     }
 }
 
