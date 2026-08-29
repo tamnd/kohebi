@@ -38,7 +38,7 @@
 
 use crate::ast::{
     Arg, Arguments, Attributes, BoolOp, CmpOp, Comprehension, Expr, ExprContext, ExprKind, Ident,
-    Keyword as KwArg, Mod, Operator, UnaryOp,
+    Keyword as KwArg, Mod, Operator, Stmt, StmtKind, UnaryOp,
 };
 use crate::error::{LineMap, Site, SyntaxError};
 use crate::lexer::Priority;
@@ -86,7 +86,8 @@ fn lexed<T>(source: &str, parse: impl FnOnce(&mut Parser<'_>) -> Result<T>) -> R
     let (mut tokens, stopped) = crate::lexer::Lexer::tokenize_prefix(source);
     let Some((error, priority)) = stopped else {
         let mut parser = Parser::new(source, &tokens);
-        return parse(&mut parser);
+        let parsed = parse(&mut parser);
+        return parsed.map_err(|ours| parser.attach(ours));
     };
     if tokens.is_empty() {
         return Err(error);
@@ -98,22 +99,67 @@ fn lexed<T>(source: &str, parse: impl FnOnce(&mut Parser<'_>) -> Result<T>) -> R
     let cut = tokens.last().map_or(0, |token| token.span.end);
     tokens.push(Token::new(TokenKind::EndMarker, Span::new(cut, cut)));
     let mut parser = Parser::over(source, &tokens, true);
-    let Err(ours) = parse(&mut parser) else {
-        return Err(error);
+    let picked = picked(&mut parser, parse, error, priority, cut, source);
+    Err(parser.attach(picked))
+}
+
+/// Whether the only thing wrong with `source` is that it stops early.
+///
+/// One caller, the keyword suggestion pass, and one thing it needs that the
+/// message does not tell it. A file ending inside a bracket says `'(' was never
+/// closed` whether the rest of it is sound or not, and `codeop` forgives only
+/// the first, so `f(a,` is unfinished input and `f(\n  a b,` is a refusal.
+/// CPython separates them by asking whether the tokenizer was the one that ran
+/// out, which it only was if the parser never disagreed with it, so that is the
+/// question put here.
+pub(crate) fn unfinished_module(source: &str) -> bool {
+    let (mut tokens, stopped) = crate::lexer::Lexer::tokenize_prefix(source);
+    // A tokenizer that reached the end did not run out, so nothing the parser
+    // goes on to say is about the file being short.
+    let Some((error, _)) = stopped else {
+        return false;
+    };
+    let waiting = error.message.ends_with("was never closed")
+        || error
+            .message
+            .starts_with("unterminated triple-quoted string literal");
+    if !waiting || tokens.is_empty() {
+        return false;
+    }
+    let cut = tokens.last().map_or(0, |token| token.span.end);
+    tokens.push(Token::new(TokenKind::EndMarker, Span::new(cut, cut)));
+    let mut parser = Parser::over(source, &tokens, true);
+    match parser.module_body() {
+        Ok(_) => true,
+        Err(ours) => ours.offset().is_none_or(|at| at >= cut),
+    }
+}
+
+/// Which of the two refusals `lexed` prints, once both are in hand.
+fn picked<T>(
+    parser: &mut Parser<'_>,
+    parse: impl FnOnce(&mut Parser<'_>) -> Result<T>,
+    error: SyntaxError,
+    priority: Priority,
+    cut: u32,
+    source: &str,
+) -> SyntaxError {
+    let Err(ours) = parse(parser) else {
+        return error;
     };
     let Some(at) = ours.offset().filter(|at| *at < cut) else {
-        return Err(error);
+        return error;
     };
     // Two refusals skip the weighing entirely. CPython works them out by
     // looking at the last token the parser read, and only tokenizes the rest of
     // the file when it was neither an indent nor a dedent, so an unterminated
     // string or an unmatched bracket further down is never even reached.
     if is_unexpected_indentation(&ours) {
-        return Err(ours);
+        return ours;
     }
     match priority {
-        Priority::Raised => Err(error),
-        Priority::Deferred => Err(ours),
+        Priority::Raised => error,
+        Priority::Deferred => ours,
         Priority::Unclosed { opened } => {
             let lines = LineMap::new(source);
             // Which line the bracket is weighed against depends on which pass
@@ -125,9 +171,9 @@ fn lexed<T>(source: &str, parse: impl FnOnce(&mut Parser<'_>) -> Result<T>) -> R
             // against a diagnostic almost every time.
             let against = if parser.raised_diagnostic { cut } else { at };
             if lines.line_of(opened) < lines.line_of(against) {
-                Err(error)
+                error
             } else {
-                Err(ours)
+                ours
             }
         }
     }
@@ -453,6 +499,16 @@ struct Parser<'a> {
     /// always loses to the bracket, and saying which pass raised it is the only
     /// way to tell the two comparisons apart.
     raised_diagnostic: bool,
+    /// The line the last compound statement began on, or zero for none yet.
+    ///
+    /// CPython's `p->last_stmt_location`, kept for one reason: it is where the
+    /// keyword suggestion pass starts reading, and so it decides whether a
+    /// misspelling deep inside a file gets a suggestion or nothing at all.
+    /// Function definitions are missing from it, which is not a rule anybody
+    /// wrote down. A valid `def` matches the first half of the rule that
+    /// explains a broken one, and that half has no action on it, so what gets
+    /// registered is a placeholder on line zero rather than the definition.
+    last_statement: u32,
 }
 
 impl<'a> Parser<'a> {
@@ -476,7 +532,31 @@ impl<'a> Parser<'a> {
             levels,
             no_diagnostics: false,
             raised_diagnostic: false,
+            last_statement: 0,
         }
+    }
+
+    /// Note that a compound statement parsed.
+    ///
+    /// The line only ever goes up, which is CPython's guard and not a tidiness
+    /// measure: a statement that contains another one registers second, and
+    /// keeping the larger of the two is what makes the innermost win.
+    pub(crate) fn registered(&mut self, stmt: &Stmt) {
+        // See the field: a `def` registers nothing at all, so one written above
+        // a typo does not move where the suggestion pass starts reading.
+        if matches!(
+            stmt.kind,
+            StmtKind::FunctionDef { .. } | StmtKind::AsyncFunctionDef { .. }
+        ) {
+            return;
+        }
+        self.last_statement = self.last_statement.max(stmt.attrs.lineno);
+    }
+
+    /// Hand a refusal what the keyword suggestion pass will want from it.
+    fn attach(&self, mut error: SyntaxError) -> SyntaxError {
+        error.last_statement = self.last_statement;
+        error
     }
 
     /// How many brackets are open in front of the next token.

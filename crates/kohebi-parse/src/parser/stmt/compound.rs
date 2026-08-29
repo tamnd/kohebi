@@ -69,6 +69,7 @@ impl Parser<'_> {
         }
         match self.compound_statement()? {
             Some(stmt) => {
+                self.registered(&stmt);
                 body.push(stmt);
                 Ok(())
             }
