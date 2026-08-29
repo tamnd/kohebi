@@ -825,7 +825,14 @@ fn a_walrus_is_not_a_colon_and_an_equals() {
 
 #[test]
 fn characters_python_has_no_token_for_are_reported_the_way_cpython_reports_them() {
-    assert_eq!(error("x = $\n").message, "invalid syntax");
+    // A printable one is not the lexer's business. CPython hands it on as an
+    // `OP` and lets the parser refuse it, which is what keeps it reading the
+    // rest of the file.
+    assert_eq!(lex("x = $\n"), "NAME(x) OP(=) OP($) NEWLINE ENDMARKER");
+    assert_eq!(
+        lex("x = `y`\n"),
+        "NAME(x) OP(=) OP(`) NAME(y) OP(`) NEWLINE ENDMARKER"
+    );
     assert_eq!(error("x = €\n").message, "invalid character '€' (U+20AC)");
     assert_eq!(
         error("x = \x01\n").message,

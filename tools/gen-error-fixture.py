@@ -643,6 +643,20 @@ CASES = [
     "if x:\n    pass\nf(\n    name= =1,\n    b=2,\n)\n",
     "if x:\n    pass\nf(\n    name=1,\n    b= =2,\n)\n",
     "if x:\n    pass\nf(impot,\n",
+    # A printable character Python has no token for is an ordinary token as far
+    # as the tokenizer is concerned, and it is the parser that refuses it. That
+    # matters below rather than here: the tokenizer carries on past it, so an
+    # unterminated string or an unclosed bracket further down is still what gets
+    # reported. A non-ASCII or non-printable character is a real tokenizer error
+    # and stops the file where it stands.
+    "x = $\n",
+    "x = `y`\n",
+    "x = 1 ? 2\n",
+    "f($)\n",
+    'x = """a\n"""b `c\n"""\n',
+    "x = $\ny = '''abc\n",
+    "f(\n    $,\n",
+    "x = €\n",
 ]
 
 

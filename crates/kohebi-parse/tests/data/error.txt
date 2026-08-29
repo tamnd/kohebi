@@ -402,3 +402,11 @@ SyntaxError	if x:\n    if y:\n        pass\n    impot os\n	  File "<case>", line
 SyntaxError	if x:\n    pass\nf(\n    name= =1,\n    b=2,\n)\n	  File "<case>", line 4\n    name= =1,\n          ^\nSyntaxError: invalid syntax
 SyntaxError	if x:\n    pass\nf(\n    name=1,\n    b= =2,\n)\n	  File "<case>", line 5\n    b= =2,\n       ^\nSyntaxError: invalid syntax
 SyntaxError	if x:\n    pass\nf(impot,\n	  File "<case>", line 3\n    f(impot,\n     ^\nSyntaxError: '(' was never closed
+SyntaxError	x = $\n	  File "<case>", line 1\n    x = $\n        ^\nSyntaxError: invalid syntax
+SyntaxError	x = `y`\n	  File "<case>", line 1\n    x = `y`\n        ^\nSyntaxError: invalid syntax
+SyntaxError	x = 1 ? 2\n	  File "<case>", line 1\n    x = 1 ? 2\n          ^\nSyntaxError: invalid syntax
+SyntaxError	f($)\n	  File "<case>", line 1\n    f($)\n      ^\nSyntaxError: invalid syntax
+SyntaxError	x = """a\n"""b `c\n"""\n	  File "<case>", line 3\n    """\n    ^\nSyntaxError: unterminated triple-quoted string literal (detected at line 3)
+SyntaxError	x = $\ny = '''abc\n	  File "<case>", line 2\n    y = '''abc\n        ^\nSyntaxError: unterminated triple-quoted string literal (detected at line 2)
+SyntaxError	f(\n    $,\n	  File "<case>", line 1\n    f(\n     ^\nSyntaxError: '(' was never closed
+SyntaxError	x = €\n	  File "<case>", line 1\n    x = €\n        ^\nSyntaxError: invalid character '€' (U+20AC)
