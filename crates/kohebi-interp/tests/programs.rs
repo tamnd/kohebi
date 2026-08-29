@@ -163,6 +163,30 @@ fn an_in_place_operator_on_a_list_is_visible_through_an_alias() {
     );
 }
 
+/// `s |= t` and `s -= t` only touch the members of the right hand side, which
+/// is the difference between a loop that grows a set and a loop that copies one
+/// twice per step. The cases that catch a naive version of that are a set on
+/// both sides, which is read while it is being written, and a right hand side
+/// that is not a set at all, which still has to be refused.
+#[test]
+fn the_in_place_set_operators_only_look_at_the_right_hand_side() {
+    assert_eq!(out("a = {1, 2}\na |= a\nprint(a)\n"), "{1, 2}\n");
+    assert_eq!(out("a = {1, 2}\na -= a\nprint(a, len(a))\n"), "set() 0\n");
+    assert_eq!(
+        out("a = {1, 2}\nb = {2, 3}\na |= b\nprint(a, b)\n"),
+        "{1, 2, 3} {2, 3}\n"
+    );
+    assert_eq!(out("a = {1, 2, 3}\na -= {2, 9}\nprint(a)\n"), "{1, 3}\n");
+    // Growing a set one member at a time, which is the shape the benchmark
+    // suite walks. If this ever goes back to rebuilding the whole set per step
+    // it will not fail here, it will just stop finishing.
+    assert_eq!(
+        out("a = {0}\nfor i in range(1, 5000):\n    a |= {i}\nprint(len(a))\n"),
+        "5000\n"
+    );
+    assert!(raises("a = {1}\na |= [2]\n").contains("unsupported operand"));
+}
+
 /// A list added to itself reads what it is about to write, and reading and
 /// writing the same list at once is the sort of thing that panics rather than
 /// answering if nobody thought about it.

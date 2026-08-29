@@ -602,6 +602,28 @@ fn inplace(op: Operator, left: &Object, right: &Object) -> Result<Object> {
             extend(items, right)?;
             Ok(left.clone())
         }
+        // `s |= t` and `s -= t` touch only the right hand side, and going
+        // through the ordinary operator instead would build a whole new set and
+        // then copy it back, which turns `s |= {i}` in a loop into quadratic
+        // work. The other two have to look at every member of the left either
+        // way, so they take the general path below and are no worse for it.
+        (Operator::BitOr | Operator::Sub, Object::Set(target)) => {
+            let Object::Set(other) = right else {
+                return binary(op, left, right);
+            };
+            // Read the right out first, because `s |= s` is a program somebody
+            // writes and the two sides can be the same set.
+            let members: Vec<_> = other.borrow().iter().cloned().collect();
+            let mut target = target.borrow_mut();
+            for member in members {
+                if op == Operator::BitOr {
+                    target.insert(member);
+                } else {
+                    target.remove(&member);
+                }
+            }
+            Ok(left.clone())
+        }
         (
             Operator::Mult | Operator::Sub | Operator::BitAnd | Operator::BitOr | Operator::BitXor,
             Object::List(_) | Object::Set(_),
