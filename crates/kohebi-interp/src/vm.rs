@@ -35,10 +35,10 @@
 //!
 //! ## What is not implemented
 //!
-//! Attributes, iteration and `raise`. Each of those raises a
-//! `NotImplementedError` naming itself rather than being skipped or guessed at,
-//! so a program that needs one stops on it and says so. They are the next
-//! pieces of work and they are listed in `docs/spec/10-milestones.md`.
+//! Attributes and `raise`. Each of those raises a `NotImplementedError` naming
+//! itself rather than being skipped or guessed at, so a program that needs one
+//! stops on it and says so. They are the next pieces of work and they are
+//! listed in `docs/spec/10-milestones.md`.
 
 use std::cell::RefCell;
 use std::fmt;
@@ -53,6 +53,7 @@ use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 use rustc_hash::FxHashMap;
 
 use crate::builtin::{Args, Builtin, table};
+use crate::iterate;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
 type Names = FxHashMap<Box<str>, Object>;
@@ -279,8 +280,19 @@ impl Vm {
                     let slice = Slice::new(part(lower)?, part(upper)?, part(step)?);
                     frame.set(dst, Object::Slice(Rc::new(slice)));
                 }
-                Instr::GetIter { .. } | Instr::Next { .. } | Instr::Exhausted { .. } => {
-                    return Err(later("iteration"));
+                Instr::GetIter { dst, src } => {
+                    let iter = iterate::over(frame.get(src)?)?;
+                    frame.set(dst, iter);
+                }
+                Instr::Next { dst, iter } => {
+                    // The end of a walk is a value rather than a raise, so this
+                    // arm has no error path of its own. See [`iterate`].
+                    let value = iterate::step(frame.get(iter)?)?;
+                    frame.set(dst, value.unwrap_or_else(iterate::done));
+                }
+                Instr::Exhausted { dst, src } => {
+                    let end = iterate::is_done(frame.get(src)?);
+                    frame.set(dst, Object::Bool(end));
                 }
                 Instr::Raise { .. } => return Err(later("raise")),
             }

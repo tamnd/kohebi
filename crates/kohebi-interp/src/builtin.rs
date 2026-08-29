@@ -12,16 +12,28 @@
 //!
 //! ## What is here
 //!
-//! `print`, and nothing else. Everything else in `builtins` is either a type,
-//! which needs classes, or walks a sequence, which needs the iteration
-//! protocol. Neither exists yet, and a `len` that worked on four of the six
-//! things it should work on would be worse than one that is honestly absent.
+//! `print`, `len`, `range`, `iter` and `next`. The last four arrived with the
+//! iteration protocol, which is what they all needed: `len` was held back
+//! rather than shipped working on four of the six containers it should work
+//! on, and the other three are the protocol itself with a name on it.
+//!
+//! Everything still missing from `builtins` is a type, and a type needs
+//! classes. `range` is the exception, and only because a program that has
+//! `for` and no `range` cannot count.
+
+// Every builtin body has the signature `Body` demands, so one that reads its
+// arguments without consuming them still takes them by value.
+#![expect(clippy::needless_pass_by_value, reason = "the signature is fixed")]
+// `stop` and `step` are what `range(start, stop, step)` calls these, and a
+// reader looking for them will look for those words.
+#![expect(clippy::similar_names, reason = "stop and step are Python's names")]
 
 use std::any::Any;
 use std::fmt;
 
-use kohebi_core::{Error, Kind, Native, Object, Result};
+use kohebi_core::{Error, Int, Kind, Native, Object, Result, ops};
 
+use crate::iterate::{self, Range};
 use crate::vm::Vm;
 
 /// What a builtin does when it is called.
@@ -58,6 +70,43 @@ impl Args {
         Some(self.named.remove(at).1)
     }
 
+    /// Refuse a call with the wrong number of positional arguments.
+    ///
+    /// The wording is CPython's for a builtin that takes a range of them, which
+    /// is most of them and is not all: `len` says something else entirely and
+    /// says it itself.
+    fn arity(&self, function: &str, least: usize, most: usize) -> Result<()> {
+        let given = self.positional.len();
+        let plural = |count: usize| if count == 1 { "" } else { "s" };
+        if given < least {
+            return Err(Error::type_error(format!(
+                "{function} expected at least {least} argument{}, got {given}",
+                plural(least)
+            )));
+        }
+        if given > most {
+            return Err(Error::type_error(format!(
+                "{function} expected at most {most} argument{}, got {given}",
+                plural(most)
+            )));
+        }
+        Ok(())
+    }
+
+    /// Refuse a call that passed any keyword argument at all.
+    ///
+    /// Checked before the positional count, which is the order CPython checks
+    /// them in: `len(1, 2, x=3)` complains about the keyword rather than about
+    /// there being two positional arguments.
+    fn no_keywords(&self, function: &str) -> Result<()> {
+        if self.named.is_empty() {
+            return Ok(());
+        }
+        Err(Error::type_error(format!(
+            "{function}() takes no keyword arguments"
+        )))
+    }
+
     /// Refuse whatever keyword arguments are left.
     fn rest(&self, function: &str) -> Result<()> {
         match self.named.first() {
@@ -69,10 +118,26 @@ impl Args {
     }
 }
 
+/// What a builtin prints as, which is not always "function".
+///
+/// `range` is a class in CPython and `print(range)` says `<class 'range'>`. It
+/// is implemented here as a function that constructs one, and without this it
+/// would say `<built-in function range>` instead. Nobody's program turns on
+/// that string, but it is the sort of small lie that a compatibility suite
+/// finds and that costs more to correct later than to get right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flavour {
+    /// An ordinary builtin function.
+    Function,
+    /// A type, called to construct one of itself.
+    Class,
+}
+
 /// A function implemented in Rust rather than in Python.
 pub struct Builtin {
     name: &'static str,
     body: Body,
+    flavour: Flavour,
 }
 
 impl Builtin {
@@ -102,11 +167,17 @@ impl fmt::Debug for Builtin {
 
 impl Native for Builtin {
     fn type_name(&self) -> &'static str {
-        "builtin_function_or_method"
+        match self.flavour {
+            Flavour::Function => "builtin_function_or_method",
+            Flavour::Class => "type",
+        }
     }
 
     fn repr(&self) -> String {
-        format!("<built-in function {}>", self.name)
+        match self.flavour {
+            Flavour::Function => format!("<built-in function {}>", self.name),
+            Flavour::Class => format!("<class '{}'>", self.name),
+        }
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -120,10 +191,25 @@ impl Native for Builtin {
 /// the way it is in CPython.
 #[must_use]
 pub fn table() -> Vec<(&'static str, Object)> {
-    [("print", print as Body)]
-        .into_iter()
-        .map(|(name, body)| (name, Object::native(Builtin { name, body })))
-        .collect()
+    [
+        ("print", print as Body, Flavour::Function),
+        ("len", len as Body, Flavour::Function),
+        ("iter", iter as Body, Flavour::Function),
+        ("next", next as Body, Flavour::Function),
+        ("range", range as Body, Flavour::Class),
+    ]
+    .into_iter()
+    .map(|(name, body, flavour)| {
+        (
+            name,
+            Object::native(Builtin {
+                name,
+                body,
+                flavour,
+            }),
+        )
+    })
+    .collect()
 }
 
 /// `print(*values, sep=' ', end='\n', file=None, flush=False)`.
@@ -163,6 +249,115 @@ fn print(vm: &mut Vm, mut args: Args) -> Result<Object> {
         vm.flush()?;
     }
     Ok(Object::None)
+}
+
+/// `len(x)`.
+fn len(_vm: &mut Vm, args: Args) -> Result<Object> {
+    args.no_keywords("len")?;
+    // `len` is one of the few builtins CPython describes this way rather than
+    // with the "expected at least" wording the others use, and it says it for
+    // too few and too many alike.
+    if args.positional.len() != 1 {
+        return Err(Error::type_error(format!(
+            "len() takes exactly one argument ({} given)",
+            args.positional.len()
+        )));
+    }
+    let value = &args.positional[0];
+    if let Some(size) = ops::len(value) {
+        return Ok(Object::int(i64::try_from(size).unwrap_or(i64::MAX)));
+    }
+    if let Some(range) = downcast::<Range>(value) {
+        // A `range` is the one container whose length can be a number no
+        // machine word holds. `__len__` has to fit in a `Py_ssize_t`, so
+        // CPython refuses rather than answering, and the range itself is still
+        // perfectly walkable.
+        let count = range.count();
+        return match count.to_usize().and_then(|size| i64::try_from(size).ok()) {
+            Some(size) => Ok(Object::int(size)),
+            None => Err(Error::new(
+                Kind::OverflowError,
+                "Python int too large to convert to C ssize_t",
+            )),
+        };
+    }
+    Err(Error::type_error(format!(
+        "object of type '{}' has no len()",
+        value.type_name()
+    )))
+}
+
+/// `iter(x)`.
+fn iter(_vm: &mut Vm, args: Args) -> Result<Object> {
+    args.no_keywords("iter")?;
+    args.arity("iter", 1, 2)?;
+    if args.positional.len() == 2 {
+        // `iter(callable, sentinel)` calls the first argument until it returns
+        // the second. There is nothing to call yet but a builtin, so this is
+        // absent rather than half present.
+        return Err(Error::new(
+            Kind::NotImplementedError,
+            "the two argument form of iter() is not implemented yet",
+        ));
+    }
+    iterate::over(&args.positional[0])
+}
+
+/// `next(it)` and `next(it, default)`.
+fn next(_vm: &mut Vm, args: Args) -> Result<Object> {
+    args.no_keywords("next")?;
+    args.arity("next", 1, 2)?;
+    match iterate::step(&args.positional[0])? {
+        Some(value) => Ok(value),
+        // The one place the sentinel turns back into the exception Python
+        // says it is. `next` is where a program can see the end of an
+        // iterator, and a `for` loop is not.
+        None => match args.positional.get(1) {
+            Some(default) => Ok(default.clone()),
+            None => Err(Error::new(Kind::StopIteration, "")),
+        },
+    }
+}
+
+/// `range(stop)`, `range(start, stop)` and `range(start, stop, step)`.
+fn range(_vm: &mut Vm, args: Args) -> Result<Object> {
+    args.no_keywords("range")?;
+    args.arity("range", 1, 3)?;
+    let index = |at: usize| integer(&args.positional[at]);
+    // One argument is the stop, and the start it counts from is implied. Two
+    // or three put the start back in front, which is why this is not a slice
+    // of the arguments in order.
+    let (start, stop) = if args.positional.len() == 1 {
+        (Int::from_i64(0), index(0)?)
+    } else {
+        (index(0)?, index(1)?)
+    };
+    let step = match args.positional.len() {
+        3 => index(2)?,
+        _ => Int::from_i64(1),
+    };
+    Ok(Object::native(Range::new(start, stop, step)?))
+}
+
+/// An argument that has to be an integer, in the words CPython uses when it is
+/// not. A `bool` is an `int` in Python, so `range(True)` is `range(1)`.
+fn integer(value: &Object) -> Result<Int> {
+    match value {
+        Object::Int(number) => Ok(number.clone()),
+        Object::Bool(yes) => Ok(Int::from_i64(i64::from(*yes))),
+        other => Err(Error::type_error(format!(
+            "'{}' object cannot be interpreted as an integer",
+            other.type_name()
+        ))),
+    }
+}
+
+/// The concrete native type behind an object, when it is that one.
+fn downcast<T: Native + 'static>(value: &Object) -> Option<&T> {
+    match value {
+        Object::Native(native) => native.as_any().downcast_ref::<T>(),
+        _ => None,
+    }
 }
 
 /// A keyword argument that is a string or `None`, which is what `sep` and `end`

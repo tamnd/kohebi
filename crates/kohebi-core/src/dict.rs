@@ -233,6 +233,26 @@ impl Dict {
         self.iter().map(|(key, _)| key)
     }
 
+    /// The next entry at or after a raw position, and where to look next.
+    ///
+    /// An iterator over a dict cannot hold a Rust iterator, because the dict is
+    /// behind a `RefCell` and the borrow would have to outlive the step. It
+    /// holds a position instead, which is what CPython's dict iterator holds
+    /// too. The position is into the entry array rather than a count of live
+    /// entries, so a deletion earlier in the table does not silently shift what
+    /// comes next.
+    #[must_use]
+    pub fn entry_at(&self, from: usize) -> Option<(&Key, &Object, usize)> {
+        let mut at = from;
+        while let Some(slot) = self.entries.get(at) {
+            at += 1;
+            if let Some(entry) = slot {
+                return Some((&entry.key, &entry.value, at));
+            }
+        }
+        None
+    }
+
     /// Whether two dicts have the same keys with the same values, which is
     /// what `==` asks and which does not care what order either was built in.
     #[must_use]
@@ -397,6 +417,16 @@ impl Set {
     /// something CPython gives, so nothing may lean on it.
     pub fn iter(&self) -> impl Iterator<Item = &Key> {
         self.members.keys()
+    }
+
+    /// The next member at or after a raw position, and where to look next.
+    ///
+    /// See [`Dict::entry_at`], which this is.
+    #[must_use]
+    pub fn member_at(&self, from: usize) -> Option<(&Key, usize)> {
+        self.members
+            .entry_at(from)
+            .map(|(key, _, next)| (key, next))
     }
 
     /// Whether two sets have the same members.
