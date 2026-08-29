@@ -410,3 +410,15 @@ SyntaxError	x = """a\n"""b `c\n"""\n	  File "<case>", line 3\n    """\n    ^\nSy
 SyntaxError	x = $\ny = '''abc\n	  File "<case>", line 2\n    y = '''abc\n        ^\nSyntaxError: unterminated triple-quoted string literal (detected at line 2)
 SyntaxError	f(\n    $,\n	  File "<case>", line 1\n    f(\n     ^\nSyntaxError: '(' was never closed
 SyntaxError	x = €\n	  File "<case>", line 1\n    x = €\n        ^\nSyntaxError: invalid character '€' (U+20AC)
+SyntaxError	f(x) =\n	  File "<case>", line 1\n    f(x) =\n    ^^^^\nSyntaxError: cannot assign to function call
+SyntaxError	d.close()=\n	  File "<case>", line 1\n    d.close()=\n    ^^^^^^^^^\nSyntaxError: cannot assign to function call
+SyntaxError	a = f(x) =\n	  File "<case>", line 1\n    a = f(x) =\n        ^^^^\nSyntaxError: cannot assign to function call
+SyntaxError	f(x) = a =\n	  File "<case>", line 1\n    f(x) = a =\n    ^^^^\nSyntaxError: cannot assign to function call
+SyntaxError	f(x) = 1 =\n	  File "<case>", line 1\n    f(x) = 1 =\n    ^^^^\nSyntaxError: cannot assign to function call
+SyntaxError	1 = 2 =\n	  File "<case>", line 1\n    1 = 2 =\n    ^\nSyntaxError: cannot assign to literal
+SyntaxError	[1] =\n	  File "<case>", line 1\n    [1] =\n     ^\nSyntaxError: cannot assign to literal
+SyntaxError	([1]) =\n	  File "<case>", line 1\n    ([1]) =\n      ^\nSyntaxError: cannot assign to literal
+SyntaxError	{1} =\n	  File "<case>", line 1\n    {1} =\n    ^^^\nSyntaxError: cannot assign to set display
+SyntaxError	a if b else c =\n	  File "<case>", line 1\n    a if b else c =\n    ^^^^^^^^^^^^^\nSyntaxError: cannot assign to conditional expression
+SyntaxError	(a) =\n	  File "<case>", line 1\n    (a) =\n         ^\nSyntaxError: invalid syntax
+SyntaxError	*a =\n	  File "<case>", line 1\n    *a =\n        ^\nSyntaxError: invalid syntax
