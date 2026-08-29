@@ -29,6 +29,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::dict::{Dict, Set};
 use crate::float::{DotZero, float_repr};
 use crate::hash::int_eq_float;
 use crate::int::Int;
@@ -59,6 +60,10 @@ pub enum Object {
     Tuple(Rc<[Object]>),
     /// A `list`, which can.
     List(Rc<RefCell<Vec<Object>>>),
+    /// A `dict`, which remembers the order things were put into it.
+    Dict(Rc<RefCell<Dict>>),
+    /// A `set`, which does not.
+    Set(Rc<RefCell<Set>>),
 }
 
 impl Object {
@@ -86,6 +91,18 @@ impl Object {
         Object::Tuple(items.into())
     }
 
+    /// A dict.
+    #[must_use]
+    pub fn dict(entries: Dict) -> Self {
+        Object::Dict(Rc::new(RefCell::new(entries)))
+    }
+
+    /// A set.
+    #[must_use]
+    pub fn set(members: Set) -> Self {
+        Object::Set(Rc::new(RefCell::new(members)))
+    }
+
     /// What `type(x).__name__` says, which is what every error message needs.
     #[must_use]
     pub fn type_name(&self) -> &'static str {
@@ -100,6 +117,8 @@ impl Object {
             Object::Bytes(_) => "bytes",
             Object::Tuple(_) => "tuple",
             Object::List(_) => "list",
+            Object::Dict(_) => "dict",
+            Object::Set(_) => "set",
         }
     }
 
@@ -120,6 +139,8 @@ impl Object {
             Object::Bytes(value) => !value.is_empty(),
             Object::Tuple(items) => !items.is_empty(),
             Object::List(items) => !items.borrow().is_empty(),
+            Object::Dict(entries) => !entries.borrow().is_empty(),
+            Object::Set(members) => !members.borrow().is_empty(),
             // `Ellipsis` and `NotImplemented` are objects with no `__bool__`
             // and no `__len__`, which makes them true.
             Object::NotImplemented | Object::Ellipsis => true,
@@ -154,6 +175,8 @@ impl Object {
             (Object::Bytes(a), Object::Bytes(b)) => Rc::ptr_eq(a, b),
             (Object::Tuple(a), Object::Tuple(b)) => Rc::ptr_eq(a, b),
             (Object::List(a), Object::List(b)) => Rc::ptr_eq(a, b),
+            (Object::Dict(a), Object::Dict(b)) => Rc::ptr_eq(a, b),
+            (Object::Set(a), Object::Set(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -183,6 +206,10 @@ impl Object {
                 // borrowing twice would panic on rather than answer.
                 Rc::ptr_eq(a, b) || elementwise(&a.borrow(), &b.borrow())
             }
+            (Object::Dict(a), Object::Dict(b)) => {
+                Rc::ptr_eq(a, b) || a.borrow().equals(&b.borrow())
+            }
+            (Object::Set(a), Object::Set(b)) => Rc::ptr_eq(a, b) || a.borrow().equals(&b.borrow()),
             _ => match (self.as_number(), other.as_number()) {
                 (Some(a), Some(b)) => a.equals(&b),
                 _ => false,
@@ -267,6 +294,38 @@ impl Object {
                     None => "[...]".to_owned(),
                 }
             }
+            Object::Dict(entries) => {
+                let address = Rc::as_ptr(entries).cast::<()>();
+                let inner = with_trail(seen, address, |seen| {
+                    entries
+                        .borrow()
+                        .iter()
+                        .map(|(key, value)| {
+                            // The key cannot be a container that holds this
+                            // dict, since a container that can hold anything
+                            // has no hash, so only the value needs the trail.
+                            format!("{}: {}", key.object().repr(), value.write_repr(seen))
+                        })
+                        .collect::<Vec<_>>()
+                });
+                match inner {
+                    Some(parts) => format!("{{{}}}", parts.join(", ")),
+                    None => "{...}".to_owned(),
+                }
+            }
+            Object::Set(members) => {
+                let members = members.borrow();
+                if members.is_empty() {
+                    // `{}` is an empty dict, so an empty set has to spell
+                    // itself out. It is the one repr that does not read back
+                    // as the literal it came from, because there is no literal.
+                    return "set()".to_owned();
+                }
+                // No trail: a set can only hold hashable values and none of
+                // those can hold a set, so there is no cycle to guard against.
+                let parts: Vec<_> = members.iter().map(|value| value.object().repr()).collect();
+                format!("{{{}}}", parts.join(", "))
+            }
         }
     }
 }
@@ -325,6 +384,7 @@ fn with_trail<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hash::Key;
 
     #[test]
     fn the_singletons_print_as_their_names() {
@@ -463,6 +523,68 @@ mod tests {
         assert!(!nan.is(&Object::Float(1.0)));
         assert!(!nan.equals(&nan.clone()));
         assert!(nan.same_value(&nan.clone()));
+    }
+
+    /// `{}` is an empty dict, so an empty set has nothing to be spelled as and
+    /// has to name its own constructor.
+    #[test]
+    fn an_empty_set_is_the_one_repr_that_is_not_a_literal() {
+        assert_eq!(Object::dict(Dict::new()).repr(), "{}");
+        assert_eq!(Object::set(Set::new()).repr(), "set()");
+    }
+
+    #[test]
+    fn a_dict_prints_its_pairs_in_the_order_they_went_in() {
+        let key = |object| Key::new(object).expect("expected this to be hashable");
+        let dict: Dict = [
+            (key(Object::str("b")), Object::int(1)),
+            (key(Object::str("a")), Object::int(2)),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(Object::dict(dict).repr(), "{'b': 1, 'a': 2}");
+
+        let set: Set = [key(Object::int(1)), key(Object::int(2))]
+            .into_iter()
+            .collect();
+        assert_eq!(Object::set(set).repr(), "{1, 2}");
+    }
+
+    /// A dict can hold itself as a value, and CPython prints the ellipsis for
+    /// it the same way it does for a list. It cannot hold itself as a key,
+    /// because it has no hash.
+    #[test]
+    fn a_dict_that_holds_itself_prints_an_ellipsis() {
+        let entries = Rc::new(RefCell::new(Dict::new()));
+        let value = Object::Dict(Rc::clone(&entries));
+        let key = Key::new(Object::str("x")).expect("expected this to be hashable");
+        entries.borrow_mut().insert(key, value.clone());
+        assert_eq!(value.repr(), "{'x': {...}}");
+    }
+
+    #[test]
+    fn dicts_and_sets_compare_by_what_is_in_them() {
+        let dict = |pairs: Vec<(i64, i64)>| {
+            let entries: Dict = pairs
+                .into_iter()
+                .map(|(k, v)| (Key::new(Object::int(k)).expect("hashable"), Object::int(v)))
+                .collect();
+            Object::dict(entries)
+        };
+        assert!(dict(vec![(1, 2), (3, 4)]).equals(&dict(vec![(3, 4), (1, 2)])));
+        assert!(!dict(vec![(1, 2)]).equals(&dict(vec![(1, 3)])));
+        assert!(!dict(vec![(1, 2)]).equals(&dict(vec![(1, 2), (3, 4)])));
+        // A dict is not a set and a set is not a dict, however they print.
+        assert!(!dict(vec![]).equals(&Object::set(Set::new())));
+    }
+
+    #[test]
+    fn a_dict_and_a_set_are_not_hashable() {
+        for value in [Object::dict(Dict::new()), Object::set(Set::new())] {
+            let name = value.type_name();
+            let refused = Key::new(value).expect_err("expected this to be refused");
+            assert_eq!(refused.message(), format!("unhashable type: '{name}'"));
+        }
     }
 
     #[test]
