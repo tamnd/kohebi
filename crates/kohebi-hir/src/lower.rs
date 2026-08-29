@@ -148,6 +148,16 @@ fn children(kind: &ExprKind) -> Vec<&AExpr> {
     }
 }
 
+/// How many times a place is used, which decides whether what it is built from
+/// has to be held in a temporary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reuse {
+    /// Written through once, as an assignment or a `del` does.
+    Once,
+    /// Read and then written back through, as `+=` does.
+    Twice,
+}
+
 /// The state one frame's worth of lowering needs.
 struct Lower {
     slots: Vec<Slot>,
@@ -202,26 +212,12 @@ impl Lower {
                 out.push(Stmt::Eval(value));
             }
             StmtKind::Assign { targets, value, .. } => {
-                let value = self.lower_expr(value, out)?;
-                // Several targets share one evaluation of the value, and they
-                // are stored left to right, so `a = b = f()` calls `f` once.
-                let value = if targets.len() > 1 {
-                    self.pin(out, value)
-                } else {
-                    value
-                };
-                for target in targets {
-                    let place = self.lower_place(target, out)?;
-                    out.push(Stmt::Store {
-                        place,
-                        value: value.clone(),
-                    });
-                }
+                self.lower_assign(targets, value, out)?;
             }
             StmtKind::AugAssign { target, op, value } => {
                 // The place is evaluated once and read and written through, so
                 // `a[f()] += 1` calls `f` once rather than twice.
-                let place = self.lower_place(target, out)?;
+                let place = self.lower_place(target, Reuse::Twice, out)?;
                 let read = Self::read_of(&place);
                 let value = self.lower_expr(value, out)?;
                 out.push(Stmt::Store {
@@ -239,7 +235,12 @@ impl Lower {
                 // its own piece of work rather than something to fake.
                 if let Some(value) = value {
                     let value = self.lower_expr(value, out)?;
-                    let place = self.lower_place(target, out)?;
+                    let value = if branches(target) {
+                        self.pin(out, value)
+                    } else {
+                        value
+                    };
+                    let place = self.lower_place(target, Reuse::Once, out)?;
                     out.push(Stmt::Store { place, value });
                 } else {
                     out.push(Stmt::Nop);
@@ -247,7 +248,7 @@ impl Lower {
             }
             StmtKind::Delete { targets } => {
                 for target in targets {
-                    let place = self.lower_place(target, out)?;
+                    let place = self.lower_place(target, Reuse::Once, out)?;
                     out.push(Stmt::Delete(place));
                 }
             }
@@ -305,6 +306,25 @@ impl Lower {
         Ok(())
     }
 
+    /// `a = b = value`, which evaluates the value once and then each target.
+    fn lower_assign(&mut self, targets: &[AExpr], value: &AExpr, out: &mut Block) -> Result<()> {
+        let value = self.lower_expr(value, out)?;
+        // Two reasons to hold the value in a temporary. Several targets share
+        // one evaluation of it, so `a = b = f()` calls `f` once. And the value
+        // is evaluated before the target, so a target whose own parts emit
+        // statements would otherwise read what those statements read first.
+        let pinning = targets.len() > 1 || targets.iter().any(branches);
+        let value = if pinning { self.pin(out, value) } else { value };
+        for target in targets {
+            let place = self.lower_place(target, Reuse::Once, out)?;
+            out.push(Stmt::Store {
+                place,
+                value: value.clone(),
+            });
+        }
+        Ok(())
+    }
+
     /// `for target in iter: body else: orelse`, as the protocol it is.
     fn lower_for(
         &mut self,
@@ -330,7 +350,7 @@ impl Lower {
         let test = Expr::Not(Expr::Exhausted(Expr::Local(step).boxed()).boxed());
 
         let mut inner = Block::new();
-        let place = self.lower_place(target, &mut inner)?;
+        let place = self.lower_place(target, Reuse::Once, &mut inner)?;
         inner.push(Stmt::Store {
             place,
             value: Expr::Local(step),
@@ -369,7 +389,16 @@ impl Lower {
     /// Everything an attribute or an item target is reached through is pinned,
     /// so that a target read back by an augmented assignment reads the same
     /// object it will write to.
-    fn lower_place(&mut self, target: &AExpr, out: &mut Block) -> Result<Place> {
+    fn lower_place(&mut self, target: &AExpr, reuse: Reuse, out: &mut Block) -> Result<Place> {
+        // Whether the parts of the place are held in temporaries. A plain
+        // assignment writes through it once and can leave them as expressions,
+        // which is what lets the value be evaluated first. An augmented
+        // assignment reads and then writes through the same place, so they have
+        // to be evaluated once and kept.
+        let hold = |lower: &mut Self, out: &mut Block, value| match reuse {
+            Reuse::Once => value,
+            Reuse::Twice => lower.pin(out, value),
+        };
         match &target.kind {
             // At module level every name the program wrote is a global. That is
             // not a simplification: a module's namespace is its `__dict__`, so
@@ -377,7 +406,7 @@ impl Lower {
             ExprKind::Name { id, .. } => Ok(Place::Global(id.clone())),
             ExprKind::Attribute { value, attr, .. } => {
                 let object = self.lower_expr(value, out)?;
-                let object = self.pin(out, object);
+                let object = hold(self, out, object);
                 Ok(Place::Attr {
                     object,
                     name: attr.clone(),
@@ -385,9 +414,9 @@ impl Lower {
             }
             ExprKind::Subscript { value, slice, .. } => {
                 let object = self.lower_expr(value, out)?;
-                let object = self.pin(out, object);
+                let object = hold(self, out, object);
                 let index = self.lower_expr(slice, out)?;
-                let index = self.pin(out, index);
+                let index = hold(self, out, index);
                 Ok(Place::Item { object, index })
             }
             ExprKind::Tuple { .. } | ExprKind::List { .. } => Err(Unsupported {
@@ -485,7 +514,7 @@ impl Lower {
             ExprKind::NamedExpr { target, value } => {
                 let value = self.lower_expr(value, out)?;
                 let value = self.pin(out, value);
-                let place = self.lower_place(target, out)?;
+                let place = self.lower_place(target, Reuse::Once, out)?;
                 out.push(Stmt::Store {
                     place,
                     value: value.clone(),

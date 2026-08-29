@@ -46,6 +46,8 @@ enum Command {
     Ast(AstArgs),
     /// Print the desugared high-level IR for a Python file and exit.
     Hir(HirArgs),
+    /// Print the register bytecode for a Python file and exit.
+    Bc(HirArgs),
     /// Print the resolved configuration and exit.
     Config,
 }
@@ -163,6 +165,13 @@ struct HirArgs {
     file: PathBuf,
 }
 
+/// How far down the pipeline to go before printing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Show {
+    Hir,
+    Bytecode,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum AstFormat {
     /// One line, exactly what `ast.dump(tree)` prints.
@@ -212,7 +221,8 @@ fn main() -> ExitCode {
         Command::Build(_) => "kohebi build",
         Command::Tokenize(args) => return tokenize(args),
         Command::Ast(args) => return ast(args),
-        Command::Hir(args) => return hir(args),
+        Command::Hir(args) => return lowered(args, Show::Hir),
+        Command::Bc(args) => return lowered(args, Show::Bytecode),
         Command::Config => {
             println!("kohebi {}", env!("CARGO_PKG_VERSION"));
             println!("rustc target: {}", std::env::consts::ARCH);
@@ -374,18 +384,22 @@ fn ast(args: &AstArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Print the HIR for one file.
+/// Print the HIR, or the bytecode compiled from it, for one file.
 ///
-/// The tree says what the program looks like and this says what it means, and
-/// the two are worth being able to look at separately. `a < b < c` is one node
-/// in the tree and is four statements here, and the four are the answer to what
-/// Python actually does with a chained comparison. Anything the lowering has no
-/// rule for yet says so, names the line, and exits non-zero, because a body
-/// that quietly left a construct out would be worse than no output at all.
+/// The tree says what the program looks like, the HIR says what it means, and
+/// the bytecode says what will actually run. Being able to look at the three
+/// separately is most of what makes a disagreement with CPython findable.
+/// `a < b < c` is one node in the tree, four statements in the HIR, and the
+/// branch and the two comparisons in the bytecode, and a bug can be in any one
+/// of those steps.
+///
+/// Anything the lowering has no rule for yet says so, names the line, and exits
+/// non-zero, because a body that quietly left a construct out would be worse
+/// than no output at all.
 ///
 /// One file only. Unlike `kohebi ast` there is nothing here worth counting over
 /// a corpus, and the format is for reading.
-fn hir(args: &HirArgs) -> ExitCode {
+fn lowered(args: &HirArgs, show: Show) -> ExitCode {
     let name = args.file.display().to_string();
     let source = match read(&args.file, &name) {
         Ok(source) => source,
@@ -401,16 +415,18 @@ fn hir(args: &HirArgs) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match kohebi_hir::lower_module(&tree, &name) {
-        Ok(body) => {
-            print!("{}", kohebi_hir::print(&body));
-            ExitCode::SUCCESS
-        }
+    let body = match kohebi_hir::lower_module(&tree, &name) {
+        Ok(body) => body,
         Err(unsupported) => {
             eprintln!("kohebi: {name}: {unsupported}");
-            ExitCode::FAILURE
+            return ExitCode::FAILURE;
         }
+    };
+    match show {
+        Show::Hir => print!("{}", kohebi_hir::print(&body)),
+        Show::Bytecode => print!("{}", kohebi_bc::print(&kohebi_bc::compile(&body))),
     }
+    ExitCode::SUCCESS
 }
 
 /// How many statements are in the body of a parsed module.
