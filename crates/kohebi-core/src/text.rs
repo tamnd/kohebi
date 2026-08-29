@@ -72,6 +72,24 @@ impl Str {
     }
 }
 
+impl std::fmt::Display for Str {
+    /// The text itself, which is what `str` gives back and what `print` writes.
+    ///
+    /// A lone surrogate has no UTF-8 encoding, and CPython raises
+    /// `UnicodeEncodeError` rather than writing one. Until there is an encoder
+    /// to raise it from, one is written as the replacement character, which is
+    /// what every other tool that has to keep going does.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Str::Utf8(s) => f.write_str(s),
+            Str::Wide(w) => w
+                .iter()
+                .map(|&cp| char::from_u32(cp).unwrap_or(char::REPLACEMENT_CHARACTER))
+                .try_for_each(|c| f.write_char(c)),
+        }
+    }
+}
+
 impl From<&str> for Str {
     fn from(s: &str) -> Self {
         Str::Utf8(s.into())
@@ -306,6 +324,21 @@ mod tests {
         let mut out = StrBuf::new();
         out.push_code_point(0xD800);
         assert_eq!(out.finish().repr(), "'\\ud800'");
+    }
+
+    /// `repr` quotes and escapes, `Display` gives the text back as it is.
+    #[test]
+    fn displaying_a_string_writes_the_text_and_not_the_quotes() {
+        assert_eq!(Str::from("it's").to_string(), "it's");
+        assert_eq!(Str::from("a\tb").to_string(), "a\tb");
+
+        let mut out = StrBuf::new();
+        out.push_str("a");
+        out.push_code_point(0xD800);
+        out.push_str("b");
+        // The surrogate has no encoding, so it comes out as the replacement
+        // character rather than stopping the two ordinary letters around it.
+        assert_eq!(out.finish().to_string(), "a\u{fffd}b");
     }
 
     /// Two escapes that look like a surrogate pair are two code points in
