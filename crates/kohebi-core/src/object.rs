@@ -25,10 +25,12 @@
 //! placeholder shows most: the real one has a lock bit in the object header and
 //! no cell at all.
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::float::{DotZero, float_repr};
+use crate::hash::int_eq_float;
 use crate::int::Int;
 use crate::text::{Str, bytes_repr};
 
@@ -132,6 +134,10 @@ impl Object {
     /// there are two objects, and is `True` here because there are none. The
     /// tagged representation makes that true for real, and the language does
     /// not promise either answer.
+    ///
+    /// The loudest case of it is the NaN, since identity is what decides
+    /// `nan in [nan]` and whether a NaN can be found in a dict again. Two
+    /// separately made ones are two objects in CPython and one value here.
     #[must_use]
     pub fn is(&self, other: &Self) -> bool {
         match (self, other) {
@@ -149,6 +155,61 @@ impl Object {
             (Object::Tuple(a), Object::Tuple(b)) => Rc::ptr_eq(a, b),
             (Object::List(a), Object::List(b)) => Rc::ptr_eq(a, b),
             _ => false,
+        }
+    }
+
+    /// What `==` answers.
+    ///
+    /// Numbers compare across their types, so `1 == 1.0 == True`, and an
+    /// integer too large for a float still gets an exact answer. Everything
+    /// else compares only within its own type: a `str` is never equal to the
+    /// `bytes` that spell it and a tuple is never equal to a list, however
+    /// alike either pair looks.
+    ///
+    /// A container holding itself sends this into a recursion CPython turns
+    /// into a `RecursionError`. There is no recursion limit here yet, because
+    /// there are no frames to count, and it arrives with them.
+    #[must_use]
+    pub fn equals(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Object::None, Object::None)
+            | (Object::Ellipsis, Object::Ellipsis)
+            | (Object::NotImplemented, Object::NotImplemented) => true,
+            (Object::Str(a), Object::Str(b)) => a == b,
+            (Object::Bytes(a), Object::Bytes(b)) => a == b,
+            (Object::Tuple(a), Object::Tuple(b)) => elementwise(a, b),
+            (Object::List(a), Object::List(b)) => {
+                // The same list on both sides, which is `x == x` and which
+                // borrowing twice would panic on rather than answer.
+                Rc::ptr_eq(a, b) || elementwise(&a.borrow(), &b.borrow())
+            }
+            _ => match (self.as_number(), other.as_number()) {
+                (Some(a), Some(b)) => a.equals(&b),
+                _ => false,
+            },
+        }
+    }
+
+    /// What a container asks about its elements, and what a dict asks about a
+    /// key, which is `x is y or x == y` rather than plain `==`.
+    ///
+    /// The identity half is not an optimization. `x == x` is false for a NaN,
+    /// so `[nan] == [nan]` would be false without it where CPython says true
+    /// for the same NaN in both, and a NaN stored in a dict could never be
+    /// found again.
+    #[must_use]
+    pub fn same_value(&self, other: &Self) -> bool {
+        self.is(other) || self.equals(other)
+    }
+
+    /// This value seen as a number, if it is one, with `bool` widened to the
+    /// `int` it is so the three numeric types become two cases.
+    fn as_number(&self) -> Option<Number<'_>> {
+        match self {
+            Object::Bool(value) => Some(Number::Int(Cow::Owned(Int::Small(i64::from(*value))))),
+            Object::Int(value) => Some(Number::Int(Cow::Borrowed(value))),
+            Object::Float(value) => Some(Number::Float(*value)),
+            _ => None,
         }
     }
 
@@ -208,6 +269,36 @@ impl Object {
             }
         }
     }
+}
+
+/// A numeric value with `bool` folded into `int`, which is what lets the three
+/// numeric types be compared as two.
+enum Number<'a> {
+    Int(Cow<'a, Int>),
+    Float(f64),
+}
+
+impl Number<'_> {
+    #[expect(
+        clippy::float_cmp,
+        reason = "this is Python's `==` on two floats, so it is IEEE equality \
+                  and an epsilon would be a wrong answer rather than a safer one"
+    )]
+    fn equals(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Number::Int(a), Number::Int(b)) => a == b,
+            (Number::Float(a), Number::Float(b)) => a == b,
+            (Number::Int(a), Number::Float(b)) | (Number::Float(b), Number::Int(a)) => {
+                int_eq_float(a, *b)
+            }
+        }
+    }
+}
+
+/// Two sequences compared position by position, which stops at the first
+/// difference and so never looks past a length mismatch.
+fn elementwise(left: &[Object], right: &[Object]) -> bool {
+    left.len() == right.len() && left.iter().zip(right).all(|(a, b)| a.same_value(b))
 }
 
 /// The reprs of a sequence's elements.
@@ -370,5 +461,59 @@ mod tests {
         let nan = Object::Float(f64::NAN);
         assert!(nan.is(&nan.clone()));
         assert!(!nan.is(&Object::Float(1.0)));
+        assert!(!nan.equals(&nan.clone()));
+        assert!(nan.same_value(&nan.clone()));
+    }
+
+    #[test]
+    fn the_three_numeric_types_compare_against_each_other() {
+        assert!(Object::int(1).equals(&Object::Float(1.0)));
+        assert!(Object::int(1).equals(&Object::Bool(true)));
+        assert!(Object::int(0).equals(&Object::Bool(false)));
+        assert!(Object::Float(0.0).equals(&Object::Bool(false)));
+        assert!(Object::Float(-0.0).equals(&Object::Float(0.0)));
+        assert!(!Object::int(1).equals(&Object::Float(1.5)));
+        assert!(!Object::int(1).equals(&Object::Float(f64::INFINITY)));
+    }
+
+    /// Every other type compares only within itself, however alike two of them
+    /// happen to look.
+    #[test]
+    fn nothing_but_a_number_compares_across_types() {
+        assert!(!Object::str("abc").equals(&Object::Bytes(Rc::from(&b"abc"[..]))));
+        assert!(!Object::tuple(vec![Object::int(1)]).equals(&Object::list(vec![Object::int(1)])));
+        assert!(!Object::int(1).equals(&Object::str("1")));
+        assert!(!Object::None.equals(&Object::Bool(false)));
+        assert!(!Object::None.equals(&Object::int(0)));
+    }
+
+    #[test]
+    fn a_sequence_compares_position_by_position() {
+        let list = |items: Vec<Object>| Object::list(items);
+        assert!(list(vec![]).equals(&list(vec![])));
+        assert!(list(vec![Object::int(1)]).equals(&list(vec![Object::Float(1.0)])));
+        assert!(!list(vec![Object::int(1)]).equals(&list(vec![Object::int(1), Object::int(2)])));
+        assert!(!list(vec![Object::int(1)]).equals(&list(vec![Object::int(2)])));
+        // Nesting compares the same way the whole way down.
+        let nested = |n| Object::tuple(vec![Object::tuple(vec![Object::int(n)])]);
+        assert!(nested(1).equals(&nested(1)));
+        assert!(!nested(1).equals(&nested(2)));
+    }
+
+    /// The identity shortcut inside a container is what makes this true, and
+    /// CPython says the same for the same reason.
+    #[test]
+    fn a_list_holding_a_nan_is_equal_to_itself() {
+        let nan = Object::Float(f64::NAN);
+        let value = Object::list(vec![nan]);
+        assert!(value.equals(&value.clone()));
+    }
+
+    /// `x == x` on a list is asked all the time, and reaching for the contents
+    /// of the same list twice would be a panic rather than an answer.
+    #[test]
+    fn a_list_compared_against_itself_does_not_borrow_it_twice() {
+        let value = Object::list(vec![Object::int(1)]);
+        assert!(value.equals(&value.clone()));
     }
 }
