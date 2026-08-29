@@ -14,17 +14,30 @@
 //! pinning, because pinning something that did not need it costs a temporary
 //! and missing something that did is a wrong answer.
 //!
+//! ## Scopes
+//!
+//! A module has no locals. Its namespace is its `__dict__`, so every name a
+//! module writes is a global and the only slots it has are the temporaries this
+//! pass invented. A function is the opposite: the names it binds are slots, they
+//! are found by scanning the body before a line of it is lowered, and everything
+//! else it reads is a global. That scan is what makes `x = 1` at the end of a
+//! function turn a `print(x)` at the top of it into an `UnboundLocalError`
+//! rather than a read of the module's `x`, which is a rule you cannot follow by
+//! lowering statements in order.
+//!
 //! What is not lowered yet answers with [`Unsupported`] rather than a wrong
-//! tree. Functions, classes, comprehensions, `with`, `try`, `match` and imports
-//! are all on that list today. The list is the honest statement of where this
-//! crate is, and it shrinks a milestone item at a time.
+//! tree. Classes, comprehensions, generators, closures, `with`, `try`, `match`
+//! and imports are all on that list today. The list is the honest statement of
+//! where this crate is, and it shrinks a milestone item at a time.
+
+use std::collections::{HashMap, HashSet};
 
 use kohebi_parse::Int;
 use kohebi_parse::ast::{
-    BoolOp, CmpOp, Expr as AExpr, ExprKind, Mod, Stmt as AStmt, StmtKind, UnaryOp,
+    Arguments, BoolOp, CmpOp, Expr as AExpr, ExprKind, Mod, Stmt as AStmt, StmtKind, UnaryOp,
 };
 
-use crate::hir::{Block, Body, Expr, Local, Place, Slot, Stmt};
+use crate::hir::{Block, Body, Expr, FuncId, Local, Name, Params, Place, Slot, Stmt};
 
 /// A construct that has no lowering yet.
 ///
@@ -62,10 +75,15 @@ pub fn lower_module(module: &Mod, name: &str) -> Result<Body> {
     };
     let mut lower = Lower::new();
     let block = lower.lower_block(body)?;
+    let Some(scope) = lower.scopes.pop() else {
+        unreachable!("the module scope is pushed before anything can pop it")
+    };
     Ok(Body {
         name: name.into(),
-        slots: lower.slots,
+        params: Params::default(),
+        slots: scope.slots,
         block,
+        functions: scope.functions,
     })
 }
 
@@ -149,6 +167,252 @@ fn children(kind: &ExprKind) -> Vec<&AExpr> {
     }
 }
 
+/// Where a function's body comes from, which is the only difference between a
+/// `def` and a `lambda`.
+#[derive(Clone, Copy)]
+enum Source<'a> {
+    Block(&'a [AStmt]),
+    /// A `lambda`, whose body is one expression it returns.
+    Value(&'a AExpr),
+}
+
+/// The names a frame binds, collected before the frame is lowered.
+///
+/// Binding is not the same as writing. `import x`, `def f`, `except E as e` and
+/// `del x` all make a name local to the frame they are in, and none of them is
+/// an assignment. Getting this list wrong is a wrong answer rather than a
+/// crash, since a name left out of it quietly becomes a global.
+#[derive(Default)]
+struct Binder {
+    /// In the order they were written, because slot numbers come from this
+    /// order and a listing that shuffled between runs would be useless.
+    /// Repeats are allowed, since the frame only takes a slot the first time.
+    bound: Vec<Name>,
+    /// The names a `global` statement took back out.
+    declared: HashSet<Name>,
+    /// The line of the first `nonlocal`, which has no lowering yet.
+    nonlocal: Option<u32>,
+}
+
+impl Binder {
+    fn block(&mut self, stmts: &[AStmt]) {
+        for stmt in stmts {
+            self.stmt(stmt);
+        }
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per statement that can bind a name, and the point of \
+                  the list is that it is complete"
+    )]
+    fn stmt(&mut self, stmt: &AStmt) {
+        match &stmt.kind {
+            StmtKind::Assign { targets, value, .. } => {
+                for target in targets {
+                    self.target(target);
+                }
+                self.expr(value);
+            }
+            StmtKind::AugAssign { target, value, .. } => {
+                self.target(target);
+                self.expr(value);
+            }
+            StmtKind::AnnAssign { target, value, .. } => {
+                self.target(target);
+                if let Some(value) = value {
+                    self.expr(value);
+                }
+            }
+            StmtKind::For {
+                target,
+                iter,
+                body,
+                orelse,
+                ..
+            }
+            | StmtKind::AsyncFor {
+                target,
+                iter,
+                body,
+                orelse,
+                ..
+            } => {
+                self.target(target);
+                self.expr(iter);
+                self.block(body);
+                self.block(orelse);
+            }
+            StmtKind::While { test, body, orelse } | StmtKind::If { test, body, orelse } => {
+                self.expr(test);
+                self.block(body);
+                self.block(orelse);
+            }
+            StmtKind::With { items, body, .. } | StmtKind::AsyncWith { items, body, .. } => {
+                for item in items {
+                    self.expr(&item.context_expr);
+                    if let Some(target) = &item.optional_vars {
+                        self.target(target);
+                    }
+                }
+                self.block(body);
+            }
+            StmtKind::Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            }
+            | StmtKind::TryStar {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => {
+                self.block(body);
+                for handler in handlers {
+                    if let Some(kind) = &handler.type_ {
+                        self.expr(kind);
+                    }
+                    // `except E as e` binds `e`, and then unbinds it at the end
+                    // of the handler, which does not stop it being local.
+                    if let Some(name) = &handler.name {
+                        self.bound.push(name.clone());
+                    }
+                    self.block(&handler.body);
+                }
+                self.block(orelse);
+                self.block(finalbody);
+            }
+            // The name a `def` or a `class` binds is bound here. What is inside
+            // it is a frame of its own, so nothing in the body is, but the
+            // decorators and the defaults are evaluated here and a walrus in
+            // one of those binds here too.
+            StmtKind::FunctionDef {
+                name,
+                args,
+                decorator_list,
+                ..
+            }
+            | StmtKind::AsyncFunctionDef {
+                name,
+                args,
+                decorator_list,
+                ..
+            } => {
+                self.bound.push(name.clone());
+                for decorator in decorator_list {
+                    self.expr(decorator);
+                }
+                for value in &args.defaults {
+                    self.expr(value);
+                }
+                for value in args.kw_defaults.iter().flatten() {
+                    self.expr(value);
+                }
+            }
+            StmtKind::ClassDef {
+                name,
+                bases,
+                keywords,
+                decorator_list,
+                ..
+            } => {
+                self.bound.push(name.clone());
+                for value in bases.iter().chain(decorator_list) {
+                    self.expr(value);
+                }
+                for keyword in keywords {
+                    self.expr(&keyword.value);
+                }
+            }
+            StmtKind::Delete { targets } => {
+                for target in targets {
+                    self.target(target);
+                }
+            }
+            StmtKind::Import { names } => {
+                for alias in names {
+                    // `import a.b` binds `a`, not `a.b`, because what it binds
+                    // is the top of the package.
+                    let bound = alias.asname.clone().unwrap_or_else(|| {
+                        let head = alias.name.split('.').next().unwrap_or(&alias.name);
+                        Name::from(head)
+                    });
+                    self.bound.push(bound);
+                }
+            }
+            StmtKind::ImportFrom { names, .. } => {
+                for alias in names {
+                    self.bound
+                        .push(alias.asname.clone().unwrap_or_else(|| alias.name.clone()));
+                }
+            }
+            StmtKind::Global { names } => self.declared.extend(names.iter().cloned()),
+            StmtKind::Nonlocal { .. } => {
+                self.nonlocal.get_or_insert(stmt.attrs.lineno);
+            }
+            StmtKind::Expr { value } => self.expr(value),
+            StmtKind::Return { value } => {
+                if let Some(value) = value {
+                    self.expr(value);
+                }
+            }
+            StmtKind::Raise { exc, cause } => {
+                for value in exc.iter().chain(cause) {
+                    self.expr(value);
+                }
+            }
+            StmtKind::Assert { test, msg } => {
+                self.expr(test);
+                if let Some(msg) = msg {
+                    self.expr(msg);
+                }
+            }
+            // A `match` binds every capture in every pattern it can reach, and
+            // there is no lowering for one yet, so nothing here would be read.
+            StmtKind::Match { .. }
+            | StmtKind::TypeAlias { .. }
+            | StmtKind::Pass
+            | StmtKind::Break
+            | StmtKind::Continue => {}
+        }
+    }
+
+    /// The left hand side of an assignment, which binds every name in it.
+    fn target(&mut self, target: &AExpr) {
+        match &target.kind {
+            ExprKind::Name { id, .. } => self.bound.push(id.clone()),
+            ExprKind::Tuple { elts, .. } | ExprKind::List { elts, .. } => {
+                for elt in elts {
+                    self.target(elt);
+                }
+            }
+            ExprKind::Starred { value, .. } => self.target(value),
+            // `a.b = c` and `a[i] = c` bind nothing. They read `a`, and what is
+            // in the brackets is an ordinary expression that could hold a walrus.
+            _ => self.expr(target),
+        }
+    }
+
+    /// An expression, for the walrus in it. Nothing else in one binds a name.
+    fn expr(&mut self, expr: &AExpr) {
+        if let ExprKind::NamedExpr { target, value } = &expr.kind {
+            self.target(target);
+            self.expr(value);
+            return;
+        }
+        for child in children(&expr.kind) {
+            self.expr(child);
+        }
+    }
+}
+
+/// A length as the number the IR counts with, saturating rather than wrapping.
+fn count(size: usize) -> u32 {
+    u32::try_from(size).unwrap_or(u32::MAX)
+}
+
 /// How many times a place is used, which decides whether what it is built from
 /// has to be held in a temporary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,26 +423,125 @@ enum Reuse {
     Twice,
 }
 
-/// The state one frame's worth of lowering needs.
-struct Lower {
+/// One frame's worth of lowering state.
+struct Scope {
     slots: Vec<Slot>,
     temps: u32,
+    /// The names this frame keeps in slots, which for a module is none of them.
+    locals: HashMap<Name, Local>,
+    /// The names a `global` statement in this frame took out of it, which is
+    /// the one way a name assigned in a function is not a local of it.
+    declared: HashSet<Name>,
+    /// The functions defined directly in this frame.
+    functions: Vec<Body>,
+}
+
+impl Scope {
+    fn new() -> Self {
+        Scope {
+            slots: Vec::new(),
+            temps: 0,
+            locals: HashMap::new(),
+            declared: HashSet::new(),
+            functions: Vec::new(),
+        }
+    }
+}
+
+/// The frames being lowered, innermost last.
+///
+/// A stack rather than one frame because a `def` inside a `def` is a frame
+/// inside a frame, and because a name that is not local here has to be looked
+/// for in the frames around it before it can be called a global.
+struct Lower {
+    scopes: Vec<Scope>,
 }
 
 impl Lower {
     fn new() -> Self {
         Self {
-            slots: Vec::new(),
-            temps: 0,
+            scopes: vec![Scope::new()],
         }
+    }
+
+    fn scope(&self) -> &Scope {
+        let Some(scope) = self.scopes.last() else {
+            unreachable!("there is always a frame being lowered")
+        };
+        scope
+    }
+
+    fn scope_mut(&mut self) -> &mut Scope {
+        let Some(scope) = self.scopes.last_mut() else {
+            unreachable!("there is always a frame being lowered")
+        };
+        scope
     }
 
     /// A fresh slot nothing else can name.
     fn temp(&mut self) -> Local {
-        let local = Local(u32::try_from(self.slots.len()).unwrap_or(u32::MAX));
-        self.slots.push(Slot::Temp(self.temps));
-        self.temps += 1;
+        let scope = self.scope_mut();
+        let local = Local(u32::try_from(scope.slots.len()).unwrap_or(u32::MAX));
+        scope.slots.push(Slot::Temp(scope.temps));
+        scope.temps += 1;
         local
+    }
+
+    /// A slot for a name this frame binds, or the one it already has.
+    fn declare(&mut self, name: &Name) -> Local {
+        if let Some(local) = self.scope().locals.get(name) {
+            return *local;
+        }
+        let scope = self.scope_mut();
+        let local = Local(u32::try_from(scope.slots.len()).unwrap_or(u32::MAX));
+        scope.slots.push(Slot::Named(name.clone()));
+        scope.locals.insert(name.clone(), local);
+        local
+    }
+
+    /// Reading a name: a slot if this frame has one, and the module namespace
+    /// otherwise.
+    fn read(&self, name: &Name, line: u32) -> Result<Expr> {
+        if let Some(local) = self.scope().locals.get(name) {
+            return Ok(Expr::Local(*local));
+        }
+        self.not_free(name, line)?;
+        Ok(Expr::Global(name.clone()))
+    }
+
+    /// Writing a name, which lands in the same place reading it comes from.
+    fn write(&self, name: &Name, line: u32) -> Result<Place> {
+        if let Some(local) = self.scope().locals.get(name) {
+            return Ok(Place::Local(*local));
+        }
+        self.not_free(name, line)?;
+        Ok(Place::Global(name.clone()))
+    }
+
+    /// Refuse a name that belongs to an enclosing function.
+    ///
+    /// Without this the name would quietly become a global of the same spelling,
+    /// which is a wrong answer rather than a missing feature. Closures are the
+    /// next piece of work and this is the line that says so.
+    ///
+    /// The module frame is not searched, because a name at module level really
+    /// is a global and reading one from inside a function is not a closure.
+    fn not_free(&self, name: &Name, line: u32) -> Result<()> {
+        if self.scope().declared.contains(name) {
+            return Ok(());
+        }
+        let end = self.scopes.len().saturating_sub(1);
+        let enclosing = &self.scopes[end.min(1)..end];
+        if enclosing
+            .iter()
+            .any(|scope| scope.locals.contains_key(name))
+        {
+            return Err(Unsupported {
+                what: "a name from an enclosing function",
+                line,
+            });
+        }
+        Ok(())
     }
 
     /// Put a value in a temporary and hand back the way to read it.
@@ -204,10 +567,18 @@ impl Lower {
         Ok(out)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per statement, which is the shape the reader wants"
+    )]
     fn lower_stmt(&mut self, stmt: &AStmt, out: &mut Block) -> Result<()> {
         let line = stmt.attrs.lineno;
         match &stmt.kind {
-            StmtKind::Pass => out.push(Stmt::Nop),
+            // A `pass` is nothing, and a `global` is nothing by the time it is
+            // reached: the names it claims were taken out of this frame's
+            // locals before a line of it was lowered. At module level it never
+            // had an effect at all, since everything there is a global already.
+            StmtKind::Pass | StmtKind::Global { .. } => out.push(Stmt::Nop),
             StmtKind::Expr { value } => {
                 let value = self.lower_expr(value, out)?;
                 out.push(Stmt::Eval(value));
@@ -288,6 +659,41 @@ impl Lower {
                     None => Expr::Const(kohebi_parse::Value::None),
                 };
                 out.push(Stmt::Return(value));
+            }
+            StmtKind::FunctionDef {
+                name,
+                args,
+                body,
+                decorator_list,
+                type_params,
+                ..
+            } => {
+                if !type_params.is_empty() {
+                    return Err(Unsupported {
+                        what: "a function with type parameters",
+                        line,
+                    });
+                }
+                // Loaded before the function is built, in the order they are
+                // written, and applied afterwards from the bottom up. That is
+                // what `@a` above `@b` means and it is the order CPython
+                // evaluates them in, which a decorator with a side effect can
+                // tell apart from any other.
+                let mut decorators = Vec::with_capacity(decorator_list.len());
+                for decorator in decorator_list {
+                    let callee = self.lower_expr(decorator, out)?;
+                    decorators.push(self.pin(out, callee));
+                }
+                let mut value = self.lower_function(name, args, Source::Block(body), out)?;
+                for callee in decorators.into_iter().rev() {
+                    value = Expr::Call {
+                        callee: callee.boxed(),
+                        args: vec![value],
+                        keywords: Vec::new(),
+                    };
+                }
+                let place = self.write(name, line)?;
+                out.push(Stmt::Store { place, value });
             }
             StmtKind::Raise { exc, cause } => {
                 let exc = exc.as_ref().map(|e| self.lower_expr(e, out)).transpose()?;
@@ -390,6 +796,125 @@ impl Lower {
         Ok(())
     }
 
+    /// `def` and `lambda`, which differ only in what their body is.
+    ///
+    /// The defaults are lowered first and into the caller's block, because they
+    /// are evaluated where the `def` is written and once, which is the whole
+    /// reason `def f(x=[])` shares one list between every call.
+    fn lower_function(
+        &mut self,
+        name: &str,
+        args: &Arguments,
+        source: Source<'_>,
+        out: &mut Block,
+    ) -> Result<Expr> {
+        let defaults = args
+            .defaults
+            .iter()
+            .map(|value| self.lower_expr(value, out))
+            .collect::<Result<Vec<_>>>()?;
+        let mut kw_defaults = Vec::with_capacity(args.kw_defaults.len());
+        for value in &args.kw_defaults {
+            kw_defaults.push(match value {
+                Some(value) => Some(self.lower_expr(value, out)?),
+                None => None,
+            });
+        }
+
+        let params = Params {
+            positional: count(args.posonlyargs.len() + args.args.len()),
+            positional_only: count(args.posonlyargs.len()),
+            star: args.vararg.is_some(),
+            keyword_only: count(args.kwonlyargs.len()),
+            double_star: args.kwarg.is_some(),
+        };
+
+        self.scopes.push(Scope::new());
+        // The parameters take the first slots, in the order [`Params`] says they
+        // do, so that binding a call's arguments is filling in registers from
+        // zero rather than a lookup per argument.
+        let named = args
+            .posonlyargs
+            .iter()
+            .chain(&args.args)
+            .chain(args.vararg.as_deref())
+            .chain(&args.kwonlyargs)
+            .chain(args.kwarg.as_deref());
+        for param in named {
+            self.declare(&param.arg);
+        }
+        let block = self.lower_body(source);
+        let Some(scope) = self.scopes.pop() else {
+            unreachable!("pushed just above")
+        };
+        let block = block?;
+
+        let functions = &mut self.scope_mut().functions;
+        let id = FuncId(count(functions.len()));
+        functions.push(Body {
+            name: name.into(),
+            params,
+            slots: scope.slots,
+            block,
+            functions: scope.functions,
+        });
+        Ok(Expr::Function {
+            id,
+            defaults,
+            kw_defaults,
+        })
+    }
+
+    /// The body of a function, once its frame is the one being lowered.
+    fn lower_body(&mut self, source: Source<'_>) -> Result<Block> {
+        match source {
+            Source::Block(stmts) => {
+                self.take_names(stmts)?;
+                self.lower_block(stmts)
+            }
+            Source::Value(value) => {
+                // A lambda is a `return` with no statements around it, so the
+                // only names it can bind are the ones a walrus binds.
+                let mut walrus = Binder::default();
+                walrus.expr(value);
+                for name in walrus.bound {
+                    self.declare(&name);
+                }
+                let mut out = Block::new();
+                let value = self.lower_expr(value, &mut out)?;
+                out.push(Stmt::Return(value));
+                Ok(out)
+            }
+        }
+    }
+
+    /// Work out which names this frame keeps in slots, before lowering any of it.
+    ///
+    /// Has to happen first and for the whole body at once. A name is local to a
+    /// function if the function binds it anywhere, so the `x = 1` on the last
+    /// line is what makes the `print(x)` on the first line an
+    /// `UnboundLocalError` rather than a read of the module's `x`.
+    fn take_names(&mut self, stmts: &[AStmt]) -> Result<()> {
+        let mut binder = Binder::default();
+        binder.block(stmts);
+        if let Some(line) = binder.nonlocal {
+            // A `nonlocal` names a slot in an enclosing function, which is the
+            // same thing a closure needs and is not here yet.
+            return Err(Unsupported {
+                what: "a nonlocal declaration",
+                line,
+            });
+        }
+        self.scope_mut().declared = binder.declared;
+        for name in binder.bound {
+            if self.scope().declared.contains(&name) {
+                continue;
+            }
+            self.declare(&name);
+        }
+        Ok(())
+    }
+
     /// `for target in iter: body else: orelse`, as the protocol it is.
     fn lower_for(
         &mut self,
@@ -461,10 +986,7 @@ impl Lower {
             Reuse::Twice => lower.pin(out, value),
         };
         match &target.kind {
-            // At module level every name the program wrote is a global. That is
-            // not a simplification: a module's namespace is its `__dict__`, so
-            // there are no local slots here for anything but temporaries.
-            ExprKind::Name { id, .. } => Ok(Place::Global(id.clone())),
+            ExprKind::Name { id, .. } => self.write(id, target.attrs.lineno),
             ExprKind::Attribute { value, attr, .. } => {
                 let object = self.lower_expr(value, out)?;
                 let object = hold(self, out, object);
@@ -526,7 +1048,10 @@ impl Lower {
         let line = expr.attrs.lineno;
         match &expr.kind {
             ExprKind::Constant { value, .. } => Ok(Expr::Const(value.clone())),
-            ExprKind::Name { id, .. } => Ok(Expr::Global(id.clone())),
+            ExprKind::Name { id, .. } => self.read(id, line),
+            ExprKind::Lambda { args, body } => {
+                self.lower_function("<lambda>", args, Source::Value(body), out)
+            }
             ExprKind::BinOp { left, op, right } => {
                 let mut parts = self.lower_group(&[left, right], out)?.into_iter();
                 let (Some(left), Some(right)) = (parts.next(), parts.next()) else {
@@ -800,7 +1325,6 @@ impl Lower {
 /// What to call a statement that has no lowering yet.
 fn statement_name(kind: &StmtKind) -> &'static str {
     match kind {
-        StmtKind::FunctionDef { .. } => "a function definition",
         StmtKind::AsyncFunctionDef { .. } => "an async function definition",
         StmtKind::ClassDef { .. } => "a class definition",
         StmtKind::TypeAlias { .. } => "a type alias",
@@ -811,7 +1335,6 @@ fn statement_name(kind: &StmtKind) -> &'static str {
         StmtKind::Try { .. } | StmtKind::TryStar { .. } => "a try statement",
         StmtKind::Assert { .. } => "an assert statement",
         StmtKind::Import { .. } | StmtKind::ImportFrom { .. } => "an import",
-        StmtKind::Global { .. } => "a global declaration",
         StmtKind::Nonlocal { .. } => "a nonlocal declaration",
         _ => "this statement",
     }
@@ -820,7 +1343,6 @@ fn statement_name(kind: &StmtKind) -> &'static str {
 /// What to call an expression that has no lowering yet.
 fn expression_name(kind: &ExprKind) -> &'static str {
     match kind {
-        ExprKind::Lambda { .. } => "a lambda",
         ExprKind::ListComp { .. } => "a list comprehension",
         ExprKind::SetComp { .. } => "a set comprehension",
         ExprKind::DictComp { .. } => "a dict comprehension",

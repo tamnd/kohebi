@@ -14,15 +14,80 @@ use kohebi_parse::Value;
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 use kohebi_parse::value::Str;
 
-use crate::hir::{Block, Body, Expr, Place, Stmt};
+use crate::hir::{Block, Body, Expr, Local, Place, Stmt};
 
 /// The whole body, one statement per line, ending in a newline.
+///
+/// The functions defined in it follow it, in the order they were defined and
+/// each with a header of its own, rather than being printed where the `def` is.
+/// A body reads as a body, and the `def` still says which one it built.
 #[must_use]
 pub fn print(body: &Body) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "body {}:", body.name);
     block(&mut out, body, &body.block, 1);
+    nested(&mut out, body);
     out
+}
+
+fn nested(out: &mut String, body: &Body) {
+    for func in &body.functions {
+        let _ = writeln!(out, "body {}({}):", func.name, params(func, func, &[], &[]));
+        block(out, func, &func.block, 1);
+        nested(out, func);
+    }
+}
+
+/// A parameter list, with whatever defaults the caller has for it.
+///
+/// The names come from the function's own slots, because the parameters are the
+/// first of them, and the defaults are expressions in whichever frame the `def`
+/// is in, which is why the two have to be printed together rather than by the
+/// function on its own.
+fn params(outer: &Body, func: &Body, defaults: &[Expr], kw_defaults: &[Option<Expr>]) -> String {
+    let shape = func.params;
+    let name = |at: usize| func.slot_name(Local(u32::try_from(at).unwrap_or(u32::MAX)));
+    let positional = shape.positional as usize;
+    // Defaults fill the positional parameters from the right, which is the
+    // whole of the rule that a parameter with a default cannot come before one
+    // without.
+    let first_default = positional.saturating_sub(defaults.len());
+    let mut parts: Vec<String> = Vec::new();
+    for at in 0..positional {
+        let mut part = name(at);
+        if let Some(value) = at
+            .checked_sub(first_default)
+            .and_then(|at| defaults.get(at))
+        {
+            let _ = write!(part, "={}", expr(outer, value));
+        }
+        parts.push(part);
+        if at + 1 == shape.positional_only as usize {
+            parts.push("/".to_owned());
+        }
+    }
+
+    let mut next = positional;
+    if shape.star {
+        parts.push(format!("*{}", name(next)));
+        next += 1;
+    } else if shape.keyword_only > 0 {
+        // A bare `*` is how Python says the rest can only be passed by name
+        // with nothing collecting what came before it.
+        parts.push("*".to_owned());
+    }
+    for at in 0..shape.keyword_only as usize {
+        let mut part = name(next + at);
+        if let Some(Some(value)) = kw_defaults.get(at) {
+            let _ = write!(part, "={}", expr(outer, value));
+        }
+        parts.push(part);
+    }
+    next += shape.keyword_only as usize;
+    if shape.double_star {
+        parts.push(format!("**{}", name(next)));
+    }
+    parts.join(", ")
 }
 
 fn indent(out: &mut String, depth: usize) {
@@ -201,6 +266,20 @@ fn expr(body: &Body, value: &Expr) -> String {
             };
             format!("unpack({}, {shape})", expr(body, value))
         }
+        Expr::Function {
+            id,
+            defaults,
+            kw_defaults,
+        } => match body.functions.get(id.0 as usize) {
+            Some(func) => format!(
+                "function {}({})",
+                func.name,
+                params(body, func, defaults, kw_defaults)
+            ),
+            // Only reachable from a tree somebody built by hand, and saying so
+            // beats a panic in a printer.
+            None => format!("function ?{}", id.0),
+        },
     }
 }
 

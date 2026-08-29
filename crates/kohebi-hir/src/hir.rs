@@ -47,14 +47,62 @@ pub enum Slot {
     Temp(u32),
 }
 
-/// A unit of code with its own frame: for now, a module.
+/// An index into [`Body::functions`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FuncId(pub u32);
+
+/// The shape of a parameter list, as counts.
+///
+/// The names are not here, because the parameters are the first slots of the
+/// frame in exactly this order and [`Body::slots`] already has them: the
+/// positional ones, then `*args` if there is one, then the keyword-only ones,
+/// then `**kwargs` if there is one. Counts alone means a parameter's name lives
+/// in one place and its register in one place, and the two cannot disagree.
+///
+/// How many defaults there are is not here either, because a default is a value
+/// the `def` computed rather than a fact about the code, so it belongs to the
+/// function object. That is also why `def f(x=[])` shares one list between
+/// calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Params {
+    /// Everything before a `*`, which is what a caller may pass by position.
+    pub positional: u32,
+    /// How many of those lead ones sit before a `/` and so cannot be passed by
+    /// name at all, though their names are still taken by a `**kwargs`.
+    pub positional_only: u32,
+    /// Whether there is a `*args` to collect whatever is left over.
+    pub star: bool,
+    /// Parameters after the `*`, which a caller can only pass by name.
+    pub keyword_only: u32,
+    /// Whether there is a `**kwargs`.
+    pub double_star: bool,
+}
+
+impl Params {
+    /// How many slots the parameters take, which is how many of the low
+    /// registers a call fills in before the body starts.
+    #[must_use]
+    pub fn count(self) -> u32 {
+        self.positional + u32::from(self.star) + self.keyword_only + u32::from(self.double_star)
+    }
+}
+
+/// A unit of code with its own frame: a module, or a function inside one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Body {
     /// What the frame is called in a traceback.
     pub name: Name,
+    /// The parameters, whose slots are the first [`Params::count`] of them.
+    pub params: Params,
     /// Every slot, indexed by [`Local`].
     pub slots: Vec<Slot>,
     pub block: Block,
+    /// The functions defined in this body, indexed by [`FuncId`].
+    ///
+    /// Nested rather than flat, because a function is defined by exactly one
+    /// `def` in exactly one body and putting it anywhere else would only make
+    /// that relationship something to look up.
+    pub functions: Vec<Body>,
 }
 
 impl Body {
@@ -240,6 +288,23 @@ pub enum Expr {
         before: u32,
         star: bool,
         after: u32,
+    },
+    /// The value a `def` or a `lambda` produces, before anything binds it.
+    ///
+    /// The code is [`Body::functions`] at `id` rather than sitting inline,
+    /// because a body is not an expression and nothing walking expressions
+    /// should have to step over one.
+    ///
+    /// The defaults are here rather than in the body because a default is
+    /// evaluated once, where the `def` is written and in the frame the `def`
+    /// runs in. `kw_defaults` is parallel to the keyword-only parameters and
+    /// holds a hole where one of them has no default, which is the same shape
+    /// the tree uses and is the only way to keep them lined up with the
+    /// parameters they belong to.
+    Function {
+        id: FuncId,
+        defaults: Vec<Expr>,
+        kw_defaults: Vec<Option<Expr>>,
     },
 }
 

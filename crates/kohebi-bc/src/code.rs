@@ -24,6 +24,9 @@
 //! and a byte-oriented encoding come with the tier zero interpreter, and the
 //! `dis` compatible view is synthesized from the HIR rather than from here.
 
+use std::rc::Rc;
+
+use kohebi_hir::hir::Params;
 use kohebi_parse::Value;
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 
@@ -40,9 +43,13 @@ pub struct Reg(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConstId(pub u32);
 
-/// An index into [`Code::names`].
+/// An index into [`Module::names`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NameId(pub u32);
+
+/// An index into [`Code::functions`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FuncId(pub u32);
 
 /// An instruction index, which is what every jump carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -83,16 +90,48 @@ pub type Keyword = (Option<NameId>, Reg);
 /// One entry of a dict display. `None` for the key is a `**` spread.
 pub type Entry = (Option<Reg>, Reg);
 
-/// A compiled body.
+/// One compiled module: its body, and the names every body in it mentions.
+///
+/// The name table is here rather than on [`Code`] because a global has to be
+/// the same slot wherever it is read from. A function reading `total` and the
+/// module body writing it are the same name in the same namespace, and a table
+/// per body would make them two indices with no relation, so the interpreter
+/// would be back to hashing a string on every global access.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Module {
+    /// Every name any body mentions: globals, attributes and keyword arguments
+    /// alike. One table, because there is nothing to gain from three.
+    pub names: Vec<Box<str>>,
+    /// Shared for the same reason a function's code is: something that wants to
+    /// hold on to a body past the call that ran it should not have to copy it.
+    pub body: Rc<Code>,
+}
+
+impl Module {
+    /// What a name index refers to.
+    #[must_use]
+    pub fn name_at(&self, id: NameId) -> &str {
+        &self.names[id.0 as usize]
+    }
+}
+
+/// A compiled body: a module's, or a function's.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Code {
     /// What the frame is called in a traceback.
     pub name: Box<str>,
+    /// The parameters, whose registers are the first [`Params::count`] of them.
+    pub params: Params,
     /// How many registers a frame needs, which is the slots plus the deepest
     /// the compiler ever went for nested expressions.
     pub registers: u32,
+    /// What each register is called, empty for a scratch one or a temporary.
+    ///
+    /// Read on two paths only: naming a parameter a call could not fill, and
+    /// naming the local in an `UnboundLocalError`. Both of those are error
+    /// paths, so this costs a module nothing to carry.
+    pub locals: Vec<Box<str>>,
     pub consts: Vec<Value>,
-    pub names: Vec<Box<str>>,
     pub instrs: Vec<Instr>,
     /// Argument lists and container elements, indexed by [`Span`].
     pub regs: Vec<Reg>,
@@ -100,6 +139,15 @@ pub struct Code {
     pub keywords: Vec<Keyword>,
     /// Dict display entries, indexed by [`Span`].
     pub entries: Vec<Entry>,
+    /// Keyword-only defaults, indexed by [`Span`], with a hole where a
+    /// keyword-only parameter has no default.
+    pub optional: Vec<Option<Reg>>,
+    /// The functions defined in this body, indexed by [`FuncId`].
+    ///
+    /// Shared rather than owned, because [`Instr::MakeFunction`] hands one to a
+    /// function object that outlives the frame that built it, and because a
+    /// `def` in a loop builds a new function every turn out of the same code.
+    pub functions: Vec<Rc<Code>>,
 }
 
 impl Code {
@@ -109,16 +157,16 @@ impl Code {
         &self.regs[span.range()]
     }
 
-    /// What a name index refers to.
-    #[must_use]
-    pub fn name_at(&self, id: NameId) -> &str {
-        &self.names[id.0 as usize]
-    }
-
     /// What a constant index refers to.
     #[must_use]
     pub fn const_at(&self, id: ConstId) -> &Value {
         &self.consts[id.0 as usize]
+    }
+
+    /// What a register is called, or an empty string for one no name refers to.
+    #[must_use]
+    pub fn local_at(&self, reg: Reg) -> &str {
+        self.locals.get(reg.0 as usize).map_or("", |name| name)
     }
 }
 
@@ -230,6 +278,22 @@ pub enum Instr {
         callee: Reg,
         args: Span,
         keywords: Span,
+    },
+    /// Build the function a `def` or a `lambda` binds.
+    ///
+    /// The defaults are registers rather than constants because a default is an
+    /// arbitrary expression evaluated here, once, in this frame. That is why
+    /// this is an instruction at all rather than something the code could carry:
+    /// `def f(x=[])` builds one list, and a `def` inside a loop builds a fresh
+    /// function with fresh defaults every turn.
+    MakeFunction {
+        dst: Reg,
+        func: FuncId,
+        /// Defaults for the trailing positional parameters, into [`Code::regs`].
+        defaults: Span,
+        /// Defaults for the keyword-only ones, into [`Code::optional`], one
+        /// entry per keyword-only parameter and a hole where there is none.
+        kw_defaults: Span,
     },
     BuildTuple {
         dst: Reg,

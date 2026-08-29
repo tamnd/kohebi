@@ -18,26 +18,60 @@
 //! then `i`. That is CPython's order and it is observable through properties and
 //! `__setitem__`, so it is written into the walk rather than left to chance.
 
-use kohebi_hir::hir::{Block, Body, Expr, Local, Place, Stmt};
+use std::rc::Rc;
+
+use kohebi_hir::hir::{Block, Body, Expr, Local, Place, Slot, Stmt};
 use kohebi_parse::Value;
 
-use crate::code::{Code, ConstId, Entry, Instr, Keyword, NameId, Offset, Reg, Span};
+use crate::code::{
+    Code, ConstId, Entry, FuncId, Instr, Keyword, Module, NameId, Offset, Reg, Span,
+};
 
-/// Compile a lowered body.
+/// Compile a lowered module.
 #[must_use]
-pub fn compile(body: &Body) -> Code {
+pub fn compile(body: &Body) -> Module {
+    // One name table for the whole module, so that a global is the same index
+    // wherever it is read from. See [`Module`].
+    let mut names = Vec::new();
+    let code = compile_body(body, &mut names);
+    Module {
+        names,
+        body: Rc::new(code),
+    }
+}
+
+/// Compile one body, and everything defined inside it.
+fn compile_body(body: &Body, names: &mut Vec<Box<str>>) -> Code {
     let slots = u32::try_from(body.slots.len()).unwrap_or(u32::MAX);
     let mut compiler = Compiler {
         code: Code {
             name: body.name.clone(),
+            params: body.params,
             registers: slots,
+            locals: body
+                .slots
+                .iter()
+                .map(|slot| match slot {
+                    Slot::Named(name) => name.clone(),
+                    Slot::Temp(_) => Box::from(""),
+                })
+                .collect(),
             consts: Vec::new(),
-            names: Vec::new(),
             instrs: Vec::new(),
             regs: Vec::new(),
             keywords: Vec::new(),
             entries: Vec::new(),
+            optional: Vec::new(),
+            // Compiled before the body, because the body refers to them by
+            // index and a `def` is not allowed to be a forward reference to
+            // something that does not exist yet.
+            functions: body
+                .functions
+                .iter()
+                .map(|func| Rc::new(compile_body(func, names)))
+                .collect(),
         },
+        names,
         scratch: slots,
         high_water: slots,
         loops: Vec::new(),
@@ -65,8 +99,10 @@ struct LoopContext {
     breaks: Vec<usize>,
 }
 
-struct Compiler {
+struct Compiler<'a> {
     code: Code,
+    /// The module's name table, shared with every other body in it.
+    names: &'a mut Vec<Box<str>>,
     /// The next scratch register to hand out.
     scratch: u32,
     /// The most registers ever in use at once, which is what a frame needs.
@@ -74,7 +110,7 @@ struct Compiler {
     loops: Vec<LoopContext>,
 }
 
-impl Compiler {
+impl Compiler<'_> {
     fn emit(&mut self, instr: Instr) -> usize {
         self.code.instrs.push(instr);
         self.code.instrs.len() - 1
@@ -119,10 +155,10 @@ impl Compiler {
     }
 
     fn name(&mut self, name: &str) -> NameId {
-        let found = self.code.names.iter().position(|held| &**held == name);
+        let found = self.names.iter().position(|held| &**held == name);
         let index = found.unwrap_or_else(|| {
-            self.code.names.push(name.into());
-            self.code.names.len() - 1
+            self.names.push(name.into());
+            self.names.len() - 1
         });
         NameId(u32::try_from(index).unwrap_or(u32::MAX))
     }
@@ -456,6 +492,20 @@ impl Compiler {
                 let src = self.operand(value);
                 self.emit(Instr::Exhausted { dst, src });
             }
+            Expr::Function {
+                id,
+                defaults,
+                kw_defaults,
+            } => {
+                let defaults = self.operands(defaults);
+                let kw_defaults = self.kw_default_operands(kw_defaults);
+                self.emit(Instr::MakeFunction {
+                    dst,
+                    func: FuncId(id.0),
+                    defaults,
+                    kw_defaults,
+                });
+            }
             Expr::Unpack {
                 value,
                 before,
@@ -485,6 +535,19 @@ impl Compiler {
         let start = u32::try_from(self.code.keywords.len()).unwrap_or(u32::MAX);
         let len = u32::try_from(built.len()).unwrap_or(u32::MAX);
         self.code.keywords.extend(built);
+        Span { start, len }
+    }
+
+    /// The keyword-only defaults, keeping the holes where there are none, so
+    /// that the entries stay lined up with the parameters they belong to.
+    fn kw_default_operands(&mut self, defaults: &[Option<Expr>]) -> Span {
+        let mut built: Vec<Option<Reg>> = Vec::with_capacity(defaults.len());
+        for value in defaults {
+            built.push(value.as_ref().map(|value| self.operand(value)));
+        }
+        let start = u32::try_from(self.code.optional.len()).unwrap_or(u32::MAX);
+        let len = u32::try_from(built.len()).unwrap_or(u32::MAX);
+        self.code.optional.extend(built);
         Span { start, len }
     }
 
