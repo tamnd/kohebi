@@ -9,7 +9,7 @@ is 1.1 million answers and not something to hand-write or to guess at.
 Run this against the CPython whose output we are matching, and check the result
 in. Re-run it when we move to a Python built on a newer Unicode.
 
-    python3 tools/gen-printable.py > crates/kohebi-parse/src/printable.rs
+    python3 tools/gen-printable.py > crates/kohebi-core/src/printable.rs
     cargo fmt
 """
 

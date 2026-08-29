@@ -25,7 +25,6 @@ pub mod error;
 pub mod lexer;
 pub mod literal;
 pub mod parser;
-pub mod printable;
 pub mod source;
 pub mod suggest;
 pub mod token;
