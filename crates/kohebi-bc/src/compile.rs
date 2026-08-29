@@ -456,6 +456,21 @@ impl Compiler {
                 let src = self.operand(value);
                 self.emit(Instr::Exhausted { dst, src });
             }
+            Expr::Unpack {
+                value,
+                before,
+                star,
+                after,
+            } => {
+                let src = self.operand(value);
+                self.emit(Instr::Unpack {
+                    dst,
+                    src,
+                    before: *before,
+                    star: *star,
+                    after: *after,
+                });
+            }
         }
         self.scratch = mark;
     }

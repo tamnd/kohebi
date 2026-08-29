@@ -15,10 +15,11 @@
 //! and missing something that did is a wrong answer.
 //!
 //! What is not lowered yet answers with [`Unsupported`] rather than a wrong
-//! tree. Functions, classes, comprehensions, `with`, `try`, `match`, imports and
-//! unpacking are all on that list today. The list is the honest statement of
-//! where this crate is, and it shrinks a milestone item at a time.
+//! tree. Functions, classes, comprehensions, `with`, `try`, `match` and imports
+//! are all on that list today. The list is the honest statement of where this
+//! crate is, and it shrinks a milestone item at a time.
 
+use kohebi_parse::Int;
 use kohebi_parse::ast::{
     BoolOp, CmpOp, Expr as AExpr, ExprKind, Mod, Stmt as AStmt, StmtKind, UnaryOp,
 };
@@ -316,11 +317,75 @@ impl Lower {
         let pinning = targets.len() > 1 || targets.iter().any(branches);
         let value = if pinning { self.pin(out, value) } else { value };
         for target in targets {
-            let place = self.lower_place(target, Reuse::Once, out)?;
-            out.push(Stmt::Store {
-                place,
-                value: value.clone(),
+            self.lower_target(target, value.clone(), out)?;
+        }
+        Ok(())
+    }
+
+    /// Bind one target to one value, taking the target apart if it is several.
+    ///
+    /// A plain name, attribute or item is a store and nothing more. A tuple or
+    /// a list on the left is an unpacking, which is the value laid out as a
+    /// list of the right length and then one of these again per element, so a
+    /// nested target costs a line of recursion rather than a second mechanism.
+    /// `for a, b in pairs` goes through here too, because a `for` target is the
+    /// left hand side of an assignment that happens once a turn.
+    fn lower_target(&mut self, target: &AExpr, value: Expr, out: &mut Block) -> Result<()> {
+        let line = target.attrs.lineno;
+        let elts = match &target.kind {
+            ExprKind::Tuple { elts, .. } | ExprKind::List { elts, .. } => elts,
+            ExprKind::Starred { .. } => {
+                // Reached only when a star is not inside a tuple or a list, as
+                // in `*a = [1]`. CPython calls that a syntax error rather than
+                // running it, and saying so here is closer than unpacking it.
+                return Err(Unsupported {
+                    what: "a starred assignment target",
+                    line,
+                });
+            }
+            _ => {
+                let place = self.lower_place(target, Reuse::Once, out)?;
+                out.push(Stmt::Store { place, value });
+                return Ok(());
+            }
+        };
+
+        let starred = |elt: &AExpr| matches!(elt.kind, ExprKind::Starred { .. });
+        let star = elts.iter().position(starred);
+        if elts.iter().filter(|elt| starred(elt)).count() > 1 {
+            return Err(Unsupported {
+                what: "more than one starred target in one assignment",
+                line,
             });
+        }
+        let before = star.unwrap_or(elts.len());
+        let after = star.map_or(0, |at| elts.len() - at - 1);
+        let laid_out = self.pin(
+            out,
+            Expr::Unpack {
+                value: value.boxed(),
+                before: u32::try_from(before).unwrap_or(u32::MAX),
+                star: star.is_some(),
+                after: u32::try_from(after).unwrap_or(u32::MAX),
+            },
+        );
+
+        for (at, elt) in elts.iter().enumerate() {
+            // The star binds the list that the unpacking already built for it,
+            // so what is stored is the element itself rather than anything
+            // gathered here.
+            let elt = match &elt.kind {
+                ExprKind::Starred { value, .. } => value,
+                _ => elt,
+            };
+            let item = Expr::Item {
+                object: laid_out.clone().boxed(),
+                index: Expr::Const(kohebi_parse::Value::Int(Int::from_i64(
+                    i64::try_from(at).unwrap_or(i64::MAX),
+                )))
+                .boxed(),
+            };
+            self.lower_target(elt, item, out)?;
         }
         Ok(())
     }
@@ -350,11 +415,7 @@ impl Lower {
         let test = Expr::Not(Expr::Exhausted(Expr::Local(step).boxed()).boxed());
 
         let mut inner = Block::new();
-        let place = self.lower_place(target, Reuse::Once, &mut inner)?;
-        inner.push(Stmt::Store {
-            place,
-            value: Expr::Local(step),
-        });
+        self.lower_target(target, Expr::Local(step), &mut inner)?;
         for stmt in body {
             self.lower_stmt(stmt, &mut inner)?;
         }

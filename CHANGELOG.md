@@ -6,6 +6,10 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+Unpacking assignment, so `a, b = b, a` swaps, `a, *rest = xs` splits a container into a head and a tail, and `for key, value in pairs` walks a dict's items the way most Python does. A target nested inside another target works too, because the whole thing is one idea rather than a special case per shape: the right hand side is laid out once as a list of exactly the length the targets want, and then every target is an ordinary store reading a constant index out of that list. So `a, (b, c) = x` is that same layout twice, and a target twelve levels deep costs a line of recursion instead of a second mechanism.
+
+Laying the value out before anything is bound is what makes the swap a swap. It is also the only way to know whether there were too many values, since an iterator does not say how long it is and being one past the end is the answer to asking for one more element and being given one. That is why the walk asks for one more than the fixed targets need, and why the count in `too many values to unpack (expected 2, got 5)` is the real length of the value rather than where the walk stopped. All seven failure messages are CPython's word for word, including the "got N" part that only 3.12 and later print, and including `cannot unpack non-iterable NoneType object` for a right hand side that was never a container in the first place. Eleven working cases and every one of those failures were checked against a running 3.14 before the code was written.
+
 ## 0.0.14
 
 Five merged pull requests since 0.0.13 and the first release where `kohebi run` runs a Python program. Assignment, arithmetic, comparison, the boolean operators, `if`, `while`, `for`, the four container displays, subscripting, slicing, `print`, `len`, `iter`, `next` and `range`, and for a program built out of those the output is byte for byte what CPython 3.14 prints. Functions, classes, attributes, imports and `raise` are next, and a program that needs one of them stops on a `NotImplementedError` that names it rather than getting an answer nobody checked.

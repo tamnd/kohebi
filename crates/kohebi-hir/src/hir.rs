@@ -75,8 +75,9 @@ pub type Block = Vec<Stmt>;
 /// Where a value can be put.
 ///
 /// Deliberately smaller than the set of expressions that can appear on the left
-/// of an `=`. A tuple target is unpacked by lowering into one of these each, and
-/// a starred one is not here at all yet.
+/// of an `=`. A tuple target becomes one of these per element, and a starred one
+/// becomes one holding the list that [`Expr::Unpack`] gathered for it, so the
+/// shape of the left hand side is a lowering question and not a question here.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Place {
     Local(Local),
@@ -222,6 +223,24 @@ pub enum Expr {
     Next(Box<Expr>),
     /// Whether [`Expr::Next`] returned the sentinel.
     Exhausted(Box<Expr>),
+    /// The value side of `a, b = x` and of `a, *b, c = x`.
+    ///
+    /// Gives back a list of exactly `before + after` elements, or of
+    /// `before + 1 + after` when there is a star, with the starred element
+    /// holding a list of everything the fixed targets did not claim. Only the
+    /// counts are here because only the counts decide what the value has to
+    /// look like, and the arity failure is the same failure whatever the
+    /// targets are named.
+    ///
+    /// Each target is then an ordinary store reading a constant index out of
+    /// that list, which is what makes a nested target no different from a top
+    /// level one: `a, (b, c) = x` is this node twice.
+    Unpack {
+        value: Box<Expr>,
+        before: u32,
+        star: bool,
+        after: u32,
+    },
 }
 
 impl Expr {

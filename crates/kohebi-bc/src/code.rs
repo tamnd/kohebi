@@ -273,6 +273,21 @@ pub enum Instr {
         dst: Reg,
         src: Reg,
     },
+    /// Lay a value out as a list of exactly the length an unpacking target
+    /// wants, so that the targets themselves are ordinary indexed reads.
+    ///
+    /// `before` and `after` are how many fixed targets sit on each side of a
+    /// `*name`, and `star` is whether there is one. Without a star the list is
+    /// `before` long. With one it is `before + 1 + after`, and the element in
+    /// the middle is a list of everything the fixed targets did not claim,
+    /// which is what `a, *rest = x` binds to `rest`.
+    Unpack {
+        dst: Reg,
+        src: Reg,
+        before: u32,
+        star: bool,
+        after: u32,
+    },
 
     Jump {
         to: Offset,

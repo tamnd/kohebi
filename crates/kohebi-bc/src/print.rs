@@ -203,6 +203,20 @@ fn parts(code: &Code, instr: &Instr) -> (&'static str, String) {
         Instr::GetIter { dst, src } => ("iter", format!("{}, {}", reg(*dst), reg(*src))),
         Instr::Next { dst, iter } => ("next", format!("{}, {}", reg(*dst), reg(*iter))),
         Instr::Exhausted { dst, src } => ("exhausted", format!("{}, {}", reg(*dst), reg(*src))),
+        Instr::Unpack {
+            dst,
+            src,
+            before,
+            star,
+            after,
+        } => {
+            let shape = if *star {
+                format!("{before}, *, {after}")
+            } else {
+                before.to_string()
+            };
+            ("unpack", format!("{}, {}, {shape}", reg(*dst), reg(*src)))
+        }
         Instr::Jump { to } => ("jump", to.0.to_string()),
         Instr::JumpIfFalse { test, to } => ("jumpf", format!("{}, {}", reg(*test), to.0)),
         Instr::JumpIfTrue { test, to } => ("jumpt", format!("{}, {}", reg(*test), to.0)),
