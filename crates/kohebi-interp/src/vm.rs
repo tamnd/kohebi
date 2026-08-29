@@ -23,6 +23,16 @@
 //! There is one namespace because there is one module. Imports bring the
 //! second one and the map from module name to namespace with it.
 //!
+//! While a body runs its globals are a vector of slots rather than a map, one
+//! slot per name in that body's name table. Every name at module scope is a
+//! global, so a module that does anything in a loop reads and writes globals in
+//! that loop, and through a map each of those costs a string hash, a probe, a
+//! `memcmp` and, on a write, a fresh allocation for a key that was already
+//! there. The compiler has already interned every name into a dense table, so
+//! the interpreter indexes that table and none of it happens. The map is what
+//! holds the namespace between bodies, since the name table belongs to one body
+//! and the namespace does not.
+//!
 //! ## What is not implemented
 //!
 //! Attributes, subscripting, slicing, iteration and `raise`. Each of those
@@ -35,7 +45,7 @@ use std::fmt;
 use std::io::{self, Write};
 use std::rc::Rc;
 
-use kohebi_bc::code::{Code, Instr, Reg, Span};
+use kohebi_bc::code::{Code, Instr, NameId, Reg, Span};
 use kohebi_core::dict::{Dict, Set};
 use kohebi_core::{Error, Kind, Object, Result, ops};
 use kohebi_parse::Value;
@@ -93,6 +103,16 @@ impl Vm {
     ///
     /// Whatever the program raises, which for a module body is the exception
     /// that reached the top without being caught.
+    pub fn run(&mut self, code: &Code) -> Result<Object> {
+        let mut globals = Globals::open(&code.names, &mut self.globals);
+        let outcome = self.execute(code, &mut globals);
+        // Whatever the body bound goes back into the namespace even when it
+        // raised, because a program that fails halfway has still run the half
+        // before the failure and the next body has to see it.
+        globals.close(&mut self.globals);
+        outcome
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "an instruction dispatch is one arm per instruction and there \
@@ -101,7 +121,7 @@ impl Vm {
                   and the work in another, which is harder to read rather than \
                   easier and is not how any interpreter worth copying is written"
     )]
-    pub fn run(&mut self, code: &Code) -> Result<Object> {
+    fn execute(&mut self, code: &Code, globals: &mut Globals<'_>) -> Result<Object> {
         let consts = constants(code);
         let mut frame = Frame::new(code.registers);
 
@@ -118,26 +138,27 @@ impl Vm {
                 }
 
                 Instr::LoadGlobal { dst, name } => {
-                    let name = code.name_at(name);
-                    let value = self
-                        .globals
-                        .get(name)
-                        .or_else(|| self.builtins.get(name))
-                        .ok_or_else(|| undefined(name))?
-                        .clone();
+                    // A hit is an index. Only a miss pays for the name, and a
+                    // miss at module scope is a builtin or a `NameError`.
+                    let value = if let Some(value) = globals.get(name) {
+                        value.clone()
+                    } else {
+                        let name = globals.name(name);
+                        let found = self.builtins.get(name);
+                        found.ok_or_else(|| undefined(name))?.clone()
+                    };
                     frame.set(dst, value);
                 }
                 Instr::StoreGlobal { name, src } => {
                     let value = frame.get(src)?.clone();
-                    self.globals.insert(Box::from(code.name_at(name)), value);
+                    globals.set(name, value);
                 }
                 Instr::DeleteGlobal { name } => {
-                    let name = code.name_at(name);
                     // Builtins are not deleted by `del`, which is why this only
                     // looks at the globals: `del print` before anything has
                     // shadowed it is a `NameError`.
-                    if self.globals.remove(name).is_none() {
-                        return Err(undefined(name));
+                    if globals.take(name).is_none() {
+                        return Err(undefined(globals.name(name)));
                     }
                 }
                 Instr::DeleteLocal { reg } => {
@@ -305,6 +326,56 @@ impl Vm {
             }
         }
         builtin.call(self, Args::new(positional, named))
+    }
+}
+
+/// The module namespace for as long as one body is running.
+///
+/// One slot per name in that body's table, so reading or writing a global is an
+/// index rather than a hash, a probe and a `memcmp`. A body that never mentions
+/// a name has no slot for it, which is why the namespace it came from keeps
+/// whatever this body does not name.
+struct Globals<'a> {
+    names: &'a [Box<str>],
+    slots: Vec<Option<Object>>,
+}
+
+impl<'a> Globals<'a> {
+    /// Take the names this body uses out of a namespace and lay them out.
+    fn open(names: &'a [Box<str>], from: &mut Names) -> Self {
+        let slots = names.iter().map(|name| from.remove(&**name)).collect();
+        Globals { names, slots }
+    }
+
+    /// Put them back, so the next body sees what this one bound.
+    ///
+    /// A name the body deleted is left out rather than written back as an empty
+    /// slot, which is what makes `del x` in one body a `NameError` in the next.
+    fn close(self, into: &mut Names) {
+        for (name, value) in self.names.iter().zip(self.slots) {
+            if let Some(value) = value {
+                into.insert(name.clone(), value);
+            }
+        }
+    }
+
+    fn get(&self, name: NameId) -> Option<&Object> {
+        self.slots.get(name.0 as usize)?.as_ref()
+    }
+
+    fn set(&mut self, name: NameId, value: Object) {
+        if let Some(slot) = self.slots.get_mut(name.0 as usize) {
+            *slot = Some(value);
+        }
+    }
+
+    /// Unbind a name and give back what it held, or `None` if it held nothing.
+    fn take(&mut self, name: NameId) -> Option<Object> {
+        self.slots.get_mut(name.0 as usize)?.take()
+    }
+
+    fn name(&self, name: NameId) -> &str {
+        &self.names[name.0 as usize]
     }
 }
 
