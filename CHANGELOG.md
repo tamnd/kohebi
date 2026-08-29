@@ -2,9 +2,15 @@
 
 Patch release every few merged PRs, so there is always a recent tag to bisect from and a built binary to hand someone. A `0.x.0` when a milestone finishes.
 
-Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for it.
+`kohebi run` runs a program now, as long as the program stays inside what the lowering and the interpreter cover. `kohebi build` is still a stub. What exists is the workspace, the CI, the design docs, the experiments the design rests on, a frontend that reads a file and builds the tree CPython builds for it, and a tier zero interpreter that executes the bytecode compiled from it.
 
 ## Unreleased
+
+The interpreter, which is the first thing in this repository that runs a Python program. `kohebi run` reads a file, parses it, lowers it, compiles it to register bytecode and executes it, and for a program built out of assignment, arithmetic, comparison, the boolean operators, `if`, `while`, the four container displays and `print`, the output is byte for byte what CPython 3.14 prints. It is tier zero and it is meant to stay slow: no quickening, no inline caches, no assumption about what a register held last time. A tiered runtime needs one implementation nobody is optimizing, because when tier one and tier zero disagree the question is which of the two is wrong, and that question only has an answer if one of them is simple enough to read.
+
+What the interpreter does not do yet says so rather than guessing. Attributes, subscripting, slicing, iteration and `raise` each raise a `NotImplementedError` naming themselves, so a program that needs one stops on it instead of getting an answer nobody checked. The same goes for the pieces of an operator that depend on those: `list += list` and `list += tuple` are done in place and visible through every other name bound to the same list, which is what Python promises, and `list += str` reports that walking a string needs the iteration protocol rather than quietly doing something close.
+
+An escape hatch for values this object model does not know the shape of. A program needs objects that are not data, the function `print` is bound to being the first of them, and none of those can be built in `kohebi-core`: there are no classes yet, and the types the runtime needs depend on the runtime rather than on the object model, since `print` has to know where the output goes. Growing an `Object` variant for each would put all of those decisions in the wrong crate and is the sort of thing that is easy to add and hard to take back out. So there is one variant, the layer above defines the type, and this crate asks it the same handful of questions it asks any other value. Identity, equality and hashing for one are the address and are deliberately not overridable, which is what CPython says for a function too and which is what puts one in a dict and finds it again.
 
 ## 0.0.13
 

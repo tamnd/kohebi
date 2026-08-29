@@ -88,6 +88,13 @@ pub fn hash(object: &Object) -> Result<i64, Unhashable> {
         Object::Str(value) => Ok(text(value)),
         Object::Bytes(value) => Ok(blob(value)),
         Object::Tuple(items) => tuple(items),
+        // A native value has no `__hash__` to run, and the default one in
+        // CPython is derived from the address. So is this, and it is worth no
+        // more than CPython's is: it differs between runs and nothing may
+        // depend on it. What it owes us is that the same object hashes the same
+        // way twice, which is what puts a builtin function in a dict and finds
+        // it again.
+        Object::Native(value) => Ok(address(std::ptr::from_ref(value.as_ref()).cast::<()>())),
         // Everything that can change is out, because a key that could change
         // could move out from under the slot it was filed in. A `frozenset`
         // is the way Python gives you a hashable one, and there is not one
@@ -96,6 +103,14 @@ pub fn hash(object: &Object) -> Result<i64, Unhashable> {
             type_name: object.type_name(),
         }),
     }
+}
+
+/// CPython's `_Py_HashPointer`, which rotates the address right by four so that
+/// the alignment bits every heap pointer shares stop landing in the low bits a
+/// dict indexes on.
+fn address(pointer: *const ()) -> i64 {
+    let rotated = pointer.addr().rotate_right(4);
+    settle(rotated.cast_signed() as i64)
 }
 
 /// An integer's value modulo 2^61-1, with the sign put back on afterwards.

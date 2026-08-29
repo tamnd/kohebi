@@ -391,8 +391,8 @@ pub fn contains(container: &Object, value: &Object) -> Result<Object> {
         },
         Object::Tuple(items) => items.iter().any(|item| item.same_value(value)),
         Object::List(items) => items.borrow().iter().any(|item| item.same_value(value)),
-        Object::Dict(entries) => entries.borrow().contains(&as_key(value, "dict key")?),
-        Object::Set(members) => members.borrow().contains(&as_key(value, "set element")?),
+        Object::Dict(entries) => entries.borrow().contains(&key(value, "dict key")?),
+        Object::Set(members) => members.borrow().contains(&key(value, "set element")?),
         other => {
             return Err(Error::type_error(format!(
                 "argument of type '{}' is not a container or iterable",
@@ -755,7 +755,14 @@ fn subslice<T: PartialEq>(haystack: &[T], needle: &[T]) -> bool {
 
 /// This value as a hashable key, or the exception a lookup raises when it
 /// cannot be one.
-fn as_key(value: &Object, role: &str) -> Result<Key> {
+///
+/// `role` is what the value was being used as, which 3.14 puts in front of the
+/// old `unhashable type` message: a `set element`, a `dict key`.
+///
+/// # Errors
+///
+/// A list, a dict, a set, or a tuple containing one of those.
+pub fn key(value: &Object, role: &str) -> Result<Key> {
     Key::new(value.clone()).map_err(|unhashable| {
         Error::type_error(format!(
             "cannot use '{}' as a {role} ({})",

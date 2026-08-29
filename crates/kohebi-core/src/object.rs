@@ -33,6 +33,7 @@ use crate::dict::{Dict, Set};
 use crate::float::{DotZero, float_repr};
 use crate::hash::int_eq_float;
 use crate::int::Int;
+use crate::native::Native;
 use crate::text::{Str, bytes_repr};
 
 /// A Python value.
@@ -64,6 +65,10 @@ pub enum Object {
     Dict(Rc<RefCell<Dict>>),
     /// A `set`, which does not.
     Set(Rc<RefCell<Set>>),
+    /// A value whose type is defined above this crate, which is how the runtime
+    /// gets functions, iterators and exceptions without this crate having to
+    /// know what any of those are. See [`Native`].
+    Native(Rc<dyn Native>),
 }
 
 impl Object {
@@ -103,6 +108,25 @@ impl Object {
         Object::Set(Rc::new(RefCell::new(members)))
     }
 
+    /// A value of a type defined above this crate.
+    #[must_use]
+    pub fn native(value: impl Native + 'static) -> Self {
+        Object::Native(Rc::new(value))
+    }
+
+    /// The native value inside this object, if that is what it is and if it is
+    /// the type asked for.
+    ///
+    /// This is the downcast the runtime uses to find out whether the thing in a
+    /// register is the kind of object it can call or step.
+    #[must_use]
+    pub fn downcast<T: Native + 'static>(&self) -> Option<&T> {
+        match self {
+            Object::Native(value) => value.as_any().downcast_ref::<T>(),
+            _ => None,
+        }
+    }
+
     /// What `type(x).__name__` says, which is what every error message needs.
     #[must_use]
     pub fn type_name(&self) -> &'static str {
@@ -119,6 +143,7 @@ impl Object {
             Object::List(_) => "list",
             Object::Dict(_) => "dict",
             Object::Set(_) => "set",
+            Object::Native(value) => value.type_name(),
         }
     }
 
@@ -141,6 +166,7 @@ impl Object {
             Object::List(items) => !items.borrow().is_empty(),
             Object::Dict(entries) => !entries.borrow().is_empty(),
             Object::Set(members) => !members.borrow().is_empty(),
+            Object::Native(value) => value.truthy(),
             // `Ellipsis` and `NotImplemented` are objects with no `__bool__`
             // and no `__len__`, which makes them true.
             Object::NotImplemented | Object::Ellipsis => true,
@@ -177,6 +203,11 @@ impl Object {
             (Object::List(a), Object::List(b)) => Rc::ptr_eq(a, b),
             (Object::Dict(a), Object::Dict(b)) => Rc::ptr_eq(a, b),
             (Object::Set(a), Object::Set(b)) => Rc::ptr_eq(a, b),
+            // The address alone, because two `Rc<dyn Native>` to one object can
+            // carry two vtable pointers and `Rc::ptr_eq` would compare those too.
+            (Object::Native(a), Object::Native(b)) => {
+                std::ptr::addr_eq(Rc::as_ptr(a), Rc::as_ptr(b))
+            }
             _ => false,
         }
     }
@@ -210,6 +241,9 @@ impl Object {
                 Rc::ptr_eq(a, b) || a.borrow().equals(&b.borrow())
             }
             (Object::Set(a), Object::Set(b)) => Rc::ptr_eq(a, b) || a.borrow().equals(&b.borrow()),
+            // A native value has no `__eq__` to run, and an object without one
+            // is equal to itself and to nothing else.
+            (Object::Native(_), Object::Native(_)) => self.is(other),
             _ => match (self.as_number(), other.as_number()) {
                 (Some(a), Some(b)) => a.equals(&b),
                 _ => false,
@@ -326,6 +360,9 @@ impl Object {
                 let parts: Vec<_> = members.iter().map(|value| value.object().repr()).collect();
                 format!("{{{}}}", parts.join(", "))
             }
+            // No trail: a native value cannot hold an `Object`, since this crate
+            // is the one that would have to lend it the type to hold.
+            Object::Native(value) => value.repr(),
         }
     }
 }
@@ -637,5 +674,71 @@ mod tests {
     fn a_list_compared_against_itself_does_not_borrow_it_twice() {
         let value = Object::list(vec![Object::int(1)]);
         assert!(value.equals(&value.clone()));
+    }
+
+    /// A stand-in for whatever the runtime defines, which is enough to check
+    /// that this crate asks it the questions and does not answer them itself.
+    #[derive(Debug)]
+    struct Thing(&'static str);
+
+    impl crate::native::Native for Thing {
+        fn type_name(&self) -> &'static str {
+            "thing"
+        }
+
+        fn repr(&self) -> String {
+            format!("<thing {}>", self.0)
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    #[test]
+    fn a_native_value_answers_for_itself() {
+        let value = Object::native(Thing("a"));
+        assert_eq!(value.type_name(), "thing");
+        assert_eq!(value.repr(), "<thing a>");
+        assert_eq!(value.display(), "<thing a>");
+        // The default truth, which is what an object with no `__bool__` and no
+        // `__len__` has.
+        assert!(value.truthy());
+        assert_eq!(value.downcast::<Thing>().map(|thing| thing.0), Some("a"));
+    }
+
+    /// Identity and equality are both the address, so two natives spelled the
+    /// same are two objects and neither `is` nor `==` says otherwise.
+    #[test]
+    fn a_native_value_is_equal_to_itself_and_to_nothing_else() {
+        let value = Object::native(Thing("a"));
+        assert!(value.is(&value.clone()));
+        assert!(value.equals(&value.clone()));
+        assert!(!value.is(&Object::native(Thing("a"))));
+        assert!(!value.equals(&Object::native(Thing("a"))));
+        assert!(!value.equals(&Object::int(1)));
+        // A container holding it compares by the same rule the whole way down.
+        let held = Object::list(vec![value.clone()]);
+        assert!(held.equals(&Object::list(vec![value])));
+    }
+
+    /// A native value is hashable, which is what puts a function in a dict, and
+    /// its hash comes from the address rather than from anything about it.
+    #[test]
+    fn a_native_value_can_be_a_key() {
+        let value = Object::native(Thing("a"));
+        let key = Key::new(value.clone()).expect("expected this to be hashable");
+        let same = Key::new(value).expect("expected this to be hashable");
+        assert_eq!(
+            crate::hash::hash(key.object()),
+            crate::hash::hash(same.object())
+        );
+
+        let mut dict = Dict::new();
+        dict.insert(key, Object::int(1));
+        assert_eq!(dict.get(&same).map(Object::repr), Some("1".to_owned()));
+        // A different object of the same type is a different key.
+        let other = Key::new(Object::native(Thing("a"))).expect("expected this to be hashable");
+        assert!(!dict.contains(&other));
     }
 }

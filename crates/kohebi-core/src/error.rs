@@ -26,12 +26,19 @@ pub enum Kind {
     OverflowError,
     MemoryError,
     NameError,
+    /// A slot read before anything was put in it, which is a `NameError` in
+    /// CPython's hierarchy and has to be its own arm here because there is no
+    /// hierarchy yet.
+    UnboundLocalError,
     AttributeError,
     IndexError,
     KeyError,
     StopIteration,
     RecursionError,
     NotImplementedError,
+    /// The operating system said no, which for now only happens on the way to
+    /// standard output.
+    OSError,
 }
 
 impl Kind {
@@ -45,12 +52,14 @@ impl Kind {
             Kind::OverflowError => "OverflowError",
             Kind::MemoryError => "MemoryError",
             Kind::NameError => "NameError",
+            Kind::UnboundLocalError => "UnboundLocalError",
             Kind::AttributeError => "AttributeError",
             Kind::IndexError => "IndexError",
             Kind::KeyError => "KeyError",
             Kind::StopIteration => "StopIteration",
             Kind::RecursionError => "RecursionError",
             Kind::NotImplementedError => "NotImplementedError",
+            Kind::OSError => "OSError",
         }
     }
 }
