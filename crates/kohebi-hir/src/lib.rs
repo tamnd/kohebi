@@ -24,7 +24,7 @@
 //! how far M1 has got, and it is meant to be read as a to-do rather than as a
 //! design.
 
-#![doc(html_root_url = "https://docs.rs/kohebi-hir/0.0.11")]
+#![doc(html_root_url = "https://docs.rs/kohebi-hir/0.0.0")]
 
 pub mod hir;
 pub mod lower;

@@ -27,7 +27,7 @@
 //! HIR can lower today, which is module level code without functions, classes,
 //! comprehensions, `with`, `try`, `match`, imports or unpacking.
 
-#![doc(html_root_url = "https://docs.rs/kohebi-bc/0.0.11")]
+#![doc(html_root_url = "https://docs.rs/kohebi-bc/0.0.0")]
 
 pub mod code;
 pub mod compile;
