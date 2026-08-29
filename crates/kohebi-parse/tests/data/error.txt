@@ -177,6 +177,53 @@ SyntaxError	f(a=1, a=2)\ndef g(x, x): pass\n	  File "<case>", line 2\n    def g(
 SyntaxError	def g(x, x): pass\nf(a=1, a=2)\n	  File "<case>", line 1\n    def g(x, x): pass\n             ^\nSyntaxError: duplicate argument 'x' in function definition
 SyntaxError	def f(a, a=(lambda z, z: 0)): pass\n	  File "<case>", line 1\n    def f(a, a=(lambda z, z: 0)): pass\n                          ^\nSyntaxError: duplicate argument 'z' in function definition
 SyntaxError	def f(a=g(x=1, x=2)) -> h(y=1, y=2): pass\n	  File "<case>", line 1\n    def f(a=g(x=1, x=2)) -> h(y=1, y=2): pass\n                   ^^^\nSyntaxError: keyword argument repeated: x
+SyntaxError	f(a=)\n	  File "<case>", line 1\n    f(a=)\n      ^^\nSyntaxError: expected argument value expression
+SyntaxError	f(x, a=)\n	  File "<case>", line 1\n    f(x, a=)\n         ^^\nSyntaxError: expected argument value expression
+SyntaxError	f(a=, b=1)\n	  File "<case>", line 1\n    f(a=, b=1)\n      ^^\nSyntaxError: expected argument value expression
+SyntaxError	f(a=1, b=)\n	  File "<case>", line 1\n    f(a=1, b=)\n           ^^\nSyntaxError: expected argument value expression
+SyntaxError	g(a =)\n	  File "<case>", line 1\n    g(a =)\n      ^^^\nSyntaxError: expected argument value expression
+SyntaxError	class C(x=1, y=): pass\n	  File "<case>", line 1\n    class C(x=1, y=): pass\n                 ^^\nSyntaxError: expected argument value expression
+SyntaxError	x = f(g(a=))\n	  File "<case>", line 1\n    x = f(g(a=))\n            ^^\nSyntaxError: expected argument value expression
+SyntaxError	f(True=1)\n	  File "<case>", line 1\n    f(True=1)\n      ^^^^^\nSyntaxError: cannot assign to True
+SyntaxError	f(None=1)\n	  File "<case>", line 1\n    f(None=1)\n      ^^^^^\nSyntaxError: cannot assign to None
+SyntaxError	f(False=)\n	  File "<case>", line 1\n    f(False=)\n      ^^^^^^\nSyntaxError: cannot assign to False
+SyntaxError	f(a.b=1)\n	  File "<case>", line 1\n    f(a.b=1)\n      ^^^^\nSyntaxError: expression cannot contain assignment, perhaps you meant "=="?
+SyntaxError	f(a[0]=1)\n	  File "<case>", line 1\n    f(a[0]=1)\n      ^^^^^\nSyntaxError: expression cannot contain assignment, perhaps you meant "=="?
+SyntaxError	f(1=2)\n	  File "<case>", line 1\n    f(1=2)\n      ^^\nSyntaxError: expression cannot contain assignment, perhaps you meant "=="?
+SyntaxError	f((x)=1)\n	  File "<case>", line 1\n    f((x)=1)\n       ^^^\nSyntaxError: expression cannot contain assignment, perhaps you meant "=="?
+SyntaxError	f(a=1, b.c=2)\n	  File "<case>", line 1\n    f(a=1, b.c=2)\n           ^^^^\nSyntaxError: expression cannot contain assignment, perhaps you meant "=="?
+SyntaxError	f(not a=1)\n	  File "<case>", line 1\n    f(not a=1)\n      ^^^^^^\nSyntaxError: expression cannot contain assignment, perhaps you meant "=="?
+SyntaxError	f(a if b else c=1)\n	  File "<case>", line 1\n    f(a if b else c=1)\n      ^^^^^^^^^^^^^^\nSyntaxError: expression cannot contain assignment, perhaps you meant "=="?
+SyntaxError	f(a=b for c in d)\n	  File "<case>", line 1\n    f(a=b for c in d)\n      ^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	f(a=b, c=d for e in g)\n	  File "<case>", line 1\n    f(a=b, c=d for e in g)\n           ^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	class C(a=b for c in d): pass\n	  File "<case>", line 1\n    class C(a=b for c in d): pass\n            ^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	f(**k=1)\n	  File "<case>", line 1\n    f(**k=1)\n      ^^^^^\nSyntaxError: cannot assign to keyword argument unpacking
+SyntaxError	f(*a=1)\n	  File "<case>", line 1\n    f(*a=1)\n      ^^^^\nSyntaxError: cannot assign to iterable argument unpacking
+SyntaxError	f(*[]=1)\n	  File "<case>", line 1\n    f(*[]=1)\n      ^^^^^\nSyntaxError: cannot assign to iterable argument unpacking
+SyntaxError	f(a=1, *b=2)\n	  File "<case>", line 1\n    f(a=1, *b=2)\n           ^^^^\nSyntaxError: cannot assign to iterable argument unpacking
+SyntaxError	f(**k=)\n	  File "<case>", line 1\n    f(**k=)\n         ^\nSyntaxError: invalid syntax
+SyntaxError	f(*a=)\n	  File "<case>", line 1\n    f(*a=)\n        ^\nSyntaxError: invalid syntax
+SyntaxError	f(*)\n	  File "<case>", line 1\n    f(*)\n       ^\nSyntaxError: Invalid star expression
+SyntaxError	f(a, *)\n	  File "<case>", line 1\n    f(a, *)\n          ^\nSyntaxError: Invalid star expression
+SyntaxError	x = [*]\n	  File "<case>", line 1\n    x = [*]\n          ^\nSyntaxError: Invalid star expression
+SyntaxError	x = {*}\n	  File "<case>", line 1\n    x = {*}\n          ^\nSyntaxError: Invalid star expression
+SyntaxError	x = (*)\n	  File "<case>", line 1\n    x = (*)\n          ^\nSyntaxError: Invalid star expression
+SyntaxError	f(*g(a=))\n	  File "<case>", line 1\n    f(*g(a=))\n         ^^\nSyntaxError: expected argument value expression
+SyntaxError	f(*[1 2])\n	  File "<case>", line 1\n    f(*[1 2])\n        ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	f(a=1, b)\n	  File "<case>", line 1\n    f(a=1, b)\n            ^\nSyntaxError: positional argument follows keyword argument
+SyntaxError	f(a=1, b, c)\n	  File "<case>", line 1\n    f(a=1, b, c)\n               ^\nSyntaxError: positional argument follows keyword argument
+SyntaxError	f(a=1, b=2, c)\n	  File "<case>", line 1\n    f(a=1, b=2, c)\n                 ^\nSyntaxError: positional argument follows keyword argument
+SyntaxError	f(a=1, *b, c)\n	  File "<case>", line 1\n    f(a=1, *b, c)\n                ^\nSyntaxError: positional argument follows keyword argument
+SyntaxError	f(a=1, b,)\n	  File "<case>", line 1\n    f(a=1, b,)\n             ^\nSyntaxError: positional argument follows keyword argument
+SyntaxError	f(a=1,\n  b)\n	  File "<case>", line 2\n    b)\n     ^\nSyntaxError: positional argument follows keyword argument
+SyntaxError	f(a=1, b\n)\n	  File "<case>", line 2\n    )\n    ^\nSyntaxError: positional argument follows keyword argument
+SyntaxError	f(**k, b)\n	  File "<case>", line 1\n    f(**k, b)\n            ^\nSyntaxError: positional argument follows keyword argument unpacking
+SyntaxError	f(**k, b, c)\n	  File "<case>", line 1\n    f(**k, b, c)\n               ^\nSyntaxError: positional argument follows keyword argument unpacking
+SyntaxError	class C(a=1, b): pass\n	  File "<case>", line 1\n    class C(a=1, b): pass\n                  ^\nSyntaxError: positional argument follows keyword argument
+SyntaxError	f(**k, *b)\n	  File "<case>", line 1\n    f(**k, *b)\n         ^^^^\nSyntaxError: iterable argument unpacking follows keyword argument unpacking
+SyntaxError	f(**k, *b, *c)\n	  File "<case>", line 1\n    f(**k, *b, *c)\n         ^^^^^^^^\nSyntaxError: iterable argument unpacking follows keyword argument unpacking
+SyntaxError	f(**k, *b, c)\n	  File "<case>", line 1\n    f(**k, *b, c)\n         ^^^^^^\nSyntaxError: iterable argument unpacking follows keyword argument unpacking
+SyntaxError	f(a, **k, *b)\n	  File "<case>", line 1\n    f(a, **k, *b)\n            ^^^^\nSyntaxError: iterable argument unpacking follows keyword argument unpacking
 SyntaxError	x = (1]\n	  File "<case>", line 1\n    x = (1]\n          ^\nSyntaxError: closing parenthesis ']' does not match opening parenthesis '('
 SyntaxError	x = (1,\n2]\n	  File "<case>", line 2\n    2]\n     ^\nSyntaxError: closing parenthesis ']' does not match opening parenthesis '(' on line 1
 SyntaxError	x = [\n\n(1}\n	  File "<case>", line 3\n    (1}\n      ^\nSyntaxError: closing parenthesis '}' does not match opening parenthesis '('

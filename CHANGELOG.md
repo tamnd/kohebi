@@ -6,6 +6,14 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+An argument list has seven refusals of its own and we had none of them. `f(a=)`, `f(True=1)`, `f(a.b=1)`, `f(a=b for c in d)`, `f(**k=1)` and `f(*)` all said `invalid syntax`, which is true and useless, since the same three words covered six different mistakes. They now say what CPython says, with the carets in the same place.
+
+The same `=` reads four ways depending on what is in front of it. Nothing after it is a missing value. A word that stopped being a name in Python 3 gets named in the message. Anything that is not a plain name in front of it was an expression somebody tried to assign to, and that beats the ordering complaint the same line would otherwise earn, so `f(a=1, b.c=2)` is refused for the assignment. A generator expression after it cannot be given a name at all, so the sign was meant to be a comparison or a walrus.
+
+The two ordering complaints moved. `positional argument follows keyword argument` was reported against the argument that is out of place, and CPython reports it against the token after the whole list, because the rule that carries it has to read the list to the end before it can fail. `f(**k, *b)` was accepted outright and is now refused the way CPython refuses it.
+
+Over the same twelve hundred file corpus this takes agreement from 94.75% to 95.83%, and it clears three buckets: `expected argument value expression`, `expression cannot contain assignment`, and the ordering pair. Forty four more recorded blocks in the fixture and eight more files in the compat corpus cover it. The standard library still produces trees identical to CPython's, file for file, and all 1865 files CPython compiles are still accepted.
+
 ## 0.0.7
 
 Three merged pull requests since 0.0.6, all of them item 9 again, and all of them measured the same way. The measurement is the new part. `kohebi-compat` can now take a real standard library module, break one random line of it, keep the result only if CPython refuses it, and do that twelve hundred times, which gives a number for how often a refusal matches rather than a list of cases someone thought to write down. That number went from 55.33% to 90.75% over these three changes, and every fix below was picked because the corpus said it was the largest thing left.
