@@ -385,3 +385,50 @@ fn every_body_in_a_module_shares_one_name_table() {
     let module = module("total = 0\ndef f():\n    global total\n    total = 1\n");
     assert_eq!(module.names, vec!["total".into(), "f".into()]);
 }
+
+#[test]
+fn a_captured_name_lives_in_a_cell_and_the_def_hands_the_cell_over() {
+    // `cell r0` before anything else, because the name has to be a cell before
+    // the first write to it, and `makefunc ... over r0` rather than a read of
+    // r0, because what the closure gets is the binding and not the value.
+    assert_eq!(
+        bc("def counter():\n    n = 0\n    def bump():\n        nonlocal n\n        n = n + 1\n"),
+        "   0  makefunc   r0, counter\n   \
+            1  setglobal  counter, r0\n   \
+            2  const      r0, None\n   \
+            3  ret        r0\n\
+         code counter: 3 registers\n   \
+            0  cell       r0\n   \
+            1  const      r2, 0\n   \
+            2  storecell  r0, r2\n   \
+            3  makefunc   r1, bump, over r0\n   \
+            4  const      r2, None\n   \
+            5  ret        r2\n\
+         code bump: 4 registers, over r0\n   \
+            0  loadcell   r2, r0\n   \
+            1  const      r3, 1\n   \
+            2  binary     r1, r2 + r3\n   \
+            3  storecell  r0, r1\n   \
+            4  const      r1, None\n   \
+            5  ret        r1"
+    );
+}
+
+#[test]
+fn a_free_register_is_named_on_the_body_that_takes_it() {
+    let module = module("def o():\n    x = 1\n    def i():\n        return x\n");
+    let outer = &module.body.functions[0];
+    assert!(outer.free.is_empty());
+    let inner = &outer.functions[0];
+    assert_eq!(inner.free, vec![kohebi_bc::code::Reg(0)]);
+    // The name is still on the register, because an unbound one has to say
+    // which variable it was.
+    assert_eq!(inner.local_at(kohebi_bc::code::Reg(0)), "x");
+}
+
+#[test]
+fn a_del_of_a_shared_name_empties_the_cell_rather_than_the_register() {
+    let listing = bc("def o():\n    x = 1\n    del x\n    def i():\n        return x\n");
+    assert!(listing.contains("clearcell  r0"), "{listing}");
+    assert!(!listing.contains("dellocal"), "{listing}");
+}

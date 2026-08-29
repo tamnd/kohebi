@@ -518,12 +518,18 @@ fn a_nested_def_lands_in_the_body_that_wrote_it() {
 }
 
 #[test]
-fn a_name_from_an_enclosing_function_is_refused_rather_than_guessed_at() {
-    // Quietly reading a global of the same spelling would be a wrong answer
-    // rather than a missing feature, so this says so instead.
+fn a_name_from_an_enclosing_function_becomes_a_cell_the_two_share() {
+    // Reading it is what turns the enclosing slot into a cell, and the `def`
+    // hands that same cell over rather than what is in it.
     assert_eq!(
-        refused("def outer():\n    x = 1\n    def inner():\n        return x\n"),
-        "line 4: a name from an enclosing function is not lowered yet"
+        whole("def outer():\n    x = 1\n    def inner():\n        return x\n"),
+        "body <test>:\n    \
+         outer = function outer()\n\
+         body outer():\n    \
+         cell x = 1\n    \
+         inner = function inner() over cell x\n\
+         body inner() over x:\n    \
+         return free x"
     );
     // A module level name really is a global, so reading one is not a closure.
     assert_eq!(
@@ -532,14 +538,97 @@ fn a_name_from_an_enclosing_function_is_refused_rather_than_guessed_at() {
     );
 }
 
+#[test]
+fn a_name_two_functions_deep_is_carried_by_the_one_in_between() {
+    // `middle` never mentions `x`, and still has to take the cell, because a
+    // capture list only reaches the frame that wrote the `def`.
+    assert_eq!(
+        whole(
+            "def outer():\n    \
+             x = 1\n    \
+             def middle():\n        \
+             def inner():\n            \
+             return x\n        \
+             return inner\n    \
+             return middle\n"
+        ),
+        "body <test>:\n    \
+         outer = function outer()\n\
+         body outer():\n    \
+         cell x = 1\n    \
+         middle = function middle() over cell x\n    \
+         return middle\n\
+         body middle() over x:\n    \
+         inner = function inner() over free x\n    \
+         return inner\n\
+         body inner() over x:\n    \
+         return free x"
+    );
+}
+
+#[test]
+fn a_nonlocal_makes_a_name_the_enclosing_frame_s_rather_than_this_one_s() {
+    // Without the declaration `n = n + 1` would bind a local of `bump` and the
+    // read in front of it would be an `UnboundLocalError`. With it, both ends
+    // are the enclosing frame's cell.
+    assert_eq!(
+        whole(
+            "def counter():\n    \
+             n = 0\n    \
+             def bump():\n        \
+             nonlocal n\n        \
+             n = n + 1\n"
+        ),
+        "body <test>:\n    \
+         counter = function counter()\n\
+         body counter():\n    \
+         cell n = 0\n    \
+         bump = function bump() over cell n\n\
+         body bump() over n:\n    \
+         nop\n    \
+         free n = free n + 1"
+    );
+}
+
+#[test]
+fn a_nonlocal_with_nothing_to_bind_to_is_a_syntax_error_rather_than_a_gap() {
+    // Every one of these is a program CPython refuses to compile, so calling
+    // them unsupported would send somebody looking through the milestones.
+    assert_eq!(
+        refused("def f():\n    nonlocal q\n"),
+        "line 2: SyntaxError: no binding for nonlocal 'q' found"
+    );
+    assert_eq!(
+        refused("nonlocal z\n"),
+        "line 1: SyntaxError: nonlocal declaration not allowed at module level"
+    );
+    assert_eq!(
+        refused("def f(a):\n    nonlocal a\n"),
+        "line 2: SyntaxError: name 'a' is parameter and nonlocal"
+    );
+    assert_eq!(
+        refused("def f():\n    x = 1\n    def g():\n        global x\n        nonlocal x\n"),
+        "line 5: SyntaxError: name 'x' is nonlocal and global"
+    );
+    // A `global` in the frame in between stops the search, because from there
+    // inwards the name really is the module's.
+    assert_eq!(
+        refused(
+            "def outer():\n    \
+             x = 1\n    \
+             def middle():\n        \
+             global x\n        \
+             def inner():\n            \
+             nonlocal x\n"
+        ),
+        "line 6: SyntaxError: no binding for nonlocal 'x' found"
+    );
+}
+
 // What is not done yet
 
 #[test]
 fn an_unlowered_construct_says_what_it_was_and_where() {
-    assert_eq!(
-        refused("def f():\n    nonlocal x\n"),
-        "line 2: a nonlocal declaration is not lowered yet"
-    );
     assert_eq!(
         refused("with a:\n    pass\n"),
         "line 1: a with statement is not lowered yet"

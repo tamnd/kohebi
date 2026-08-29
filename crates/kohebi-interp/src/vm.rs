@@ -58,6 +58,7 @@ use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 use rustc_hash::FxHashMap;
 
 use crate::builtin::{Args, Builtin, table};
+use crate::cell::Cell;
 use crate::function::Function;
 use crate::iterate;
 use crate::ready::Ready;
@@ -200,6 +201,22 @@ impl Vm {
                         return Err(undefined(globals.name(name)));
                     }
                 }
+                Instr::Cell { reg } => {
+                    // Whatever the register held goes into the cell, which for
+                    // a parameter is the argument and for everything else is
+                    // nothing at all.
+                    let held = frame.registers.get(reg.0 as usize).and_then(Clone::clone);
+                    frame.set(reg, Object::native(Cell::new(held)));
+                }
+                Instr::LoadCell { dst, cell } => {
+                    let value = through(code, &frame, cell)?;
+                    frame.set(dst, value);
+                }
+                Instr::StoreCell { cell, src } => {
+                    let value = frame.get(src)?.clone();
+                    cell_at(&frame, cell).set(value);
+                }
+                Instr::ClearCell { cell } => cell_at(&frame, cell).clear(),
                 Instr::DeleteLocal { reg } => {
                     frame.get(reg)?;
                     frame.clear(reg);
@@ -259,6 +276,7 @@ impl Vm {
                     func,
                     defaults,
                     kw_defaults,
+                    captures,
                 } => {
                     let Some(body) = ready.function(func) else {
                         unreachable!("a def is numbered into the body that holds it")
@@ -273,7 +291,12 @@ impl Vm {
                             None => None,
                         });
                     }
-                    let function = Function::new(Rc::clone(body), defaults, optional);
+                    // The cells go over as they are. Reading through them here
+                    // would hand the new function the values rather than the
+                    // bindings, and the two frames would stop being able to see
+                    // each other's writes.
+                    let captures = operands(code, &frame, captures)?;
+                    let function = Function::new(Rc::clone(body), defaults, optional, captures);
                     frame.set(dst, Object::native(function));
                 }
                 Instr::BuildTuple { dst, items } => {
@@ -588,6 +611,47 @@ impl<'a> Frame<'a> {
             *slot = None;
         }
     }
+}
+
+/// The cell in a register.
+///
+/// Never fails on a program the compiler wrote, because the only instructions
+/// that name a register this way are the ones it emitted for a slot it had
+/// already decided holds a cell.
+fn cell_at<'a>(frame: &'a Frame<'_>, reg: Reg) -> &'a Cell {
+    let Some(Some(value)) = frame.registers.get(reg.0 as usize) else {
+        unreachable!("a cell register is filled before the body starts")
+    };
+    let Some(cell) = value.downcast::<Cell>() else {
+        unreachable!("a cell register holds a cell")
+    };
+    cell
+}
+
+/// Read a name through its cell.
+///
+/// An empty one is a name that has not been bound yet, or one a `del` took
+/// away, and Python has two different sentences for it depending on which frame
+/// the name belongs to. A captured name is a free variable and says so; one
+/// this frame owns is an ordinary local that happens to be shared.
+fn through(code: &Code, frame: &Frame<'_>, reg: Reg) -> Result<Object> {
+    if let Some(value) = cell_at(frame, reg).get() {
+        return Ok(value);
+    }
+    let name = code.local_at(reg);
+    if code.free.contains(&reg) {
+        return Err(Error::new(
+            Kind::NameError,
+            format!(
+                "cannot access free variable '{name}' where it is not associated \
+                 with a value in enclosing scope"
+            ),
+        ));
+    }
+    Err(Error::new(
+        Kind::UnboundLocalError,
+        format!("cannot access local variable '{name}' where it is not associated with a value"),
+    ))
 }
 
 /// The values a span of registers holds.

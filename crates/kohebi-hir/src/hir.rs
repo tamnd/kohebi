@@ -38,13 +38,44 @@ impl Local {
     }
 }
 
-/// What a slot is, which is the only thing the printer needs to tell them apart.
+/// What a slot is.
+///
+/// Whether a slot holds its value directly or holds a cell with the value in it
+/// is a fact about the slot rather than about any one read of it, and it is not
+/// known until the whole body has been lowered, because the `def` that captures
+/// a name can come after every use of it. So it is recorded here, once, and an
+/// [`Expr::Local`] means "read slot n" either way. That is the only thing in
+/// this crate a reader has to look somewhere else to finish understanding, and
+/// the printer spells it out on every slot so that looking is one line away.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Slot {
     /// A name the program wrote.
     Named(Name),
     /// A temporary lowering invented, numbered from zero within its frame.
     Temp(u32),
+    /// A name of this frame that a function defined inside it also uses, so the
+    /// slot holds a cell the two of them share rather than the value.
+    Cell(Name),
+    /// A cell taken from the frame that defined this one, which is what a name
+    /// from an enclosing function is.
+    Free(Name),
+}
+
+impl Slot {
+    /// Whether the slot holds a cell rather than the value itself.
+    #[must_use]
+    pub fn is_cell(&self) -> bool {
+        matches!(self, Slot::Cell(_) | Slot::Free(_))
+    }
+
+    /// The name, for a slot the program wrote one for.
+    #[must_use]
+    pub fn name(&self) -> Option<&Name> {
+        match self {
+            Slot::Named(name) | Slot::Cell(name) | Slot::Free(name) => Some(name),
+            Slot::Temp(_) => None,
+        }
+    }
 }
 
 /// An index into [`Body::functions`].
@@ -103,6 +134,14 @@ pub struct Body {
     /// `def` in exactly one body and putting it anywhere else would only make
     /// that relationship something to look up.
     pub functions: Vec<Body>,
+    /// The slots a call fills with cells from the frame that defined this body,
+    /// in the order [`Expr::Function`] hands them over.
+    ///
+    /// Every one of them is a [`Slot::Free`]. They are listed rather than
+    /// derived from the slot table so that the order is written down once, and
+    /// because the order is the whole of the agreement between a `def` and the
+    /// body it makes.
+    pub free: Vec<Local>,
 }
 
 impl Body {
@@ -110,7 +149,7 @@ impl Body {
     #[must_use]
     pub fn slot_name(&self, local: Local) -> String {
         match self.slots.get(local.index()) {
-            Some(Slot::Named(name)) => name.to_string(),
+            Some(Slot::Named(name) | Slot::Cell(name) | Slot::Free(name)) => name.to_string(),
             Some(Slot::Temp(n)) => format!("${n}"),
             None => format!("?{}", local.0),
         }
@@ -305,6 +344,15 @@ pub enum Expr {
         id: FuncId,
         defaults: Vec<Expr>,
         kw_defaults: Vec<Option<Expr>>,
+        /// The slots of this frame holding the cells the new function captures,
+        /// in the order [`Body::free`] takes them.
+        ///
+        /// Here rather than on the body for the same reason the defaults are:
+        /// they are read in the frame the `def` runs in. It is also what makes
+        /// a `def` in a loop close over the loop variable rather than over a
+        /// copy of it, since every turn reads the same slot and finds the same
+        /// cell in it.
+        captures: Vec<Local>,
     },
 }
 

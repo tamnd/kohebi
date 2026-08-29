@@ -28,7 +28,17 @@ pub fn print(module: &Module) -> String {
 }
 
 fn body(out: &mut String, module: &Module, code: &Code) {
-    let _ = writeln!(out, "code {}: {} registers", code.name, code.registers);
+    let taken = if code.free.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<String> = code.free.iter().map(|r| reg(*r)).collect();
+        format!(", over {}", names.join(", "))
+    };
+    let _ = writeln!(
+        out,
+        "code {}: {} registers{taken}",
+        code.name, code.registers
+    );
     for (at, instr) in code.instrs.iter().enumerate() {
         let _ = writeln!(out, "{at:>4}  {}", line(module, code, instr).trim_end());
     }
@@ -85,6 +95,10 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
         ),
         Instr::DeleteGlobal { name } => ("delglobal", module.name_at(*name).to_owned()),
         Instr::DeleteLocal { reg: target } => ("dellocal", reg(*target)),
+        Instr::Cell { reg: target } => ("cell", reg(*target)),
+        Instr::LoadCell { dst, cell } => ("loadcell", format!("{}, {}", reg(*dst), reg(*cell))),
+        Instr::StoreCell { cell, src } => ("storecell", format!("{}, {}", reg(*cell), reg(*src))),
+        Instr::ClearCell { cell } => ("clearcell", reg(*cell)),
         Instr::LoadAttr { dst, object, name } => (
             "getattr",
             format!("{}, {}.{}", reg(*dst), reg(*object), module.name_at(*name)),
@@ -164,6 +178,7 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
             func,
             defaults,
             kw_defaults,
+            captures,
         } => {
             let named = code
                 .functions
@@ -178,6 +193,9 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
                     .iter()
                     .map(|value| maybe(*value)),
             );
+            if captures.len > 0 {
+                parts.push(format!("over {}", regs(code, *captures)));
+            }
             ("makefunc", parts.join(", "))
         }
         Instr::Call {
