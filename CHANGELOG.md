@@ -6,6 +6,8 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+The two measures behind `invalid syntax. Did you mean 'import'?`. CPython works that suggestion out when the traceback is printed, not when the file is parsed, and it uses two measures that disagree with each other. One is a Levenshtein distance where flipping the case of a letter costs half as much as changing it, and the other is the Ratcliff and Obershelp ratio at a cutoff of a half, which is why `len` can suggest `False`. Both are here, checked against CPython over 1955 words: every keyword, every one letter mistake in one, twenty names out of real code, and a few oddities. Nothing prints them yet.
+
 ## 0.0.8
 
 Three merged pull requests since 0.0.7, still item 9, and still driven by the corpus of twelve hundred real modules with one line broken in each. On the corpus this release was measured against, agreement goes from 90.08% to 95.83%. What picks the next thing to work on is bucketing those failures by the message CPython prints, since one message is usually worth more than the next eight put together.
