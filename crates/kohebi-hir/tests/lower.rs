@@ -65,6 +65,42 @@ fn a_chain_of_assignments_evaluates_the_value_once() {
     );
 }
 
+/// An unpacking is one node that lays the value out and then ordinary stores
+/// reading constant indices out of it. Nothing on the left is written until
+/// the whole right hand side has been walked, which is what `a, b = b, a` needs.
+#[test]
+fn unpacking_lays_the_value_out_and_then_stores_from_it() {
+    assert_eq!(
+        hir("a, b = c\n"),
+        "$0 = unpack(c, 2)\n\
+         a = $0[0]\n\
+         b = $0[1]"
+    );
+    // A star says how many are fixed on each side of it, because that is all
+    // the layout needs to know. Element 1 is the list it gathered.
+    assert_eq!(
+        hir("a, *b, c = d\n"),
+        "$0 = unpack(d, 1, *, 1)\n\
+         a = $0[0]\n\
+         b = $0[1]\n\
+         c = $0[2]"
+    );
+}
+
+/// A nested target is the same node again rather than a second mechanism, which
+/// is the whole reason the layout is a value and the targets are reads.
+#[test]
+fn a_nested_unpacking_target_is_the_same_node_again() {
+    assert_eq!(
+        hir("a, (b, c) = d\n"),
+        "$0 = unpack(d, 2)\n\
+         a = $0[0]\n\
+         $1 = unpack($0[1], 2)\n\
+         b = $1[0]\n\
+         c = $1[1]"
+    );
+}
+
 #[test]
 fn one_target_needs_no_temporary() {
     assert_eq!(hir("a = f()\n"), "a = f()");
@@ -395,8 +431,8 @@ fn an_unlowered_construct_says_what_it_was_and_where() {
         "line 1: a list comprehension is not lowered yet"
     );
     assert_eq!(
-        refused("a, b = c\n"),
-        "line 1: unpacking assignment is not lowered yet"
+        refused("a, *b, *c = d\n"),
+        "line 1: more than one starred target in one assignment is not lowered yet"
     );
     assert_eq!(
         refused("import os\n"),

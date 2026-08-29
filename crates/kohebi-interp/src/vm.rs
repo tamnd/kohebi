@@ -294,6 +294,16 @@ impl Vm {
                     let end = iterate::is_done(frame.get(src)?);
                     frame.set(dst, Object::Bool(end));
                 }
+                Instr::Unpack {
+                    dst,
+                    src,
+                    before,
+                    star,
+                    after,
+                } => {
+                    let laid_out = unpack(frame.get(src)?, before, star, after)?;
+                    frame.set(dst, laid_out);
+                }
                 Instr::Raise { .. } => return Err(later("raise")),
             }
         }
@@ -700,6 +710,77 @@ fn compare(op: CmpOp, left: &Object, right: &Object) -> Result<Object> {
         CmpOp::NotIn => return Ok(ops::not(&ops::contains(right, left)?)),
     };
     ops::compare(op, left, right)
+}
+
+/// A value laid out as the list an unpacking target wants.
+///
+/// Without a star the list is `before` long and the value has to hold exactly
+/// that many. With one it is `before + 1 + after`, and the element in the
+/// middle is a list of whatever the fixed targets did not claim, which may
+/// be empty.
+///
+/// The whole value is walked before anything is bound, which is what makes
+/// `a, b = b, a` a swap and not two writes racing each other, and it is also
+/// the only way to know whether there were too many: an iterator does not say
+/// how long it is, so being one past the end is the answer to asking for one
+/// more element and being given one.
+fn unpack(value: &Object, before: u32, star: bool, after: u32) -> Result<Object> {
+    let before = before as usize;
+    let after = after as usize;
+    let least = before + after;
+
+    let iter = iterate::over(value).map_err(|_| {
+        Error::type_error(format!(
+            "cannot unpack non-iterable {} object",
+            value.type_name()
+        ))
+    })?;
+    let mut items = Vec::with_capacity(least);
+    // One more than the fixed targets need when there is no star, because a
+    // list of exactly `least` and one of `least + 1` are the difference between
+    // an answer and a `ValueError`, and the only way to tell them apart is to
+    // ask for the extra one.
+    let wanted = if star { usize::MAX } else { least + 1 };
+    while items.len() < wanted {
+        match iterate::step(&iter)? {
+            Some(item) => items.push(item),
+            None => break,
+        }
+    }
+
+    if items.len() < least {
+        let expected = if star {
+            format!("at least {least}")
+        } else {
+            least.to_string()
+        };
+        return Err(Error::new(
+            Kind::ValueError,
+            format!(
+                "not enough values to unpack (expected {expected}, got {})",
+                items.len()
+            ),
+        ));
+    }
+    if !star && items.len() > least {
+        // `items` is one longer than the targets at most, because the walk
+        // stopped there, so the count in the message is not the length of the
+        // value. CPython counts the whole thing, so this one does too.
+        let mut total = items.len();
+        while iterate::step(&iter)?.is_some() {
+            total += 1;
+        }
+        return Err(Error::new(
+            Kind::ValueError,
+            format!("too many values to unpack (expected {least}, got {total})"),
+        ));
+    }
+
+    if star {
+        let rest: Vec<Object> = items.drain(before..items.len() - after).collect();
+        items.insert(before, Object::list(rest));
+    }
+    Ok(Object::list(items))
 }
 
 /// A name nothing is bound to.

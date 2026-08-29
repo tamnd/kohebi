@@ -188,6 +188,19 @@ fn expr(body: &Body, value: &Expr) -> String {
         Expr::GetIter(value) => format!("iter({})", expr(body, value)),
         Expr::Next(value) => format!("next({})", expr(body, value)),
         Expr::Exhausted(value) => format!("exhausted({})", expr(body, value)),
+        Expr::Unpack {
+            value,
+            before,
+            star,
+            after,
+        } => {
+            let shape = if *star {
+                format!("{before}, *, {after}")
+            } else {
+                before.to_string()
+            };
+            format!("unpack({}, {shape})", expr(body, value))
+        }
     }
 }
 

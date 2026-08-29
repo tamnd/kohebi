@@ -660,6 +660,89 @@ fn a_list_can_be_extended_with_any_container_now() {
     );
 }
 
+/// The whole right hand side is laid out before anything on the left is
+/// written, which is what makes `a, b = b, a` a swap rather than two writes
+/// racing each other.
+#[test]
+fn an_unpacking_assignment_binds_every_target_from_one_walk() {
+    assert_eq!(out("a, b = 1, 2\nprint(a, b)\n"), "1 2\n");
+    assert_eq!(out("a, b = 1, 2\na, b = b, a\nprint(a, b)\n"), "2 1\n");
+    // Anything walkable, not just a tuple, and a list on the left is the same
+    // as a tuple on the left.
+    assert_eq!(out("[p, q] = 'hi'\nprint(p, q)\n"), "h i\n");
+    assert_eq!(out("a, b = {1: 'x', 2: 'y'}\nprint(a, b)\n"), "1 2\n");
+    assert_eq!(out("a, b, c = range(3)\nprint(a, b, c)\n"), "0 1 2\n");
+    // A nested target is the same node again, so this needs no second mechanism.
+    assert_eq!(out("x, (y, z) = 1, (2, 3)\nprint(x, y, z)\n"), "1 2 3\n");
+    // A target does not have to be a name.
+    assert_eq!(
+        out("d = {}\nv = [0, 0]\nd[0], v[1] = 7, 8\nprint(d, v)\n"),
+        "{0: 7} [0, 8]\n"
+    );
+    // `for` targets go through the same path, which is what `for k, v in` is.
+    assert_eq!(
+        out("for k, v in [(1, 2), (3, 4)]:\n    print(k, v, end='|')\nprint()\n"),
+        "1 2|3 4|\n"
+    );
+}
+
+/// A starred target takes what the fixed ones did not, and takes a list even
+/// when what was unpacked was a string or a tuple.
+#[test]
+fn a_starred_target_takes_the_rest_as_a_list() {
+    assert_eq!(out("h, *t = [1, 2, 3, 4]\nprint(h, t)\n"), "1 [2, 3, 4]\n");
+    assert_eq!(out("*i, j = [1, 2, 3]\nprint(i, j)\n"), "[1, 2] 3\n");
+    assert_eq!(
+        out("m, *n, o = 'abcde'\nprint(m, n, o)\n"),
+        "a ['b', 'c', 'd'] e\n"
+    );
+    // The list is empty rather than absent when the fixed targets took it all.
+    assert_eq!(out("one, *none = [9]\nprint(one, none)\n"), "9 []\n");
+    assert_eq!(out("a, *b, c = (1, 2)\nprint(a, b, c)\n"), "1 [] 2\n");
+    assert_eq!(
+        out("*everything, = [1, 2]\nprint(everything)\n"),
+        "[1, 2]\n"
+    );
+}
+
+/// Both counts are in the message, and which of the two failures it is depends
+/// on whether there is a star. A value one longer than the targets is the
+/// interesting case, because the only way to know it is one too long is to ask
+/// for the extra element and be given one.
+#[test]
+fn an_unpacking_that_does_not_fit_says_both_numbers() {
+    assert_eq!(
+        raises("a, b = [1]\n"),
+        "ValueError: not enough values to unpack (expected 2, got 1)"
+    );
+    assert_eq!(
+        raises("a, b = [1, 2, 3]\n"),
+        "ValueError: too many values to unpack (expected 2, got 3)"
+    );
+    assert_eq!(
+        raises("a, b, c = range(2)\n"),
+        "ValueError: not enough values to unpack (expected 3, got 2)"
+    );
+    // With a star the shortfall is the only way to fail, and it says "at least".
+    assert_eq!(
+        raises("a, *b, c = [1]\n"),
+        "ValueError: not enough values to unpack (expected at least 2, got 1)"
+    );
+    assert_eq!(
+        raises("a, *b = []\n"),
+        "ValueError: not enough values to unpack (expected at least 1, got 0)"
+    );
+    // Not iterable at all is a different exception with a different word.
+    assert_eq!(
+        raises("a, b = 1\n"),
+        "TypeError: cannot unpack non-iterable int object"
+    );
+    assert_eq!(
+        raises("a, b = None\n"),
+        "TypeError: cannot unpack non-iterable NoneType object"
+    );
+}
+
 #[test]
 fn a_for_loop_walks_every_builtin_container() {
     assert_eq!(
