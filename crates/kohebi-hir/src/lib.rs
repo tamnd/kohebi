@@ -12,7 +12,7 @@
 //! ## What is here
 //!
 //! [`hir`] is the nodes, [`lower`] turns a parsed module into them, and
-//! [`print`] writes them back out as text so that a test can assert on
+//! [`print()`] writes them back out as text so that a test can assert on
 //! something a reviewer can read.
 //!
 //! ## What is not here yet

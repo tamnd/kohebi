@@ -1,8 +1,8 @@
 //! Tree to HIR.
 //!
 //! The one thing to know before reading: lowering an expression can emit
-//! statements. `a and b` is a branch, and an [`hir::Expr`] is not allowed to
-//! branch, so what comes back is a temporary and the branch that filled it goes
+//! statements. `a and b` is a branch, and a [`crate::hir::Expr`] is not allowed
+//! to branch, so what comes back is a temporary and the branch that filled it goes
 //! into the block being built. Every `lower_*` for an expression therefore takes
 //! the block to emit into and returns something pure.
 //!
@@ -10,8 +10,9 @@
 //! silent bug rather than a crash. Python evaluates operands left to right, and
 //! an operand that emits statements can change what an operand to its left would
 //! have read. So when any operand in a group emits anything, every operand in
-//! that group is pinned into a temporary first. [`branches`] is the test for
-//! that, and it errs towards pinning.
+//! that group is pinned into a temporary first. The test for that errs towards
+//! pinning, because pinning something that did not need it costs a temporary
+//! and missing something that did is a wrong answer.
 //!
 //! What is not lowered yet answers with [`Unsupported`] rather than a wrong
 //! tree. Functions, classes, comprehensions, `with`, `try`, `match`, imports and
