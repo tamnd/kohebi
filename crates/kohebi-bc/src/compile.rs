@@ -20,7 +20,7 @@
 
 use std::rc::Rc;
 
-use kohebi_hir::hir::{Block, Body, Expr, Grow, Local, Place, Slot, Stmt};
+use kohebi_hir::hir::{Block, Body, Catch, Expr, Grow, Local, Place, Slot, Stmt};
 use kohebi_parse::Value;
 
 use crate::code::{
@@ -76,6 +76,7 @@ fn compile_body(body: &Body, names: &mut Vec<Box<str>>) -> Code {
         scratch: slots,
         high_water: slots,
         loops: Vec::new(),
+        guards: Vec::new(),
         cells: body.slots.iter().map(Slot::is_cell).collect(),
     };
 
@@ -109,6 +110,27 @@ struct LoopContext {
     top: Offset,
     /// Every `break` in this loop, waiting for the end of it to be known.
     breaks: Vec<usize>,
+    /// How many `try` statements were open when the loop started, so that a
+    /// `break` knows how many of them it is leaving and how many it is not.
+    guards: usize,
+}
+
+/// A `try` statement being compiled, for the exits that have to leave through
+/// it.
+///
+/// A `break`, a `continue` or a `return` inside a `try` cannot simply jump.
+/// It has to take the regions it is leaving off the frame's handler stack and
+/// it has to run their `finally` clauses first, and this is what it consults to
+/// find out which those are.
+struct Guard {
+    /// How many handler entries this statement has live at the point being
+    /// compiled, which is two inside the body of a `try`/`except`/`finally`,
+    /// one inside its clauses and none once it is over.
+    live: u32,
+    /// The `finally` clause, emitted again at every exit that leaves the
+    /// statement. Shared rather than borrowed because the compiler is holding
+    /// itself mutably while it writes another copy of it.
+    finally: Option<Rc<Block>>,
 }
 
 struct Compiler<'a> {
@@ -120,6 +142,8 @@ struct Compiler<'a> {
     /// The most registers ever in use at once, which is what a frame needs.
     high_water: u32,
     loops: Vec<LoopContext>,
+    /// The `try` statements this one is inside, outermost first.
+    guards: Vec<Guard>,
     /// Whether each slot holds a cell rather than the value, by slot number.
     ///
     /// The HIR says this on the slot rather than on every read of it, because
@@ -145,11 +169,47 @@ impl Compiler<'_> {
     fn patch(&mut self, at: usize) {
         let target = self.here();
         match &mut self.code.instrs[at] {
-            Instr::Jump { to } | Instr::JumpIfFalse { to, .. } | Instr::JumpIfTrue { to, .. } => {
+            Instr::Jump { to }
+            | Instr::JumpIfFalse { to, .. }
+            | Instr::JumpIfTrue { to, .. }
+            | Instr::PushHandler { to, .. } => {
                 *to = target;
             }
             other => unreachable!("tried to patch {other:?}, which is not a jump"),
         }
+    }
+
+    /// Emit what leaving every `try` down to a depth takes, which is the
+    /// handler entries it has to take off and the `finally` clauses it has to
+    /// run.
+    ///
+    /// The guards being left are off the stack while their clauses are written,
+    /// so that a `return` inside a `finally` replays the ones outside it and
+    /// not the one it is in, and are put back afterwards because compilation
+    /// carries on inside the statement the exit was written in.
+    fn leave(&mut self, depth: usize) {
+        let mut left = self.guards.split_off(depth);
+        for guard in left.iter().rev() {
+            for _ in 0..guard.live {
+                self.emit(Instr::PopHandler);
+            }
+            if let Some(finally) = &guard.finally {
+                let finally = Rc::clone(finally);
+                self.block(&finally);
+            }
+        }
+        self.guards.append(&mut left);
+    }
+
+    /// Put a value somewhere nothing else will write, for a `return` that has
+    /// `finally` clauses to run before it goes.
+    ///
+    /// `try: return x finally: x = 99` returns what `x` was, so the value
+    /// cannot stay in the slot the clause is about to overwrite.
+    fn hold(&mut self, src: Reg) -> Reg {
+        let dst = self.alloc();
+        self.emit(Instr::Move { dst, src });
+        dst
     }
 
     fn alloc(&mut self) -> Reg {
@@ -205,6 +265,15 @@ impl Compiler<'_> {
             Stmt::Accumulate { into, what } => self.accumulate(*into, what),
             Stmt::Return(value) => {
                 let src = self.operand(value);
+                // The value is settled before any `finally` runs, since a
+                // clause is allowed to change what the expression was read out
+                // of but not what was already read.
+                let src = if self.guards.is_empty() {
+                    src
+                } else {
+                    self.hold(src)
+                };
+                self.leave(0);
                 self.emit(Instr::Return { src });
             }
             Stmt::Raise { exc, cause } => {
@@ -213,12 +282,14 @@ impl Compiler<'_> {
                 self.emit(Instr::Raise { exc, cause });
             }
             Stmt::Break => {
+                self.leave(self.loops.last().map_or(0, |context| context.guards));
                 let at = self.emit(Instr::Jump { to: Offset::UNSET });
                 if let Some(context) = self.loops.last_mut() {
                     context.breaks.push(at);
                 }
             }
             Stmt::Continue => {
+                self.leave(self.loops.last().map_or(0, |context| context.guards));
                 let to = self
                     .loops
                     .last()
@@ -232,6 +303,107 @@ impl Compiler<'_> {
                 body,
                 orelse,
             } => self.compile_loop(setup, test, body, orelse),
+            Stmt::Try {
+                body,
+                catch,
+                orelse,
+                finally,
+            } => self.compile_try(body, catch.as_ref(), orelse, finally),
+        }
+    }
+
+    /// `try`, which is two regions with the clauses in between them.
+    ///
+    /// ```text
+    ///           try  fin, pending    if there is a finally
+    ///           try  handler, caught if there are excepts
+    ///           <body>
+    ///           endtry               if there are excepts
+    ///           <else>
+    ///           jump done            if there are excepts
+    /// handler:  <except clauses>
+    /// done:     endtry               if there is a finally
+    ///           <finally>
+    ///           jump end
+    /// fin:      <finally, again>
+    ///           raise pending
+    /// end:
+    /// ```
+    ///
+    /// The `else` clause sits after the `endtry` that closes the body, which is
+    /// the whole of what makes an exception in an `else` not something the
+    /// handlers catch. The `finally` is written twice on purpose: once for the
+    /// way out that worked and once for the way out that did not, which is
+    /// shorter than teaching the interpreter to remember what it was in the
+    /// middle of doing.
+    fn compile_try(
+        &mut self,
+        body: &Block,
+        catch: Option<&Catch>,
+        orelse: &Block,
+        finally: &Block,
+    ) {
+        // Allocated before the body so that nothing the body needs lands on it,
+        // and only when there is a `finally`, since without one there is no
+        // exception to hold on to.
+        let pending = (!finally.is_empty()).then(|| self.alloc());
+        let to_finally = pending.map(|exc| {
+            self.emit(Instr::PushHandler {
+                to: Offset::UNSET,
+                exc,
+            })
+        });
+        let to_handler = catch.map(|catch| {
+            self.emit(Instr::PushHandler {
+                to: Offset::UNSET,
+                exc: register(catch.caught),
+            })
+        });
+        self.guards.push(Guard {
+            live: u32::from(to_finally.is_some()) + u32::from(to_handler.is_some()),
+            finally: (!finally.is_empty()).then(|| Rc::new(finally.clone())),
+        });
+
+        self.block(body);
+        if let Some(to_handler) = to_handler {
+            // The body is over, so the handlers no longer guard anything and
+            // the `else` that follows runs outside them.
+            self.emit(Instr::PopHandler);
+            self.live(-1);
+            self.block(orelse);
+            let over = self.emit(Instr::Jump { to: Offset::UNSET });
+            self.patch(to_handler);
+            if let Some(catch) = catch {
+                self.block(&catch.block);
+            }
+            self.patch(over);
+        } else {
+            self.block(orelse);
+        }
+
+        let Some(to_finally) = to_finally else {
+            self.guards.pop();
+            return;
+        };
+        self.emit(Instr::PopHandler);
+        // Off the stack before the clause is written, so that a `return` inside
+        // a `finally` does not run that same `finally` again.
+        self.guards.pop();
+        self.block(finally);
+        let over = self.emit(Instr::Jump { to: Offset::UNSET });
+        self.patch(to_finally);
+        self.block(finally);
+        self.emit(Instr::Raise {
+            exc: pending,
+            cause: None,
+        });
+        self.patch(over);
+    }
+
+    /// Change how many handler entries the `try` being compiled has live.
+    fn live(&mut self, by: i32) {
+        if let Some(guard) = self.guards.last_mut() {
+            guard.live = guard.live.saturating_add_signed(by);
         }
     }
 
@@ -359,6 +531,7 @@ impl Compiler<'_> {
         self.loops.push(LoopContext {
             top,
             breaks: Vec::new(),
+            guards: self.guards.len(),
         });
         self.block(body);
         self.emit(Instr::Jump { to: top });
@@ -514,6 +687,14 @@ impl Compiler<'_> {
             Expr::Truthy(value) => {
                 let src = self.operand(value);
                 self.emit(Instr::Truthy { dst, src });
+            }
+            Expr::Matches { caught, test } => {
+                let test = self.operand(test);
+                self.emit(Instr::Matches {
+                    dst,
+                    exc: register(*caught),
+                    test,
+                });
             }
             Expr::Attr { object, name } => {
                 let object = self.operand(object);

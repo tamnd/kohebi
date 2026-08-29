@@ -174,6 +174,30 @@ fn statement(out: &mut String, body: &Body, stmt: &Stmt, depth: usize) {
             }
             out.push('\n');
         }
+        Stmt::Try {
+            body: guarded,
+            catch,
+            orelse,
+            finally,
+        } => {
+            out.push_str("try:\n");
+            block(out, body, guarded, depth + 1);
+            if let Some(catch) = catch {
+                indent(out, depth);
+                let _ = writeln!(out, "except {}:", slot(body, catch.caught));
+                block(out, body, &catch.block, depth + 1);
+            }
+            if !orelse.is_empty() {
+                indent(out, depth);
+                out.push_str("else:\n");
+                block(out, body, orelse, depth + 1);
+            }
+            if !finally.is_empty() {
+                indent(out, depth);
+                out.push_str("finally:\n");
+                block(out, body, finally, depth + 1);
+            }
+        }
         Stmt::If { test, then, orelse } => {
             let _ = writeln!(out, "if {}:", expr(body, test));
             block(out, body, then, depth + 1);
@@ -246,6 +270,9 @@ fn expr(body: &Body, value: &Expr) -> String {
         ),
         Expr::Not(value) => format!("not {}", operand(body, value)),
         Expr::Truthy(value) => format!("truthy({})", expr(body, value)),
+        Expr::Matches { caught, test } => {
+            format!("matches({}, {})", slot(body, *caught), expr(body, test))
+        }
         Expr::Attr { object, name } => format!("{}.{name}", operand(body, object)),
         Expr::Item { object, index } => {
             format!("{}[{}]", operand(body, object), expr(body, index))

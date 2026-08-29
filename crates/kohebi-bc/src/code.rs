@@ -423,4 +423,33 @@ pub enum Instr {
         exc: Option<Reg>,
         cause: Option<Reg>,
     },
+
+    /// Begin a region an exception leaves through `to`, landing in `exc`.
+    ///
+    /// The frame keeps a stack of these. Anything that raises while one is on
+    /// it stops where it is, puts the exception in `exc` and carries on at
+    /// `to`, with the entry taken off again, so the code at `to` is guarded by
+    /// whatever was underneath rather than by itself.
+    ///
+    /// Both an `except` and a `finally` are this instruction. What they do
+    /// differs in the code at `to`, which either tests the exception or runs
+    /// the clause and raises it again, and not in what the interpreter has to
+    /// know.
+    PushHandler {
+        to: Offset,
+        exc: Reg,
+    },
+    /// Take the innermost region off, which is what leaving one the ordinary
+    /// way does.
+    PopHandler,
+    /// Whether an `except` clause catches what is in a register.
+    ///
+    /// `test` is the class the clause named, or the tuple of classes. Anything
+    /// else is a `TypeError`, which is why this is an instruction rather than a
+    /// comparison.
+    Matches {
+        dst: Reg,
+        exc: Reg,
+        test: Reg,
+    },
 }

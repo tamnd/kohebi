@@ -34,11 +34,11 @@ use std::collections::{HashMap, HashSet};
 
 use kohebi_parse::Int;
 use kohebi_parse::ast::{
-    Arguments, BoolOp, CmpOp, Comprehension, Expr as AExpr, ExprKind, Mod, Stmt as AStmt, StmtKind,
-    UnaryOp,
+    Arguments, BoolOp, CmpOp, Comprehension, ExceptHandler, Expr as AExpr, ExprKind, Mod,
+    Stmt as AStmt, StmtKind, UnaryOp,
 };
 
-use crate::hir::{Block, Body, Expr, FuncId, Grow, Local, Name, Params, Place, Slot, Stmt};
+use crate::hir::{Block, Body, Catch, Expr, FuncId, Grow, Local, Name, Params, Place, Slot, Stmt};
 
 /// A construct that has no lowering yet.
 ///
@@ -615,6 +615,14 @@ struct Scope {
     declared: HashSet<Name>,
     /// The functions defined directly in this frame.
     functions: Vec<Body>,
+    /// The slots holding what the `except` clauses being lowered right now
+    /// caught, innermost last.
+    ///
+    /// This is what a bare `raise` re-raises. It is per frame rather than per
+    /// module because a `def` inside an `except` clause is a different frame,
+    /// and a bare `raise` in it re-raises whatever is being handled when it is
+    /// called rather than what was being handled where it was written.
+    handling: Vec<Local>,
     /// The names this frame took from an enclosing one, and their slots here.
     free: HashMap<Name, Local>,
     /// Those slots in the order they were taken, which is the order a call
@@ -633,6 +641,7 @@ impl Scope {
             locals: HashMap::new(),
             declared: HashSet::new(),
             functions: Vec::new(),
+            handling: Vec::new(),
             free: HashMap::new(),
             order: Vec::new(),
             from: Vec::new(),
@@ -947,8 +956,19 @@ impl Lower {
                     .as_ref()
                     .map(|e| self.lower_expr(e, out))
                     .transpose()?;
+                // A bare `raise` written inside an `except` re-raises what that
+                // clause caught, and the slot holding it is right here, so it
+                // is named rather than looked for at run time. See
+                // [`Scope::handling`].
+                let exc = exc.or_else(|| self.handling().map(Expr::Local));
                 out.push(Stmt::Raise { exc, cause });
             }
+            StmtKind::Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => self.lower_try(body, handlers, orelse, finalbody, out)?,
             other => {
                 return Err(Failed::Unsupported(Unsupported {
                     what: statement_name(other),
@@ -1390,6 +1410,123 @@ impl Lower {
         Ok(())
     }
 
+    /// What the innermost `except` clause being lowered caught, if there is
+    /// one in this frame.
+    fn handling(&self) -> Option<Local> {
+        self.scope().handling.last().copied()
+    }
+
+    /// `try: body except ...: ... else: orelse finally: finalbody`.
+    ///
+    /// The `except` clauses become a chain of ifs over one slot, so that the
+    /// order they are written in is the order they are tried in and so that an
+    /// exception nothing matched carries on out as a `raise` of the slot. See
+    /// [`Catch`].
+    fn lower_try(
+        &mut self,
+        body: &[AStmt],
+        handlers: &[ExceptHandler],
+        orelse: &[AStmt],
+        finalbody: &[AStmt],
+        out: &mut Block,
+    ) -> Result<()> {
+        let guarded = self.lower_block(body)?;
+        let catch = if handlers.is_empty() {
+            None
+        } else {
+            Some(self.lower_handlers(handlers)?)
+        };
+        out.push(Stmt::Try {
+            body: guarded,
+            catch,
+            orelse: self.lower_block(orelse)?,
+            finally: self.lower_block(finalbody)?,
+        });
+        Ok(())
+    }
+
+    /// The `except` clauses, as one block.
+    ///
+    /// Built from the last clause backwards, because each one's `else` is
+    /// everything after it and the innermost `else` of all is the `raise` that
+    /// lets an exception nothing matched keep going.
+    fn lower_handlers(&mut self, handlers: &[ExceptHandler]) -> Result<Catch> {
+        let caught = self.temp();
+        let mut chain = Block::from([Stmt::Raise {
+            exc: Some(Expr::Local(caught)),
+            cause: None,
+        }]);
+        for handler in handlers.iter().rev() {
+            let body = self.lower_handler(caught, handler)?;
+            let Some(test) = &handler.type_ else {
+                // A bare `except` catches everything, so nothing after it can
+                // run and the chain it would have been the test of is dropped.
+                // The parser has already refused one written anywhere but last.
+                chain = body;
+                continue;
+            };
+            // The test is lowered into the block in front of the `if` rather
+            // than into the block the whole `try` sits in, because a clause
+            // whose class is a call has to run that call when the clause is
+            // reached and not before the body it is guarding.
+            let mut clause = Block::new();
+            let test = self.lower_expr(test, &mut clause)?;
+            clause.push(Stmt::If {
+                test: Expr::Matches {
+                    caught,
+                    test: test.boxed(),
+                },
+                then: body,
+                orelse: chain,
+            });
+            chain = clause;
+        }
+        Ok(Catch {
+            caught,
+            block: chain,
+        })
+    }
+
+    /// One `except` clause's body, with whatever its `as` clause asks for
+    /// around it.
+    ///
+    /// `except E as e` binds the exception on the way in and takes the name
+    /// away again on the way out, which is why an `e` left over from a handler
+    /// is a `NameError` and not the exception. The taking away is a `finally`
+    /// so that it happens even when the handler raises, and it assigns `None`
+    /// before the `del` so that a handler which deleted the name itself does
+    /// not turn the cleanup into a second exception. That is the shape CPython
+    /// compiles it into, for the same reasons.
+    fn lower_handler(&mut self, caught: Local, handler: &ExceptHandler) -> Result<Block> {
+        self.scope_mut().handling.push(caught);
+        let body = self.lower_block(&handler.body);
+        self.scope_mut().handling.pop();
+        let body = body?;
+
+        let Some(name) = &handler.name else {
+            return Ok(body);
+        };
+        let place = self.write(name);
+        Ok(Block::from([
+            Stmt::Store {
+                place: place.clone(),
+                value: Expr::Local(caught),
+            },
+            Stmt::Try {
+                body,
+                catch: None,
+                orelse: Block::new(),
+                finally: Block::from([
+                    Stmt::Store {
+                        place: place.clone(),
+                        value: Expr::Const(kohebi_parse::Value::None),
+                    },
+                    Stmt::Delete(place),
+                ]),
+            },
+        ]))
+    }
+
     /// `for target in iter: body else: orelse`, as the protocol it is.
     fn lower_for(
         &mut self,
@@ -1815,7 +1952,7 @@ fn statement_name(kind: &StmtKind) -> &'static str {
         StmtKind::With { .. } => "a with statement",
         StmtKind::AsyncWith { .. } => "an async with statement",
         StmtKind::Match { .. } => "a match statement",
-        StmtKind::Try { .. } | StmtKind::TryStar { .. } => "a try statement",
+        StmtKind::TryStar { .. } => "an except* clause",
         StmtKind::Assert { .. } => "an assert statement",
         StmtKind::Import { .. } | StmtKind::ImportFrom { .. } => "an import",
         StmtKind::Nonlocal { .. } => "a nonlocal declaration",

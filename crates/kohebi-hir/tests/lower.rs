@@ -811,6 +811,110 @@ fn a_walrus_a_comprehension_could_not_place_is_a_syntax_error() {
     );
 }
 
+// Exceptions
+
+/// The `except` clauses become a chain of ifs over one slot, ending in a
+/// `raise` of that slot, so the order they are tried in and the fact that an
+/// unmatched exception keeps going are both there to read.
+#[test]
+fn the_except_clauses_become_a_chain_of_ifs_over_one_slot() {
+    assert_eq!(
+        hir("try:\n    f()\nexcept ValueError:\n    g()\nexcept KeyError:\n    h()\n"),
+        "try:\n\
+        \x20   eval f()\n\
+         except $0:\n\
+        \x20   if matches($0, ValueError):\n\
+        \x20       eval g()\n\
+        \x20   else:\n\
+        \x20       if matches($0, KeyError):\n\
+        \x20           eval h()\n\
+        \x20       else:\n\
+        \x20           raise $0"
+    );
+}
+
+/// A bare `except` catches everything, so it ends the chain and nothing after
+/// it is lowered at all.
+#[test]
+fn a_bare_except_ends_the_chain() {
+    assert_eq!(
+        hir("try:\n    f()\nexcept:\n    g()\n"),
+        "try:\n\
+        \x20   eval f()\n\
+         except $0:\n\
+        \x20   eval g()"
+    );
+}
+
+/// `as` binds the name on the way in and takes it away on the way out, in a
+/// `finally` so that a handler which raised still loses the name, and writing
+/// `None` first so that a handler which deleted it does not turn the cleanup
+/// into a second exception.
+#[test]
+fn an_as_clause_binds_the_name_and_then_takes_it_away() {
+    assert_eq!(
+        hir("try:\n    f()\nexcept ValueError as e:\n    g(e)\n"),
+        "try:\n\
+        \x20   eval f()\n\
+         except $0:\n\
+        \x20   if matches($0, ValueError):\n\
+        \x20       e = $0\n\
+        \x20       try:\n\
+        \x20           eval g(e)\n\
+        \x20       finally:\n\
+        \x20           e = None\n\
+        \x20           delete e\n\
+        \x20   else:\n\
+        \x20       raise $0"
+    );
+}
+
+/// A `try` with no `except` has no slot for one, because there is nothing to
+/// test and nothing to bind.
+#[test]
+fn a_try_with_only_a_finally_has_no_slot_for_an_exception() {
+    assert_eq!(
+        hir("try:\n    f()\nfinally:\n    g()\n"),
+        "try:\n\
+        \x20   eval f()\n\
+         finally:\n\
+        \x20   eval g()"
+    );
+}
+
+/// A bare `raise` written inside a handler names the slot that handler caught
+/// into, so re-raising is reading a slot rather than asking the interpreter
+/// what it was in the middle of.
+#[test]
+fn a_bare_raise_in_a_handler_names_what_it_caught() {
+    assert_eq!(
+        hir("try:\n    f()\nexcept ValueError:\n    raise\n"),
+        "try:\n\
+        \x20   eval f()\n\
+         except $0:\n\
+        \x20   if matches($0, ValueError):\n\
+        \x20       raise $0\n\
+        \x20   else:\n\
+        \x20       raise $0"
+    );
+    // A `def` inside a handler is a different frame, so a bare `raise` in it
+    // re-raises whatever is being handled when it is called rather than what
+    // was being handled where it was written.
+    assert_eq!(
+        whole("try:\n    f()\nexcept ValueError:\n    def again():\n        raise\n"),
+        "body <test>:\n\
+        \x20   try:\n\
+        \x20       eval f()\n\
+        \x20   except $0:\n\
+        \x20       if matches($0, ValueError):\n\
+        \x20           again = function again()\n\
+        \x20       else:\n\
+        \x20           raise $0\n\
+         body again():\n\
+        \x20   raise"
+    );
+}
+
 // What is not done yet
 
 #[test]
@@ -830,5 +934,9 @@ fn an_unlowered_construct_says_what_it_was_and_where() {
     assert_eq!(
         refused("import os\n"),
         "line 1: an import is not lowered yet"
+    );
+    assert_eq!(
+        refused("try:\n    f()\nexcept* ValueError:\n    pass\n"),
+        "line 1: an except* clause is not lowered yet"
     );
 }

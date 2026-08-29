@@ -1882,8 +1882,13 @@ fn offset(index: &Int, len: usize, seq: Seq, write: Write) -> Result<usize> {
 }
 
 /// `KeyError`, which prints the key itself rather than a sentence about it.
+///
+/// Built out of the key rather than out of a message, so that a handler
+/// catching it gets the key back. A `KeyError` is the one exception whose
+/// message is already a `repr`, and rebuilding one from its message would put a
+/// second pair of quotes around a string key.
 fn missing_key(key: &Object) -> Error {
-    Error::new(Kind::KeyError, key.repr())
+    Error::raised(Kind::KeyError, vec![key.clone()])
 }
 
 /// The `TypeError` for a value that has no subscript at all.

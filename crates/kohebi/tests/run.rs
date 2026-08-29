@@ -85,6 +85,34 @@ fn a_raise_that_nothing_catches_prints_the_chain_it_came_from() {
     );
 }
 
+/// A caught exception is not a failure, which is the whole point of catching
+/// it, so the program prints what it meant to print and leaves with a zero.
+#[test]
+fn an_exception_a_handler_caught_is_not_a_failure() {
+    let file = source(
+        "caught",
+        "try:\n    print(1 / 0)\nexcept ZeroDivisionError as e:\n    print('caught', e)\n",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(out, "caught division by zero\n");
+    assert_eq!(err, "");
+}
+
+/// A `finally` runs on the way out that failed as well as on the one that
+/// worked, and the exception it interrupted still reaches the top afterwards.
+#[test]
+fn a_finally_runs_before_an_exception_leaves_the_program() {
+    let file = source(
+        "cleanup",
+        "try:\n    raise ValueError('a')\nfinally:\n    print('cleaning up')\n",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(!ok);
+    assert_eq!(out, "cleaning up\n");
+    assert_eq!(err, "ValueError: a\n");
+}
+
 /// `SystemExit` is the one exception that is asking for something rather than
 /// reporting something, so it sets the status and says nothing. A status is a
 /// byte, which is why 256 is a success.

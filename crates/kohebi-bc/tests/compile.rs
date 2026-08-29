@@ -489,3 +489,74 @@ fn a_del_of_a_shared_name_empties_the_cell_rather_than_the_register() {
     assert!(listing.contains("clearcell  r0"), "{listing}");
     assert!(!listing.contains("dellocal"), "{listing}");
 }
+
+/// The four clauses become two regions with the handlers in between them.
+///
+/// The `endtry` closing the body comes before the `else`, which is the whole of
+/// what makes an exception in an `else` not something the handlers catch, and
+/// the `finally` is written out twice, once for the way out that worked and
+/// once for the way out that did not.
+#[test]
+fn a_try_is_two_regions_with_the_clauses_in_between() {
+    let listing =
+        bc("try:\n    f()\nexcept ValueError:\n    g()\nelse:\n    h()\nfinally:\n    k()\n");
+    let lines: Vec<&str> = listing.lines().collect();
+    assert!(lines[0].contains("try        19, r1"), "{listing}");
+    assert!(lines[1].contains("try        8, r0"), "{listing}");
+    // The body, then the handlers stop guarding, then the `else`.
+    assert!(lines[4].contains("endtry"), "{listing}");
+    assert!(lines[5].contains("getglobal  r3, h"), "{listing}");
+    // The handlers, which test the class and re-raise what nothing matched.
+    assert!(lines[9].contains("matches    r2, r0, r3"), "{listing}");
+    assert!(lines[14].contains("raise      r0"), "{listing}");
+    // The `finally`, once on the way out that worked and once on the one that
+    // did not, which is where the second copy raises what it was carrying.
+    assert!(lines[15].contains("endtry"), "{listing}");
+    assert!(lines[17].contains("call       r2, r3()"), "{listing}");
+    assert!(lines[19].contains("getglobal  r3, k"), "{listing}");
+    assert!(lines[21].contains("raise      r1"), "{listing}");
+}
+
+/// A `try` with no `except` pushes one region rather than two, since there is
+/// nothing to test and nowhere for a matched exception to go.
+#[test]
+fn a_try_with_only_a_finally_is_one_region() {
+    let listing = bc("try:\n    f()\nfinally:\n    g()\n");
+    assert_eq!(listing.matches("try  ").count(), 1, "{listing}");
+    assert_eq!(listing.matches("endtry").count(), 1, "{listing}");
+    assert!(!listing.contains("matches"), "{listing}");
+}
+
+/// A `return` inside a `try` settles its value before the clause runs, because
+/// the clause is allowed to change what the value was read out of.
+#[test]
+fn a_return_holds_its_value_before_the_finally_runs() {
+    let listing =
+        bc("def f():\n    x = 1\n    try:\n        return x\n    finally:\n        x = 2\n");
+    let body: Vec<&str> = listing
+        .lines()
+        .skip_while(|line| !line.starts_with("code f"))
+        .collect();
+    // The value is copied out of the slot, then the region closes, then the
+    // clause runs, and only then does the frame leave with the copy.
+    assert!(body[3].contains("move       r2, r0"), "{listing}");
+    assert!(body[4].contains("endtry"), "{listing}");
+    assert!(body[6].contains("ret        r2"), "{listing}");
+}
+
+/// A `break` inside a `try` takes the region off and runs the clause before it
+/// goes, which is the only reason it is not a jump.
+#[test]
+fn a_break_leaves_the_regions_it_is_inside() {
+    let listing = bc("for i in xs:\n    try:\n        break\n    finally:\n        g()\n");
+    let lines: Vec<&str> = listing.lines().collect();
+    assert!(lines[6].contains("try  "), "{listing}");
+    assert!(lines[7].contains("endtry"), "{listing}");
+    assert!(lines[9].contains("call       r3, r4()"), "{listing}");
+    assert_eq!(target(lines[10]), 19, "{listing}");
+    // And a `break` in a loop that is not inside the `try` leaves nothing,
+    // because it is not leaving anything.
+    let listing = bc("try:\n    for i in xs:\n        break\nfinally:\n    g()\n");
+    let lines: Vec<&str> = listing.lines().collect();
+    assert!(!lines[6].contains("endtry"), "{listing}");
+}
