@@ -8,11 +8,14 @@
 //! suggestion costs a reparse per candidate, which is why there are so many
 //! guards on how much it will look at and how many it will try.
 //!
-//! Two of those guards are worth knowing about because they are the reason
-//! most misspellings get no suggestion at all. The source it looks at starts
-//! at line 1 of the file rather than at the statement that failed, and it gives
-//! up if that comes to more than 1024 characters. A typo on line 40 of anything
-//! real is past the limit and stays `invalid syntax`.
+//! Two of those guards decide how often a suggestion appears at all. It gives
+//! up if the source it is about to read comes to more than 1024 characters, and
+//! it only tries ten names before it stops. What saves most files from the
+//! first is where the reading starts, which is not line 1: the exception
+//! carries the line the last compound statement above the error began on, and
+//! that is where it starts. A typo three lines into an `if` deep in a large
+//! file gets a suggestion, and the same typo with nothing but simple statements
+//! for a thousand characters above it does not.
 //!
 //! Which keywords look like the name is [`crate::suggest`]. This module is the
 //! rest of it: which names to try, in which order, and what counts as a
@@ -44,7 +47,7 @@ pub(crate) fn keyword_typo(error: &SyntaxError, source: &str) -> Option<SyntaxEr
     }
     let offset = error.offset()?;
     let end_line = LineMap::new(source).line_of(offset) as usize;
-    let prefix = Prefix::new(source, end_line);
+    let prefix = Prefix::new(source, error.last_statement as usize, end_line);
     if prefix.code.len() > SOURCE_LIMIT {
         return None;
     }
@@ -78,6 +81,7 @@ pub(crate) fn keyword_typo(error: &SyntaxError, source: &str) -> Option<SyntaxEr
                 class: error.class,
                 message: Cow::Owned(format!("invalid syntax. Did you mean '{keyword}'?")),
                 site: Site::Span(prefix.back(token.span)),
+                last_statement: error.last_statement,
             });
         }
     }
@@ -130,7 +134,10 @@ fn ran_out_of_input(error: &SyntaxError, code: &str) -> bool {
             .message
             .starts_with("unterminated triple-quoted string literal")
     {
-        return true;
+        // The bracket is only forgiven when nothing above it is wrong. It is
+        // still the message either way, so the message cannot settle it and
+        // [`crate::parser::unfinished_module`] has to.
+        return crate::parser::unfinished_module(code);
     }
     let Some(offset) = error.offset() else {
         return false;
@@ -150,13 +157,15 @@ fn ran_out_of_input(error: &SyntaxError, code: &str) -> bool {
     error.message == "invalid syntax" && offset as usize == code.len()
 }
 
-/// The source up to and including the line that failed, dedented, and the way
-/// back from an offset in it to an offset in the file.
+/// The statement the error is in, dedented, and the way back from an offset in
+/// it to an offset in the file.
 ///
-/// The dedent is `textwrap.dedent` and is almost always a no-op, since this
-/// starts at line 1 of the file and line 1 of a file is not indented. It is
-/// here because CPython does it and because the one file where it is not a
-/// no-op should not come out with its carets in the wrong column.
+/// It runs from the line the last compound statement above the error began on,
+/// or from line 1 when there was none, down to and including the line that
+/// failed. The dedent is `textwrap.dedent`, and here it earns its keep: a
+/// prefix that starts inside a nested block is indented on every line, and the
+/// tokens are read from the dedented copy, so a span has to be moved back
+/// before it means anything in the file.
 struct Prefix {
     code: String,
     /// Byte offset in the file of the start of each line of `code`.
@@ -166,14 +175,26 @@ struct Prefix {
 }
 
 impl Prefix {
-    fn new(source: &str, end_line: usize) -> Self {
-        let lines: Vec<&str> = source.split('\n').take(end_line).collect();
+    /// `start_line` is one based and may be zero for none, which is the shape
+    /// CPython stores it in and the reason for the `saturating_sub` here.
+    fn new(source: &str, start_line: usize, end_line: usize) -> Self {
+        let first = start_line.saturating_sub(1);
+        let lines: Vec<&str> = source.split('\n').take(end_line).skip(first).collect();
         let margin = common_indent(&lines);
 
         let mut code = String::new();
         let mut starts = Vec::with_capacity(lines.len());
         let mut margins = Vec::with_capacity(lines.len());
-        let mut at = 0u32;
+        // Where the first line kept starts in the file, since the offsets below
+        // are the file's rather than the prefix's.
+        let mut at = u32::try_from(
+            source
+                .split('\n')
+                .take(first)
+                .map(|line| line.len() + 1)
+                .sum::<usize>(),
+        )
+        .unwrap_or(u32::MAX);
         for (index, line) in lines.iter().enumerate() {
             if index > 0 {
                 code.push('\n');
@@ -285,10 +306,54 @@ mod tests {
 
     #[test]
     fn too_much_source_above_the_error_and_it_gives_up() {
+        // Nothing but simple statements above, so there is no compound one to
+        // start the reading at and the whole file is over the limit.
         let mut source = "x = 1\n".repeat(200);
         source.push_str("impot os\n");
         assert!(source.len() > SOURCE_LIMIT);
         assert_eq!(suggestion(&source), None);
+    }
+
+    #[test]
+    fn a_compound_statement_above_the_error_brings_it_back() {
+        // The same file with an `if` that closed just above the typo. Reading
+        // starts there rather than at line 1, so the limit is nowhere near.
+        let mut source = "x = 1\n".repeat(200);
+        source.push_str("if x:\n    pass\nimpot os\n");
+        assert_eq!(
+            suggestion(&source).as_deref(),
+            Some("invalid syntax. Did you mean 'import'?")
+        );
+    }
+
+    #[test]
+    fn a_def_above_the_error_does_not() {
+        // A valid `def` is matched by the rule that exists to explain a broken
+        // one, and that rule registers nothing, so this is back over the limit.
+        let mut source = "x = 1\n".repeat(200);
+        source.push_str("def f():\n    pass\nimpot os\n");
+        assert_eq!(suggestion(&source), None);
+    }
+
+    #[test]
+    fn a_statement_the_error_is_inside_has_not_closed_yet() {
+        // The `if` here never finishes parsing, so it is never registered and
+        // the reading still starts at line 1.
+        let mut source = "x = 1\n".repeat(200);
+        source.push_str("if x:\n    impot os\n");
+        assert_eq!(suggestion(&source), None);
+    }
+
+    #[test]
+    fn a_bracket_left_open_is_only_forgiven_over_sound_source() {
+        use crate::parser::unfinished_module;
+        assert!(unfinished_module("f(a,\n"));
+        assert!(unfinished_module("if a:\n    pass\nf(a,\n"));
+        assert!(unfinished_module("x = '''abc\n"));
+        // Same messages, and neither of these is a file that merely stops.
+        assert!(!unfinished_module("f(\n    a b,\n"));
+        assert!(!unfinished_module("x = ,\nf(a,\n"));
+        assert!(!unfinished_module("x = ,\ny = '''abc\n"));
     }
 
     #[test]
@@ -303,14 +368,14 @@ mod tests {
     fn a_dedented_prefix_still_points_into_the_file() {
         // Every line indented by the same two spaces, which is a file CPython
         // refuses for the indent, but the mapping back is what is under test.
-        let prefix = Prefix::new("  a = 1\n  impot os\n", 2);
+        let prefix = Prefix::new("  a = 1\n  impot os\n", 0, 2);
         assert_eq!(prefix.code, "a = 1\nimpot os");
         assert_eq!(prefix.back(Span::new(6, 11)), Span::new(10, 15));
     }
 
     #[test]
     fn a_blank_line_in_the_prefix_does_not_hold_the_margin_open() {
-        let prefix = Prefix::new("  a = 1\n\n  b = 2\n", 3);
+        let prefix = Prefix::new("  a = 1\n\n  b = 2\n", 0, 3);
         assert_eq!(prefix.code, "a = 1\n\nb = 2");
     }
 }

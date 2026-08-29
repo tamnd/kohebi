@@ -55,6 +55,7 @@ impl Parser<'_> {
         let mark = self.pos;
         let error = match self.match_statement() {
             Ok(stmt) => {
+                self.registered(&stmt);
                 body.push(stmt);
                 return Ok(());
             }

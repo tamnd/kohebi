@@ -624,6 +624,25 @@ CASES = [
     "def f():\n\t x = ]\n",
     "def f():\n\tx = 'a\n",
     "def f():\n\tx = {1: 2, 3}\n",
+    # The keyword suggestion reads the source from the last compound statement
+    # that finished above the error rather than from line 1, so how much is
+    # above it decides whether a suggestion appears at all. A `def` is the
+    # exception and never counts.
+    "if x:\n    pass\nimpot os\n",
+    "if x:\n    impot os\n",
+    "class C:\n    pass\nwhille x:\n    pass\n",
+    "for i in x:\n    def g():\n        pass\nretur 1\n",
+    "try:\n    pass\nexcept E:\n    pass\nfro x in y:\n    pass\n",
+    "match x:\n    case 1:\n        pass\nwiht a:\n    pass\n",
+    "while x:\n    pass\nwith y:\n    pass\nimpot os\n",
+    "if x:\n    if y:\n        pass\n    impot os\n",
+    # A candidate is only a fix if the rest of what was read is sound. Both of
+    # these are cut off inside a bracket, and `codeop` forgives a file that
+    # only stops early without forgiving one that is also wrong further up, so
+    # swapping `None` in for `name` here is not a fix and gets no suggestion.
+    "if x:\n    pass\nf(\n    name= =1,\n    b=2,\n)\n",
+    "if x:\n    pass\nf(\n    name=1,\n    b= =2,\n)\n",
+    "if x:\n    pass\nf(impot,\n",
 ]
 
 

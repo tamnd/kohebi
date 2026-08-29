@@ -85,6 +85,14 @@ pub struct SyntaxError {
     pub class: ErrorClass,
     pub message: Cow<'static, str>,
     pub site: Site,
+    /// The line the last compound statement before the error began on, or zero.
+    ///
+    /// CPython hangs this off the exception as `_metadata` and exactly one
+    /// thing reads it: the keyword suggestion pass, which starts reading the
+    /// source there. It is the difference between `impot os` on line 200 of a
+    /// file getting a suggestion and getting nothing, so it has to travel with
+    /// the error rather than be worked out again later.
+    pub last_statement: u32,
 }
 
 impl SyntaxError {
@@ -97,6 +105,7 @@ impl SyntaxError {
             class,
             message: message.into(),
             site: Site::Span(span),
+            last_statement: 0,
         }
     }
 
@@ -119,6 +128,7 @@ impl SyntaxError {
             class,
             message: message.into(),
             site,
+            last_statement: 0,
         }
     }
 
@@ -155,14 +165,29 @@ impl SyntaxError {
     #[must_use]
     pub fn report(&self, source: &str, filename: &str) -> String {
         match crate::typo::keyword_typo(self, source) {
-            Some(typo) => typo.block(source, filename),
+            // The `File` line has already been written by the time CPython
+            // looks for a suggestion, so a word found on an earlier line moves
+            // the source line and the carets and leaves the number alone. It
+            // reads like a bug and prints often enough to have to be kept.
+            Some(typo) => typo.block_at(source, filename, self.shown_line(source)),
             None => self.block(source, filename),
         }
+    }
+
+    /// The line number this error prints, before any suggestion is found.
+    fn shown_line(&self, source: &str) -> Option<u32> {
+        let at = self.offset()?;
+        Some(LineMap::new(source).position(at).line)
     }
 
     /// `report` without the suggestion pass, which is the half that does the
     /// printing.
     fn block(&self, source: &str, filename: &str) -> String {
+        self.block_at(source, filename, None)
+    }
+
+    /// `block`, with the option of printing a line number other than its own.
+    fn block_at(&self, source: &str, filename: &str, lineno: Option<u32>) -> String {
         let at = match self.site {
             Site::Message => return self.to_string(),
             Site::File => return format!("  File \"{filename}\", line 0\n{self}"),
@@ -187,7 +212,8 @@ impl SyntaxError {
         // it to be.
         let spaces = rtext.len() - ltext.len();
 
-        let mut out = format!("  File \"{filename}\", line {}\n    {ltext}\n", start.line);
+        let shown = lineno.unwrap_or(start.line);
+        let mut out = format!("  File \"{filename}\", line {shown}\n    {ltext}\n");
         let Site::Span(span) = self.site else {
             out.push_str(&self.to_string());
             return out;

@@ -391,3 +391,14 @@ SyntaxError	def f():\n\treturn 1 2\n	  File "<case>", line 2\n    \treturn 1 2\n
 SyntaxError	def f():\n\t x = ]\n	  File "<case>", line 2\n    \t x = ]\n    \t     ^\nSyntaxError: unmatched ']'
 SyntaxError	def f():\n\tx = 'a\n	  File "<case>", line 2\n    \tx = 'a\n    \t    ^\nSyntaxError: unterminated string literal (detected at line 2)
 SyntaxError	def f():\n\tx = {1: 2, 3}\n	  File "<case>", line 2\n    \tx = {1: 2, 3}\n    \t           ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	if x:\n    pass\nimpot os\n	  File "<case>", line 3\n    impot os\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'import'?
+SyntaxError	if x:\n    impot os\n	  File "<case>", line 2\n    impot os\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'import'?
+SyntaxError	class C:\n    pass\nwhille x:\n    pass\n	  File "<case>", line 3\n    whille x:\n    ^^^^^^\nSyntaxError: invalid syntax. Did you mean 'while'?
+SyntaxError	for i in x:\n    def g():\n        pass\nretur 1\n	  File "<case>", line 4\n    retur 1\n          ^\nSyntaxError: invalid syntax
+SyntaxError	try:\n    pass\nexcept E:\n    pass\nfro x in y:\n    pass\n	  File "<case>", line 5\n    fro x in y:\n    ^^^\nSyntaxError: invalid syntax. Did you mean 'for'?
+SyntaxError	match x:\n    case 1:\n        pass\nwiht a:\n    pass\n	  File "<case>", line 4\n    wiht a:\n    ^^^^\nSyntaxError: invalid syntax. Did you mean 'with'?
+SyntaxError	while x:\n    pass\nwith y:\n    pass\nimpot os\n	  File "<case>", line 5\n    impot os\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'import'?
+SyntaxError	if x:\n    if y:\n        pass\n    impot os\n	  File "<case>", line 4\n    impot os\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'import'?
+SyntaxError	if x:\n    pass\nf(\n    name= =1,\n    b=2,\n)\n	  File "<case>", line 4\n    name= =1,\n          ^\nSyntaxError: invalid syntax
+SyntaxError	if x:\n    pass\nf(\n    name=1,\n    b= =2,\n)\n	  File "<case>", line 5\n    b= =2,\n       ^\nSyntaxError: invalid syntax
+SyntaxError	if x:\n    pass\nf(impot,\n	  File "<case>", line 3\n    f(impot,\n     ^\nSyntaxError: '(' was never closed
