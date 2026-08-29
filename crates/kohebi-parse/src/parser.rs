@@ -2393,8 +2393,9 @@ impl<'a> Parser<'a> {
             return self.dict_body(open, Vec::new(), Vec::new());
         }
         let first = self.star_named_expression()?;
-        if self.eat(TokenKind::Colon) {
-            let value = self.expression()?;
+        if self.at(TokenKind::Colon) {
+            let colon = self.bump().span;
+            let value = self.dict_value(colon)?;
             if self.at_comprehension() {
                 let generators = self.comprehension_clauses()?;
                 let close = self.expect(TokenKind::RBrace)?;
@@ -2451,9 +2452,10 @@ impl<'a> Parser<'a> {
                 keys.push(None);
                 values.push(self.binary(1)?);
             } else {
-                keys.push(Some(self.expression()?));
-                self.expect(TokenKind::Colon)?;
-                values.push(self.expression()?);
+                let key = self.expression()?;
+                let colon = self.dict_colon(&key)?;
+                keys.push(Some(key));
+                values.push(self.dict_value(colon)?);
             }
             if !self.eat(TokenKind::Comma) {
                 break;
@@ -2461,6 +2463,70 @@ impl<'a> Parser<'a> {
         }
         let close = self.expect(TokenKind::RBrace)?;
         Ok(self.expr(ExprKind::Dict { keys, values }, open.start, close.span.end))
+    }
+
+    /// The `:` between a dict key and its value, and what a missing one says.
+    ///
+    /// `{"a": 1, "b"}` is a dict with a comma where a colon was meant. CPython
+    /// points at the last character of the key rather than at the space after
+    /// it where the colon would go, and it gives the error no end position at
+    /// all, so what comes out is a single caret. Both of those are the shape of
+    /// the rule rather than a choice about what reads well.
+    ///
+    /// This only asks the question once a dict is already what it is, which is
+    /// why `{a, b: 1}` gets the ordinary refusal instead. CPython needs a good
+    /// pair in front of the bad one before it will say anything.
+    fn dict_colon(&mut self, key: &Expr) -> Result<Span> {
+        if self.at(TokenKind::Colon) {
+            return Ok(self.bump().span);
+        }
+        if self.no_diagnostics {
+            self.expect(TokenKind::Colon)?;
+        }
+        let mut at = self.span_of(key).end.saturating_sub(1) as usize;
+        // A key ending in a character that takes more than one byte would leave
+        // that offset in the middle of it, so it walks back to the front of it.
+        while at > 0 && !self.source.is_char_boundary(at) {
+            at -= 1;
+        }
+        self.raised_diagnostic = true;
+        let at = u32::try_from(at).unwrap_or(u32::MAX);
+        Err(Self::error(
+            "':' expected after dictionary key",
+            Span::new(at, self.span_of(key).end),
+        ))
+    }
+
+    /// The value half of a dict entry, once the `:` has been read.
+    ///
+    /// Two ways it goes wrong, and neither points where you would expect.
+    /// Nothing at all after the colon is blamed on the colon rather than on the
+    /// space the value would have gone in. A `*` is refused because a dict
+    /// takes `**` for a whole mapping and has no use for a single star, and the
+    /// message says value even though the rule that raises it is the one about
+    /// keys.
+    fn dict_value(&mut self, colon: Span) -> Result<Expr> {
+        if self.no_diagnostics {
+            return self.expression();
+        }
+        if self.at(TokenKind::RBrace) || self.at(TokenKind::Comma) {
+            self.raised_diagnostic = true;
+            return Err(Self::error(
+                "expression expected after dictionary key and ':'",
+                colon,
+            ));
+        }
+        if !self.at(TokenKind::Star) {
+            return self.expression();
+        }
+        let start = self.offset();
+        self.bump();
+        self.binary(1)?;
+        self.raised_diagnostic = true;
+        Err(Self::error(
+            "cannot use a starred expression in a dictionary value",
+            Span::new(start, self.prev_end()),
+        ))
     }
 
     /// Elements after the first, up to a closing bracket, trailing comma allowed.

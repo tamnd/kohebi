@@ -343,3 +343,20 @@ SyntaxError	[lambda: x:=1]\n	  File "<case>", line 1\n    [lambda: x:=1]\n     ^
 SyntaxError	[a+b:=1]\n	  File "<case>", line 1\n    [a+b:=1]\n     ^^^\nSyntaxError: cannot use assignment expressions with expression
 SyntaxError	f(a.b:=1)\n	  File "<case>", line 1\n    f(a.b:=1)\n         ^^\nSyntaxError: invalid syntax
 SyntaxError	class C(a.b=1): pass\n	  File "<case>", line 1\n    class C(a.b=1): pass\n            ^^^^\nSyntaxError: expression cannot contain assignment, perhaps you meant "=="?
+SyntaxError	{a: 1, b}\n	  File "<case>", line 1\n    {a: 1, b}\n           ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{a: 1, b, c: 2}\n	  File "<case>", line 1\n    {a: 1, b, c: 2}\n           ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{**a, b}\n	  File "<case>", line 1\n    {**a, b}\n          ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{f(): 1, g()}\n	  File "<case>", line 1\n    {f(): 1, g()}\n               ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{a: 1, b if c else d}\n	  File "<case>", line 1\n    {a: 1, b if c else d}\n                       ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{a: 1, b := 2, c: 3}\n	  File "<case>", line 1\n    {a: 1, b := 2, c: 3}\n           ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{a: 1, 'eé'}\n	  File "<case>", line 1\n    {a: 1, 'eé'}\n              ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	x = {\n    'a': 1,\n    'b',\n}\n	  File "<case>", line 3\n    'b',\n      ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{a:}\n	  File "<case>", line 1\n    {a:}\n      ^\nSyntaxError: expression expected after dictionary key and ':'
+SyntaxError	{a: }\n	  File "<case>", line 1\n    {a: }\n      ^\nSyntaxError: expression expected after dictionary key and ':'
+SyntaxError	{a: 1, b:}\n	  File "<case>", line 1\n    {a: 1, b:}\n            ^\nSyntaxError: expression expected after dictionary key and ':'
+SyntaxError	{a: *b}\n	  File "<case>", line 1\n    {a: *b}\n        ^^\nSyntaxError: cannot use a starred expression in a dictionary value
+SyntaxError	{a: 1, b: *c, d: 2}\n	  File "<case>", line 1\n    {a: 1, b: *c, d: 2}\n              ^^\nSyntaxError: cannot use a starred expression in a dictionary value
+SyntaxError	{a, b: 1}\n	  File "<case>", line 1\n    {a, b: 1}\n         ^\nSyntaxError: invalid syntax
+SyntaxError	{*a, b: 1}\n	  File "<case>", line 1\n    {*a, b: 1}\n          ^\nSyntaxError: invalid syntax
+SyntaxError	{a: 1, *b}\n	  File "<case>", line 1\n    {a: 1, *b}\n           ^\nSyntaxError: invalid syntax
+SyntaxError	{a: *}\n	  File "<case>", line 1\n    {a: *}\n         ^\nSyntaxError: invalid syntax

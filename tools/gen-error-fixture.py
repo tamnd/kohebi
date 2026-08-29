@@ -555,6 +555,30 @@ CASES = [
     # rest of the argument list refusals.
     "f(a.b:=1)\n",
     "class C(a.b=1): pass\n",
+    # A dict entry with something missing. The colon is blamed on the last
+    # character of the key rather than on the space after it, and the error is
+    # raised with no end position, so it comes out as a single caret.
+    "{a: 1, b}\n",
+    "{a: 1, b, c: 2}\n",
+    "{**a, b}\n",
+    "{f(): 1, g()}\n",
+    "{a: 1, b if c else d}\n",
+    "{a: 1, b := 2, c: 3}\n",
+    "{a: 1, 'eé'}\n",
+    "x = {\n    'a': 1,\n    'b',\n}\n",
+    # A missing value is blamed on the colon, and a single star is refused
+    # because a dict takes `**` for a whole mapping and has no use for one.
+    "{a:}\n",
+    "{a: }\n",
+    "{a: 1, b:}\n",
+    "{a: *b}\n",
+    "{a: 1, b: *c, d: 2}\n",
+    # The rule wants a good pair in front of the bad one, so a set that turns
+    # out to be a dict halfway through gets the ordinary refusal.
+    "{a, b: 1}\n",
+    "{*a, b: 1}\n",
+    "{a: 1, *b}\n",
+    "{a: *}\n",
 ]
 
 
