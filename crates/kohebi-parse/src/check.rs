@@ -24,6 +24,14 @@
 //! those are the values it has to have computed by the time the function
 //! object is built. All of this was settled by asking 3.14.7 which of two
 //! errors in one signature it prints.
+//!
+//! The other family here is about a statement being somewhere it is not
+//! allowed: a `return` outside a function, a `break` outside a loop, an `await`
+//! outside an `async def`. What decides those is the innermost scope, and a
+//! scope is not the same thing as a block. `while 1:` indents without being a
+//! scope, `class C:` is a scope without being a function, and a comprehension
+//! is a function that does not look like one, which is why `break` inside a
+//! class inside a loop is refused and `lambda: (yield)` is not.
 
 use crate::ast::{
     Arguments, Comprehension, ExceptHandler, Expr, ExprKind, Ident, Keyword, MatchCase, Pattern,
@@ -88,6 +96,42 @@ enum Phase {
     Codegen,
 }
 
+/// What kind of thing the walk is currently inside.
+///
+/// Half the refusals in this module are about a statement being somewhere it is
+/// not allowed, and what decides that is the innermost scope rather than the
+/// innermost block. `while 1:` and `class C:` both indent, and only one of them
+/// is a scope, which is why `break` inside a class inside a loop is refused.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Module,
+    Class,
+    /// A `def`, an `async def` or a `lambda`.
+    Function {
+        asynchronous: bool,
+    },
+    /// A comprehension, named the way the refusal it can raise names it.
+    ///
+    /// A comprehension is a scope in CPython even though it does not look like
+    /// one, which is the whole reason `[(yield) for x in y]` has a message of
+    /// its own rather than being an ordinary misplaced `yield`.
+    Comprehension(&'static str),
+}
+
+impl Scope {
+    /// Whether CPython would call this a function block.
+    ///
+    /// `_PyST_IsFunctionLike`, which counts lambdas and comprehensions in. Both
+    /// of them really are functions once compiled, so a `return` in a class
+    /// body is refused and a `return` in a lambda is not.
+    const fn function_like(self) -> bool {
+        matches!(self, Self::Function { .. } | Self::Comprehension(_))
+    }
+}
+
+/// Everything about where the walk is that a scope boundary resets.
+type Frame = (Scope, bool, bool);
+
 struct Check<'a> {
     lines: &'a LineMap,
     phase: Phase,
@@ -95,6 +139,15 @@ struct Check<'a> {
     /// first, so a later one is unreachable and is dropped rather than
     /// compared.
     found: Option<SyntaxError>,
+    scope: Scope,
+    /// Whether the scope being walked has turned out to be a coroutine.
+    ///
+    /// `ste_coroutine`. An `async def` is one from the moment it opens. A
+    /// comprehension becomes one by holding an `await` or an `async for`, and
+    /// that is what it is asked about on the way out.
+    coroutine: bool,
+    /// Whether a `break` or `continue` here would have a loop to belong to.
+    in_loop: bool,
 }
 
 impl<'a> Check<'a> {
@@ -103,7 +156,38 @@ impl<'a> Check<'a> {
             lines,
             phase,
             found: None,
+            scope: Scope::Module,
+            coroutine: false,
+            in_loop: false,
         }
+    }
+
+    /// Step into a scope of its own, and hand back what to put back after.
+    ///
+    /// A `break` cannot see a loop outside the function it is written in and an
+    /// `await` cannot see the `async def` outside the class it is written in,
+    /// so all three of these stop at the boundary rather than carrying across.
+    fn enter(&mut self, scope: Scope, coroutine: bool) -> Frame {
+        let saved = (self.scope, self.coroutine, self.in_loop);
+        self.scope = scope;
+        self.coroutine = coroutine;
+        self.in_loop = false;
+        saved
+    }
+
+    /// Step back out, and say whether what was inside turned out to be a
+    /// coroutine.
+    fn leave(&mut self, saved: Frame) -> bool {
+        let inner = self.coroutine;
+        (self.scope, self.coroutine, self.in_loop) = saved;
+        inner
+    }
+
+    /// Walk `body` with a loop around it, and put the old answer back after.
+    fn looping(&mut self, body: &[Stmt]) {
+        let saved = std::mem::replace(&mut self.in_loop, true);
+        self.block(body);
+        self.in_loop = saved;
     }
 
     /// The span a node covers, which is what an error against it points at.
@@ -115,7 +199,12 @@ impl<'a> Check<'a> {
     }
 
     /// Record what this pass refuses, if this is the pass that refuses it.
-    fn refuse(&mut self, phase: Phase, message: String, attrs: crate::ast::Attributes) {
+    fn refuse(
+        &mut self,
+        phase: Phase,
+        message: impl Into<std::borrow::Cow<'static, str>>,
+        attrs: crate::ast::Attributes,
+    ) {
         if self.phase == phase && self.found.is_none() {
             self.found = Some(SyntaxError::syntax(message, self.span(attrs)));
         }
@@ -234,6 +323,7 @@ impl<'a> Check<'a> {
     /// go among them and about nothing else, so that is the only branch.
     fn function(
         &mut self,
+        asynchronous: bool,
         decorators: &[Expr],
         type_params: &[TypeParam],
         args: &Arguments,
@@ -251,7 +341,9 @@ impl<'a> Check<'a> {
             self.defaults(args);
             self.parameters(args);
         }
+        let saved = self.enter(Scope::Function { asynchronous }, asynchronous);
         self.block(body);
+        self.leave(saved);
     }
 
     fn annotations(&mut self, args: &Arguments) {
@@ -283,15 +375,29 @@ impl<'a> Check<'a> {
                 returns,
                 type_params,
                 ..
-            }
-            | StmtKind::AsyncFunctionDef {
+            } => self.function(
+                false,
+                decorator_list,
+                type_params,
+                args,
+                returns.as_ref(),
+                body,
+            ),
+            StmtKind::AsyncFunctionDef {
                 args,
                 body,
                 decorator_list,
                 returns,
                 type_params,
                 ..
-            } => self.function(decorator_list, type_params, args, returns.as_ref(), body),
+            } => self.function(
+                true,
+                decorator_list,
+                type_params,
+                args,
+                returns.as_ref(),
+                body,
+            ),
             StmtKind::ClassDef {
                 bases,
                 keywords,
@@ -304,7 +410,9 @@ impl<'a> Check<'a> {
                 self.type_parameters(type_params);
                 self.each(bases);
                 self.keywords(keywords);
+                let saved = self.enter(Scope::Class, false);
                 self.block(body);
+                self.leave(saved);
             }
             StmtKind::Try {
                 body,
@@ -339,7 +447,14 @@ impl<'a> Check<'a> {
             | StmtKind::ClassDef { .. }
             | StmtKind::Try { .. }
             | StmtKind::TryStar { .. } => unreachable!("handled by the caller"),
-            StmtKind::Return { value } => self.optional(value.as_ref()),
+            StmtKind::Return { value } => {
+                // A class body is not a function however much it looks like
+                // one, and neither is the file itself.
+                if !self.scope.function_like() {
+                    self.refuse(Phase::Codegen, "'return' outside function", stmt.attrs);
+                }
+                self.optional(value.as_ref());
+            }
             StmtKind::Delete { targets } => self.each(targets),
             StmtKind::Assign { targets, value, .. } => {
                 self.each(targets);
@@ -374,25 +489,31 @@ impl<'a> Check<'a> {
                 body,
                 orelse,
                 ..
-            }
-            | StmtKind::AsyncFor {
+            } => self.loop_stmt(Some(target), iter, body, orelse),
+            StmtKind::AsyncFor {
                 target,
                 iter,
                 body,
                 orelse,
                 ..
             } => {
-                self.expr(target);
-                self.expr(iter);
-                self.block(body);
-                self.block(orelse);
+                self.not_a_coroutine("'async for' outside async function", stmt);
+                self.loop_stmt(Some(target), iter, body, orelse);
             }
-            StmtKind::While { test, body, orelse } | StmtKind::If { test, body, orelse } => {
+            StmtKind::While { test, body, orelse } => {
+                self.loop_stmt(None, test, body, orelse);
+            }
+            StmtKind::If { test, body, orelse } => {
                 self.expr(test);
                 self.block(body);
                 self.block(orelse);
             }
-            StmtKind::With { items, body, .. } | StmtKind::AsyncWith { items, body, .. } => {
+            StmtKind::With { items, body, .. } => {
+                self.items(items);
+                self.block(body);
+            }
+            StmtKind::AsyncWith { items, body, .. } => {
+                self.not_a_coroutine("'async with' outside async function", stmt);
                 self.items(items);
                 self.block(body);
             }
@@ -409,13 +530,65 @@ impl<'a> Check<'a> {
                 self.optional(msg.as_ref());
             }
             StmtKind::Expr { value } => self.expr(value),
+            StmtKind::ImportFrom { names, .. } => self.star_import(names),
+            StmtKind::Break | StmtKind::Continue => self.jump(stmt),
             StmtKind::Import { .. }
-            | StmtKind::ImportFrom { .. }
             | StmtKind::Global { .. }
             | StmtKind::Nonlocal { .. }
-            | StmtKind::Pass
-            | StmtKind::Break
-            | StmtKind::Continue => {}
+            | StmtKind::Pass => {}
+        }
+    }
+
+    /// A `for`, an `async for` or a `while`, which differ only at the front.
+    ///
+    /// A `while` has a test where the other two have a target and an iterable,
+    /// and all three are the same shape after that.
+    fn loop_stmt(&mut self, target: Option<&Expr>, iter: &Expr, body: &[Stmt], orelse: &[Stmt]) {
+        self.optional(target);
+        self.expr(iter);
+        self.looping(body);
+        // The `else` of a loop runs once the loop is over, so a `break` in it
+        // has nothing left to break out of. It is still inside whatever the
+        // loop itself was inside, though, which is how `email.header` writes a
+        // `continue` in the `else` of an inner loop and means the outer one.
+        self.block(orelse);
+    }
+
+    /// A `break` or a `continue`, which needs a loop in the same scope.
+    fn jump(&mut self, stmt: &Stmt) {
+        if self.in_loop {
+            return;
+        }
+        let message = if matches!(stmt.kind, StmtKind::Break) {
+            "'break' outside loop"
+        } else {
+            "'continue' not properly in loop"
+        };
+        self.refuse(Phase::Codegen, message, stmt.attrs);
+    }
+
+    /// `from x import *`, which only the module scope can take.
+    ///
+    /// It binds names nobody can work out in advance, and every other scope
+    /// needs to know its names in advance. The carets go under the star and
+    /// nothing else, because CPython raises this against the alias.
+    fn star_import(&mut self, names: &[crate::ast::Alias]) {
+        if self.scope == Scope::Module {
+            return;
+        }
+        for alias in names.iter().filter(|a| &*a.name == "*") {
+            self.refuse(
+                Phase::Symbols,
+                "import * only allowed at module level",
+                alias.attrs,
+            );
+        }
+    }
+
+    /// `async with` and `async for`, which need an `async def` around them.
+    fn not_a_coroutine(&mut self, message: &'static str, stmt: &Stmt) {
+        if !self.coroutine {
+            self.refuse(Phase::Symbols, message, stmt.attrs);
         }
     }
 
@@ -493,7 +666,17 @@ impl<'a> Check<'a> {
             ExprKind::Lambda { args, body } => {
                 self.defaults(args);
                 self.parameters(args);
+                // A lambda is a function, which is why `lambda: (yield)` is a
+                // generator and not a mistake, and it is never an async one,
+                // which is why `await` in one is refused inside an `async def`.
+                let saved = self.enter(
+                    Scope::Function {
+                        asynchronous: false,
+                    },
+                    false,
+                );
                 self.expr(body);
+                self.leave(saved);
             }
             ExprKind::IfExp { test, body, orelse } => {
                 self.expr(test);
@@ -509,30 +692,37 @@ impl<'a> Check<'a> {
             ExprKind::Set { elts } | ExprKind::List { elts, .. } | ExprKind::Tuple { elts, .. } => {
                 self.each(elts);
             }
-            ExprKind::ListComp { elt, generators }
-            | ExprKind::SetComp { elt, generators }
-            | ExprKind::GeneratorExp { elt, generators } => {
-                self.expr(elt);
-                self.generators(generators);
+            ExprKind::ListComp { elt, generators } => {
+                self.comprehension("list comprehension", expr, generators, None, elt);
+            }
+            ExprKind::SetComp { elt, generators } => {
+                self.comprehension("set comprehension", expr, generators, None, elt);
+            }
+            ExprKind::GeneratorExp { elt, generators } => {
+                self.comprehension("generator expression", expr, generators, None, elt);
             }
             ExprKind::DictComp {
                 key,
                 value,
                 generators,
             } => {
-                self.expr(key);
-                self.expr(value);
-                self.generators(generators);
+                // The value before the key, which is the order
+                // `symtable_visit_dictcomp` hands the two of them over in and
+                // is the only reason it is worth passing them separately.
+                self.comprehension("dict comprehension", expr, generators, Some(value), key);
             }
-            ExprKind::Await { value }
-            | ExprKind::YieldFrom { value }
-            | ExprKind::Attribute { value, .. }
-            | ExprKind::Starred { value, .. } => self.expr(value),
+            ExprKind::Await { value } => self.awaited(expr, value),
+            ExprKind::Attribute { value, .. } | ExprKind::Starred { value, .. } => self.expr(value),
             ExprKind::Subscript { value, slice, .. } => {
                 self.expr(value);
                 self.expr(slice);
             }
-            ExprKind::Yield { value } => self.optional(value.as_deref()),
+            ExprKind::Yield { value } => {
+                self.misplaced_yield("'yield' outside function", expr);
+                self.optional(value.as_deref());
+                self.yield_in_comprehension(expr);
+            }
+            ExprKind::YieldFrom { value } => self.yielded_from(expr, value),
             ExprKind::Compare {
                 left, comparators, ..
             } => {
@@ -566,12 +756,113 @@ impl<'a> Check<'a> {
         }
     }
 
-    fn generators(&mut self, generators: &[Comprehension]) {
-        for generator in generators {
+    /// An `await`, which has two refusals and picks between them by scope.
+    ///
+    /// Nothing at all is refused inside a comprehension. It makes the
+    /// comprehension a coroutine instead, and whether that was allowed is asked
+    /// once, on the way out.
+    fn awaited(&mut self, expr: &Expr, value: &Expr) {
+        if !self.scope.function_like() {
+            self.refuse(Phase::Symbols, "'await' outside function", expr.attrs);
+        } else if self.scope
+            == (Scope::Function {
+                asynchronous: false,
+            })
+        {
+            self.refuse(Phase::Symbols, "'await' outside async function", expr.attrs);
+        }
+        self.expr(value);
+        self.coroutine = true;
+    }
+
+    /// A `yield from`, which an `async def` cannot hold even though it is a
+    /// function.
+    fn yielded_from(&mut self, expr: &Expr, value: &Expr) {
+        self.misplaced_yield("'yield from' outside function", expr);
+        if self.scope == (Scope::Function { asynchronous: true }) {
+            self.refuse(
+                Phase::Codegen,
+                "'yield from' inside async function",
+                expr.attrs,
+            );
+        }
+        self.expr(value);
+        // The message says `yield` even for a `yield from`, which is CPython
+        // sharing one function between the two.
+        self.yield_in_comprehension(expr);
+    }
+
+    /// A `yield` that is not inside anything that can hold one.
+    fn misplaced_yield(&mut self, message: &'static str, expr: &Expr) {
+        if !self.scope.function_like() {
+            self.refuse(Phase::Codegen, message, expr.attrs);
+        }
+    }
+
+    /// A `yield` inside a comprehension, which has a message per kind.
+    ///
+    /// Raised after the value has been walked rather than before, so the inner
+    /// one of two nested yields is the one reported.
+    fn yield_in_comprehension(&mut self, expr: &Expr) {
+        if let Scope::Comprehension(kind) = self.scope {
+            self.refuse(Phase::Symbols, format!("'yield' inside {kind}"), expr.attrs);
+        }
+    }
+
+    /// All four comprehensions, which differ only in what they collect.
+    ///
+    /// The outermost iterable is evaluated where the comprehension is written
+    /// and everything else inside it, which is not a detail: `[x for x in await
+    /// y]` in a plain `def` is refused for the `await`, and `[await x for x in
+    /// y]` in the same `def` is refused for the comprehension.
+    fn comprehension(
+        &mut self,
+        kind: &'static str,
+        expr: &Expr,
+        generators: &[Comprehension],
+        value: Option<&Expr>,
+        elt: &Expr,
+    ) {
+        let Some((outermost, rest)) = generators.split_first() else {
+            return;
+        };
+        self.expr(&outermost.iter);
+
+        let saved = self.enter(Scope::Comprehension(kind), outermost.is_async);
+        self.expr(&outermost.target);
+        self.each(&outermost.ifs);
+        for generator in rest {
             self.expr(&generator.target);
             self.expr(&generator.iter);
             self.each(&generator.ifs);
+            if generator.is_async {
+                self.coroutine = true;
+            }
         }
+        self.optional(value);
+        self.expr(elt);
+        let coroutine = self.leave(saved);
+
+        // A generator expression is exempt, because it is not run where it is
+        // written and so has nothing to be awaited from. That is also why it
+        // does not make the comprehension around it a coroutine.
+        let asynchronous = coroutine && kind != "generator expression";
+        if !asynchronous {
+            return;
+        }
+        if self.scope == (Scope::Function { asynchronous: true })
+            || matches!(self.scope, Scope::Comprehension(_))
+        {
+            // Either it is somewhere it can be awaited from, or it is inside
+            // another comprehension which now has the same question to answer.
+            self.coroutine = true;
+            return;
+        }
+        self.refuse(
+            Phase::Symbols,
+            "asynchronous comprehension outside of an asynchronous function",
+            expr.attrs,
+        );
     }
 }
 
@@ -707,6 +998,68 @@ mod tests {
         ] {
             assert!(compile_module(source).is_err(), "{source:?} was accepted");
         }
+    }
+
+    #[test]
+    fn a_statement_can_be_in_the_wrong_place_and_nothing_else() {
+        // The fixture in `tests/error.rs` has the refusals themselves, message
+        // and carets and all. What is left to say here is which programs must
+        // keep compiling, because a scope check that is too eager breaks code
+        // that was always fine and no fixture of bad programs would notice.
+        for source in [
+            // A lambda is a function, so a `yield` in one is a generator.
+            "lambda: (yield)",
+            "def f():\n    lambda: (yield)",
+            // `with`, `try` and `match` all indent without being scopes.
+            "while 1:\n    with a:\n        continue",
+            "while 1:\n    try:\n        break\n    finally:\n        pass",
+            "while 1:\n    match x:\n        case _:\n            break",
+            "for x in y:\n    while 1:\n        break",
+            // The `else` of a loop is not inside that loop and is still inside
+            // whatever the loop was inside, which is how `email.header` writes
+            // a `continue` there and means the outer loop.
+            "for a in b:\n    for c in d:\n        pass\n    else:\n        continue",
+            "while 1:\n    for c in d:\n        pass\n    else:\n        break",
+            // The outermost iterable is evaluated outside the comprehension, so
+            // this `await` belongs to the `async def` around it.
+            "async def f():\n    [x for x in await y]",
+            "async def f():\n    [await x for x in y]",
+            "async def f():\n    [x async for x in y]",
+            "async def f():\n    [[await x for x in y] for z in w]",
+            // A generator expression is not run where it is written, so it is
+            // exempt, and it does not hand its coroutine-ness outwards either.
+            "(x async for x in y)",
+            "def f():\n    [(x async for x in y) for z in w]",
+            "def f[T]():\n    return 1",
+            "async def f():\n    async with a: pass",
+            "async def f():\n    async for x in y: pass",
+            "from os import *",
+            "if 1:\n    from os import *",
+        ] {
+            assert!(compile_module(source).is_ok(), "{source:?} was refused");
+        }
+    }
+
+    #[test]
+    fn a_scope_boundary_is_not_a_block_boundary() {
+        // The pair that says what `function_like` is for. Both of these sit two
+        // levels down inside something that indents, and only one of the two
+        // things doing the indenting is a scope.
+        assert_eq!(
+            refusal("while 1:\n    class C:\n        break"),
+            "'break' outside loop @ 30..35"
+        );
+        assert!(compile_module("while 1:\n    if x:\n        break").is_ok());
+    }
+
+    #[test]
+    fn a_dict_comprehension_is_walked_value_first() {
+        // `symtable_visit_dictcomp` hands over the value before the key, which
+        // is why the second `yield` written is the one blamed.
+        assert_eq!(
+            refusal("def f():\n    {(yield 1): (yield 2) for x in y}"),
+            "'yield' inside dict comprehension @ 26..33"
+        );
     }
 
     #[test]
