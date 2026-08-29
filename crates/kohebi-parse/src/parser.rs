@@ -109,7 +109,15 @@ fn lexed<T>(source: &str, parse: impl FnOnce(&mut Parser<'_>) -> Result<T>) -> R
         Priority::Deferred => Err(ours),
         Priority::Unclosed { opened } => {
             let lines = LineMap::new(source);
-            if lines.line_of(opened) < lines.line_of(at) {
+            // Which line the bracket is weighed against depends on which pass
+            // spoke. CPython compares it to the last token it ever tokenized,
+            // and for a first pass failure the parser stopped at that token, so
+            // the two are the same thing. A second pass diagnostic is raised
+            // from wherever the rule matched, which is usually a long way back,
+            // and CPython still compares against the end. So the bracket wins
+            // against a diagnostic almost every time.
+            let against = if parser.raised_diagnostic { cut } else { at };
+            if lines.line_of(opened) < lines.line_of(against) {
                 Err(error)
             } else {
                 Err(ours)
@@ -397,6 +405,31 @@ struct Parser<'a> {
     /// It matters wherever the parser asks what comes after the last statement,
     /// because on a truncated stream the honest answer is that nobody knows.
     truncated: bool,
+    /// How many brackets are open in front of each token.
+    ///
+    /// CPython's tokenizer keeps this on the token, and one of the diagnostic
+    /// rules reads it: two expressions written side by side are a missing comma
+    /// when they are inside a bracket and nothing in particular when they are
+    /// not. `x = 1 2` really is just wrong, and `[1 2]` is a list somebody left
+    /// a comma out of.
+    levels: Vec<u32>,
+    /// Whether the second pass diagnostics are switched off for the moment.
+    ///
+    /// CPython parses twice: once for the tree, and if that fails, again with a
+    /// set of rules whose only job is to describe what went wrong. Those rules
+    /// have to be able to parse an ordinary expression without tripping over
+    /// themselves, so the grammar has a copy of the expression rule with them
+    /// turned off. This is that switch.
+    no_diagnostics: bool,
+    /// Whether the error being carried out came from one of those rules.
+    ///
+    /// It changes who wins against the tokenizer. A first pass failure is
+    /// weighed against an unclosed bracket by where the parser stopped, and a
+    /// second pass one by how far the tokenizer got, which for a file with a
+    /// bracket left open is the end of it. So a diagnostic message almost
+    /// always loses to the bracket, and saying which pass raised it is the only
+    /// way to tell the two comparisons apart.
+    raised_diagnostic: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -405,18 +438,27 @@ impl<'a> Parser<'a> {
     }
 
     fn over(source: &'a str, tokens: &[Token], truncated: bool) -> Self {
-        let tokens = tokens
+        let tokens: Vec<Token> = tokens
             .iter()
             .filter(|t| !matches!(t.kind, TokenKind::Comment | TokenKind::NonLogicalNewline))
             .copied()
             .collect();
+        let levels = bracket_levels(&tokens);
         Self {
             source,
             tokens,
             pos: 0,
             lines: LineMap::new(source),
             truncated,
+            levels,
+            no_diagnostics: false,
+            raised_diagnostic: false,
         }
+    }
+
+    /// How many brackets are open in front of the next token.
+    fn level(&self) -> u32 {
+        self.levels[self.pos.min(self.levels.len() - 1)]
     }
 
     fn peek(&self) -> TokenKind {
@@ -607,7 +649,9 @@ impl<'a> Parser<'a> {
             return self.lambda();
         }
         let start = self.offset();
+        let first = self.pos;
         let body = self.disjunction()?;
+        self.perhaps_a_comma(first, &body)?;
         if !self.eat_keyword(Keyword::If) {
             return Ok(body);
         }
@@ -628,6 +672,63 @@ impl<'a> Parser<'a> {
             },
             start,
             end,
+        ))
+    }
+
+    /// Two expressions side by side inside a bracket, which is a missing comma.
+    ///
+    /// `[1 2]` is a list with the comma left out, and CPython says so rather
+    /// than pointing at the `2` and calling it invalid syntax. The bracket is
+    /// the whole of the reason: at the top level `x = 1 2` gets nothing but the
+    /// generic message, because a statement of two expressions is not a shape
+    /// anybody was reaching for.
+    ///
+    /// `a` is a disjunction and not a full expression, which is why
+    /// `[x if y else z w]` blames `z w` and not the ternary it sits in. The
+    /// ternary's `else` branch is itself an expression, so the rule is asked
+    /// again from there and the inner answer is the one that gets raised.
+    /// `b` is a full expression, on the other hand, so `[a b if c else d]`
+    /// covers all five tokens.
+    ///
+    /// Three things are excused. A name followed by a string, because `kf"x"`
+    /// is a bad string prefix rather than a missing comma. A soft keyword,
+    /// because `match`, `case`, `type` and `_` are names half the time and the
+    /// grammar cannot tell which half this is. And `print` or `exec`, because
+    /// those two have had their own message since Python 2 went away.
+    fn perhaps_a_comma(&mut self, first: usize, a: &Expr) -> Result<()> {
+        if self.no_diagnostics || self.level() == 0 || !begins_expression(self.peek()) {
+            return Ok(());
+        }
+        let opening = self.tokens[first];
+        if opening.kind == TokenKind::Name
+            && (matches!(
+                self.tokens.get(first + 1).map(|t| t.kind),
+                Some(TokenKind::String(_))
+            ) || matches!(
+                opening.span.slice(self.source),
+                "match" | "case" | "type" | "_"
+            ))
+        {
+            return Ok(());
+        }
+        if matches!(&a.kind, ExprKind::Name { id, .. } if matches!(&**id, "print" | "exec")) {
+            return Ok(());
+        }
+        // Whatever is sitting there has to be an expression for this to be the
+        // right story about it. If it is not, the ordinary path is still
+        // holding a better answer, so put the cursor back and let it speak.
+        let resume = self.pos;
+        self.no_diagnostics = true;
+        let second = self.expression();
+        self.no_diagnostics = false;
+        if second.is_err() {
+            self.pos = resume;
+            return Ok(());
+        }
+        self.raised_diagnostic = true;
+        Err(Self::error(
+            "invalid syntax. Perhaps you forgot a comma?",
+            Span::new(self.span_of(a).start, self.prev_end()),
         ))
     }
 
@@ -2279,4 +2380,26 @@ impl<'a> Parser<'a> {
         }
         Ok(())
     }
+}
+
+/// How many brackets are open in front of each token.
+///
+/// One number per token, counted before the token itself, so a closing bracket
+/// carries the level it is closing rather than the one it leaves behind. An
+/// unbalanced file cannot go below zero here, because the tokenizer refuses a
+/// stray closer long before the parser is given the stream.
+fn bracket_levels(tokens: &[Token]) -> Vec<u32> {
+    let mut levels = Vec::with_capacity(tokens.len());
+    let mut level = 0u32;
+    for token in tokens {
+        levels.push(level);
+        match token.kind {
+            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => level += 1,
+            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                level = level.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+    levels
 }

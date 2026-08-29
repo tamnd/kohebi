@@ -130,6 +130,32 @@ SyntaxError	f(x): int\n	  File "<case>", line 1\n    f(x): int\n    ^^^^\nSyntax
 SyntaxError	f(x): 1+\n	  File "<case>", line 1\n    f(x): 1+\n    ^^^^\nSyntaxError: illegal target for annotation
 SyntaxError	[a]: int\n	  File "<case>", line 1\n    [a]: int\n    ^^^\nSyntaxError: only single target (not list) can be annotated
 SyntaxError	1: int\n	  File "<case>", line 1\n    1: int\n    ^\nSyntaxError: illegal target for annotation
+SyntaxError	x = [1 2]\n	  File "<case>", line 1\n    x = [1 2]\n         ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	f(a b)\n	  File "<case>", line 1\n    f(a b)\n      ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = {1 2}\n	  File "<case>", line 1\n    x = {1 2}\n         ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x[a b]\n	  File "<case>", line 1\n    x[a b]\n      ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	f(k=a b)\n	  File "<case>", line 1\n    f(k=a b)\n        ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = [a, b c]\n	  File "<case>", line 1\n    x = [a, b c]\n            ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = [[a b]]\n	  File "<case>", line 1\n    x = [[a b]]\n          ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = {k: v w}\n	  File "<case>", line 1\n    x = {k: v w}\n            ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	f(a b for c in d)\n	  File "<case>", line 1\n    f(a b for c in d)\n      ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = 1 2\n	  File "<case>", line 1\n    x = 1 2\n          ^\nSyntaxError: invalid syntax
+SyntaxError	x = [x if y else z w]\n	  File "<case>", line 1\n    x = [x if y else z w]\n                     ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = [a b if c else d]\n	  File "<case>", line 1\n    x = [a b if c else d]\n         ^^^^^^^^^^^^^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = [a lambda: 1]\n	  File "<case>", line 1\n    x = [a lambda: 1]\n         ^^^^^^^^^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = [x not in y z]\n	  File "<case>", line 1\n    x = [x not in y z]\n         ^^^^^^^^^^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = [await a b]\n	  File "<case>", line 1\n    x = [await a b]\n         ^^^^^^^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = [f(1) g(2)]\n	  File "<case>", line 1\n    x = [f(1) g(2)]\n         ^^^^^^^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = [a.b c.d]\n	  File "<case>", line 1\n    x = [a.b c.d]\n         ^^^^^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = [a 's']\n	  File "<case>", line 1\n    x = [a 's']\n           ^^^\nSyntaxError: invalid syntax
+SyntaxError	x = [match x]\n	  File "<case>", line 1\n    x = [match x]\n               ^\nSyntaxError: invalid syntax
+SyntaxError	x = [case x]\n	  File "<case>", line 1\n    x = [case x]\n              ^\nSyntaxError: invalid syntax
+SyntaxError	x = [type x]\n	  File "<case>", line 1\n    x = [type x]\n              ^\nSyntaxError: invalid syntax
+SyntaxError	x = [_ x]\n	  File "<case>", line 1\n    x = [_ x]\n           ^\nSyntaxError: invalid syntax
+SyntaxError	x = [a for b in c d]\n	  File "<case>", line 1\n    x = [a for b in c d]\n                      ^\nSyntaxError: invalid syntax
+SyntaxError	x = (a\nb)\n	  File "<case>", line 1\n    x = (a\n         ^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	x = (a b\n	  File "<case>", line 1\n    x = (a b\n        ^\nSyntaxError: '(' was never closed
+SyntaxError	x = [\n1 2\n	  File "<case>", line 1\n    x = [\n        ^\nSyntaxError: '[' was never closed
 SyntaxError	def f(x, x): pass\n	  File "<case>", line 1\n    def f(x, x): pass\n             ^\nSyntaxError: duplicate argument 'x' in function definition
 SyntaxError	def f(x, *, x): pass\n	  File "<case>", line 1\n    def f(x, *, x): pass\n                ^\nSyntaxError: duplicate argument 'x' in function definition
 SyntaxError	def f(*a, a): pass\n	  File "<case>", line 1\n    def f(*a, a): pass\n           ^\nSyntaxError: duplicate argument 'a' in function definition
