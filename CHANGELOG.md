@@ -24,6 +24,12 @@ Carets are also counted in characters now rather than bytes, so a line with an a
 
 Together this takes the same corpus from 66.33% to 86.25%, and it retires the two largest remaining buckets. Twenty more recorded blocks in the fixture cover it, and the standard library still produces trees identical to CPython's, file for file.
 
+`f(x):` said `illegal target for annotation` and says `invalid syntax` now. A colon with nothing after it is not an annotated assignment, so the rules about what may be annotated never come up, which is a thing the old code checked in the wrong order. Where the error points is not the same for every target either. One CPython would have accepted takes it past the colon, so `x:` points at the end of the line, while one it would have refused leaves the colon as the last thing it read, so `f(x):` points at the colon.
+
+A closing bracket of the wrong kind now names the line its opener is on, so `x = (1,` on one line and `2]` on the next says `does not match opening parenthesis '(' on line 1`. It is left off when both brackets are on the line already being shown, since there is nothing there a reader has to go looking for.
+
+That takes the corpus from 86.25% to 90.75%.
+
 ## 0.0.6
 
 Three merged pull requests since 0.0.5, and all of them are item 9, the error messages. A file kohebi refuses now prints what CPython prints for it, character for character and line for line, over 87 recorded blocks and a corpus of 46 files written to be refused.
