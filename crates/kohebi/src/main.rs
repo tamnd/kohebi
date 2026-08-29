@@ -44,6 +44,8 @@ enum Command {
     Tokenize(TokenizeArgs),
     /// Print the syntax tree for a Python file and exit.
     Ast(AstArgs),
+    /// Print the desugared high-level IR for a Python file and exit.
+    Hir(HirArgs),
     /// Print the resolved configuration and exit.
     Config,
 }
@@ -155,6 +157,12 @@ struct AstArgs {
     compile: bool,
 }
 
+#[derive(Debug, Args)]
+struct HirArgs {
+    /// The Python file to lower. `-` reads standard input.
+    file: PathBuf,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum AstFormat {
     /// One line, exactly what `ast.dump(tree)` prints.
@@ -204,6 +212,7 @@ fn main() -> ExitCode {
         Command::Build(_) => "kohebi build",
         Command::Tokenize(args) => return tokenize(args),
         Command::Ast(args) => return ast(args),
+        Command::Hir(args) => return hir(args),
         Command::Config => {
             println!("kohebi {}", env!("CARGO_PKG_VERSION"));
             println!("rustc target: {}", std::env::consts::ARCH);
@@ -363,6 +372,45 @@ fn ast(args: &AstArgs) -> ExitCode {
     }
     print!("{out}");
     ExitCode::SUCCESS
+}
+
+/// Print the HIR for one file.
+///
+/// The tree says what the program looks like and this says what it means, and
+/// the two are worth being able to look at separately. `a < b < c` is one node
+/// in the tree and is four statements here, and the four are the answer to what
+/// Python actually does with a chained comparison. Anything the lowering has no
+/// rule for yet says so, names the line, and exits non-zero, because a body
+/// that quietly left a construct out would be worse than no output at all.
+///
+/// One file only. Unlike `kohebi ast` there is nothing here worth counting over
+/// a corpus, and the format is for reading.
+fn hir(args: &HirArgs) -> ExitCode {
+    let name = args.file.display().to_string();
+    let source = match read(&args.file, &name) {
+        Ok(source) => source,
+        Err(report) => {
+            eprint!("{report}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let tree = match kohebi_parse::parse_module(&source) {
+        Ok(tree) => tree,
+        Err(error) => {
+            eprint!("{}", error.report(&source, &name));
+            return ExitCode::FAILURE;
+        }
+    };
+    match kohebi_hir::lower_module(&tree, &name) {
+        Ok(body) => {
+            print!("{}", kohebi_hir::print(&body));
+            ExitCode::SUCCESS
+        }
+        Err(unsupported) => {
+            eprintln!("kohebi: {name}: {unsupported}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// How many statements are in the body of a parsed module.

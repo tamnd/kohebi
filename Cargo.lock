@@ -257,6 +257,7 @@ dependencies = [
  "clap",
  "kohebi-aot",
  "kohebi-core",
+ "kohebi-hir",
  "kohebi-interp",
  "kohebi-jit",
  "kohebi-parse",
@@ -325,10 +326,7 @@ dependencies = [
 name = "kohebi-hir"
 version = "0.0.11"
 dependencies = [
- "indexmap",
- "kohebi-core",
  "kohebi-parse",
- "smallvec",
 ]
 
 [[package]]
