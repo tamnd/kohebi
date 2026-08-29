@@ -17,6 +17,11 @@
 //! rather than shipped working on four of the six containers it should work
 //! on, and the other three are the protocol itself with a name on it.
 //!
+//! Every builtin exception class is here too, and it comes from
+//! [`kohebi_core::exception`] rather than from this module, because a class is
+//! data about a hierarchy and none of it needs the [`Vm`]. This module puts the
+//! two lists together and that is the whole of its part in it.
+//!
 //! Everything still missing from `builtins` is a type, and a type needs
 //! classes. `range` is the exception, and only because a program that has
 //! `for` and no `range` cannot count.
@@ -31,7 +36,7 @@
 use std::any::Any;
 use std::fmt;
 
-use kohebi_core::{Error, Int, Kind, Native, Object, Result, ops};
+use kohebi_core::{Error, Int, Kind, Native, Object, Result, exception, ops};
 
 use crate::iterate::{self, Range};
 use crate::vm::Vm;
@@ -61,6 +66,13 @@ impl Args {
     #[must_use]
     pub fn positional(&self) -> &[Object] {
         &self.positional
+    }
+
+    /// The positional arguments, taken, for a caller that keeps them rather
+    /// than reading them. An exception keeps them: they are its `args`.
+    #[must_use]
+    pub fn take_positional(self) -> Vec<Object> {
+        self.positional
     }
 
     /// Take a keyword argument out, so that whatever is left over at the end is
@@ -98,7 +110,7 @@ impl Args {
     /// Checked before the positional count, which is the order CPython checks
     /// them in: `len(1, 2, x=3)` complains about the keyword rather than about
     /// there being two positional arguments.
-    fn no_keywords(&self, function: &str) -> Result<()> {
+    pub fn no_keywords(&self, function: &str) -> Result<()> {
         if self.named.is_empty() {
             return Ok(());
         }
@@ -191,7 +203,7 @@ impl Native for Builtin {
 /// the way it is in CPython.
 #[must_use]
 pub fn table() -> Vec<(&'static str, Object)> {
-    [
+    let functions = [
         ("print", print as Body, Flavour::Function),
         ("len", len as Body, Flavour::Function),
         ("iter", iter as Body, Flavour::Function),
@@ -208,8 +220,11 @@ pub fn table() -> Vec<(&'static str, Object)> {
                 flavour,
             }),
         )
-    })
-    .collect()
+    });
+    // The exception classes are the rest of `builtins`, and they come from
+    // `kohebi-core` rather than from here because that is where the hierarchy
+    // they make up lives.
+    functions.chain(exception::classes()).collect()
 }
 
 /// `print(*values, sep=' ', end='\n', file=None, flush=False)`.

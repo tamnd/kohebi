@@ -353,12 +353,6 @@ fn what_is_not_implemented_names_itself() {
         raises("a = 1\nprint(a.bit_length)\n"),
         "NotImplementedError: attribute access is not implemented yet"
     );
-    // Bare, because naming an exception class would stop one step earlier on
-    // the class not being a name anything is bound to yet.
-    assert_eq!(
-        raises("raise\n"),
-        "NotImplementedError: raise is not implemented yet"
-    );
     assert_eq!(
         raises("print(2j)\n"),
         "NotImplementedError: the complex type is not implemented yet"
@@ -1551,5 +1545,163 @@ fn a_comprehension_raises_where_the_loop_it_stands_for_would() {
     assert_eq!(
         raises("r = {[1]: 2 for _ in range(1)}\n"),
         "TypeError: cannot use 'list' as a dict key (unhashable type: 'list')"
+    );
+}
+
+// Exceptions
+
+#[test]
+fn an_exception_class_is_a_value_and_calling_it_makes_an_instance() {
+    assert_eq!(
+        out("print(ValueError, KeyError, BaseException)\n"),
+        "<class 'ValueError'> <class 'KeyError'> <class 'BaseException'>\n"
+    );
+    // `str` is the message and `repr` is the call that would make it again,
+    // and a list prints the repr of what is in it.
+    assert_eq!(
+        out("e = ValueError('boom')\nprint(e, [e])\n"),
+        "boom [ValueError('boom')]\n"
+    );
+    assert_eq!(
+        out("print(ValueError(), [ValueError()])\n"),
+        " [ValueError()]\n"
+    );
+    assert_eq!(
+        out("print(ValueError(1, 2), [ValueError(1, 2)])\n"),
+        "(1, 2) [ValueError(1, 2)]\n"
+    );
+    // A `KeyError` says its key the way `repr` would, so a key of `''` is
+    // something rather than nothing.
+    assert_eq!(out("print(KeyError('k'), KeyError(''))\n"), "'k' ''\n");
+}
+
+/// The class is looked up once and is the same object every time, which is
+/// what `except ValueError` will lean on and what `is` can already see.
+#[test]
+fn a_class_is_one_object_and_each_call_of_it_is_a_new_one() {
+    assert_eq!(
+        out("print(ValueError is ValueError)\n\
+             e = ValueError('x')\n\
+             print(e is e, e is ValueError('x'))\n"),
+        "True\nTrue False\n"
+    );
+}
+
+#[test]
+fn raising_a_class_and_raising_an_instance_are_the_same_statement() {
+    assert_eq!(raises("raise ValueError\n"), "ValueError");
+    assert_eq!(raises("raise ValueError()\n"), "ValueError");
+    assert_eq!(raises("raise ValueError('boom')\n"), "ValueError: boom");
+    assert_eq!(raises("raise ValueError(1, 2)\n"), "ValueError: (1, 2)");
+    assert_eq!(
+        raises("e = TypeError('held')\nraise e\n"),
+        "TypeError: held"
+    );
+}
+
+/// A raise stops the program where it is written, so what was printed before
+/// it is printed and what comes after it is not.
+#[test]
+fn a_raise_stops_the_program_at_the_line_it_is_on() {
+    let (written, raised) =
+        execute("print('before')\nraise RuntimeError('stop')\nprint('after')\n");
+    assert_eq!(written, "before\n");
+    assert_eq!(raised.as_deref(), Some("RuntimeError: stop"));
+}
+
+#[test]
+fn a_raise_inside_a_call_leaves_the_call_and_the_one_that_made_it() {
+    let (written, raised) = execute(
+        "def inner():\n    raise IndexError('deep')\n\
+         def outer():\n    inner()\n    print('unreachable')\n\
+         print('start')\nouter()\n",
+    );
+    assert_eq!(written, "start\n");
+    assert_eq!(raised.as_deref(), Some("IndexError: deep"));
+}
+
+#[test]
+fn a_raise_out_of_a_loop_leaves_the_loop() {
+    let (written, raised) =
+        execute("for i in range(4):\n    print(i)\n    if i == 1:\n        raise KeyError(i)\n");
+    assert_eq!(written, "0\n1\n");
+    assert_eq!(raised.as_deref(), Some("KeyError: 1"));
+}
+
+/// Everything but an exception is refused, and the refusal is about being the
+/// wrong kind of thing rather than about anything the value said.
+#[test]
+fn raising_something_that_is_not_an_exception_says_so() {
+    for source in ["raise 5\n", "raise None\n", "raise [1]\n", "raise 'text'\n"] {
+        assert_eq!(
+            raises(source),
+            "TypeError: exceptions must derive from BaseException"
+        );
+    }
+    assert_eq!(
+        raises("raise ValueError('x') from 5\n"),
+        "TypeError: exception causes must derive from BaseException"
+    );
+}
+
+/// A bare `raise` re-raises what is being handled, and until there is an
+/// `except` nothing ever is.
+#[test]
+fn a_bare_raise_has_nothing_to_re_raise() {
+    assert_eq!(
+        raises("raise\n"),
+        "RuntimeError: No active exception to reraise"
+    );
+}
+
+/// The cause prints above the exception it caused, oldest first, which is the
+/// order it happened in. What is missing between the two is the `File` and
+/// `line` pair, because there is no line table yet.
+#[test]
+fn a_cause_prints_above_the_exception_it_caused() {
+    assert_eq!(
+        raises("raise ValueError('a') from KeyError('b')\n"),
+        "KeyError: 'b'\n\nThe above exception was the direct cause of the \
+         following exception:\n\nValueError: a"
+    );
+    // A class as a cause is an instance of it, the same way it is when raised.
+    assert_eq!(
+        raises("raise ValueError('a') from KeyError\n"),
+        "KeyError\n\nThe above exception was the direct cause of the \
+         following exception:\n\nValueError: a"
+    );
+    // `from None` is written to take a cause away.
+    assert_eq!(raises("raise ValueError('a') from None\n"), "ValueError: a");
+}
+
+/// A class takes what it is given and keeps it, and takes nothing by keyword,
+/// which is what CPython says about every one of them.
+#[test]
+fn an_exception_class_takes_no_keyword_arguments() {
+    assert_eq!(
+        raises("raise ValueError(message='x')\n"),
+        "TypeError: ValueError() takes no keyword arguments"
+    );
+}
+
+/// An exception is an ordinary value until something raises it, so it goes in
+/// containers, comes back out of functions and is built in comprehensions.
+#[test]
+fn an_exception_is_a_value_like_any_other_until_it_is_raised() {
+    assert_eq!(
+        out("def make(word):\n    return RuntimeError(word)\n\
+             print(make('late'), [make('late')])\n"),
+        "late [RuntimeError('late')]\n"
+    );
+    assert_eq!(
+        out("print([k('m') for k in [ValueError, TypeError]])\n"),
+        "[ValueError('m'), TypeError('m')]\n"
+    );
+    // Every exception is true, including the one with no arguments to be true
+    // about, which an empty tuple would not be.
+    assert_eq!(out("print('yes' if ValueError() else 'no')\n"), "yes\n");
+    assert_eq!(
+        raises("held = [ValueError('q')]\nraise held[0]\n"),
+        "ValueError: q"
     );
 }

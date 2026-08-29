@@ -30,6 +30,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::dict::{Dict, Set};
+use crate::exception::Exception;
 use crate::float::{DotZero, float_repr};
 use crate::hash::int_eq_float;
 use crate::int::Int;
@@ -130,6 +131,15 @@ impl Object {
             Object::Native(value) => value.as_any().downcast_ref::<T>(),
             _ => None,
         }
+    }
+
+    /// This value as the exception it is, or `None` if it is not one.
+    ///
+    /// The one downcast common enough to be worth a name, since `raise`,
+    /// `except` and the traceback printer all ask the same question.
+    #[must_use]
+    pub fn exception(&self) -> Option<&Exception> {
+        self.downcast::<Exception>()
     }
 
     /// What `type(x).__name__` says, which is what every error message needs.
@@ -306,6 +316,10 @@ impl Object {
     pub fn display(&self) -> String {
         match self {
             Object::Str(value) => value.to_string(),
+            // A native type gets to answer this one for itself, because an
+            // exception says its message here and its constructor call in
+            // `repr`. Everything else defaults to the `repr`.
+            Object::Native(value) => value.display(),
             other => other.repr(),
         }
     }

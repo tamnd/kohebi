@@ -41,10 +41,14 @@
 //!
 //! ## What is not implemented
 //!
-//! Attributes and `raise`. Each of those raises a `NotImplementedError` naming
-//! itself rather than being skipped or guessed at, so a program that needs one
-//! stops on it and says so. They are the next pieces of work and they are
-//! listed in `docs/spec/10-milestones.md`.
+//! Attributes, which raise a `NotImplementedError` naming themselves rather
+//! than being skipped or guessed at, so a program that needs one stops on it
+//! and says so.
+//!
+//! `raise` works and `try` does not, so an exception leaves the run rather than
+//! being caught by it. The handler stack and the unwinding that goes with it
+//! are the next piece of work, and both are listed in
+//! `docs/spec/10-milestones.md`.
 
 use std::cell::RefCell;
 use std::fmt;
@@ -53,7 +57,7 @@ use std::rc::Rc;
 
 use kohebi_bc::code::{Code, Instr, Module, NameId, Reg, Span};
 use kohebi_core::dict::{Dict, Set};
-use kohebi_core::{Error, Kind, Object, Result, Slice, ops};
+use kohebi_core::{Error, Kind, Object, Result, Slice, exception, ops};
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 use rustc_hash::FxHashMap;
 
@@ -403,7 +407,20 @@ impl Vm {
                     let laid_out = unpack(frame.get(src)?, before, star, after)?;
                     frame.set(dst, laid_out);
                 }
-                Instr::Raise { .. } => return Err(later("raise")),
+                Instr::Raise { exc, cause } => {
+                    // Both are read out before either is used, so that a
+                    // `raise` naming an unbound variable stops on that rather
+                    // than on what it was going to raise.
+                    let raised = match exc {
+                        Some(reg) => Some(frame.get(reg)?.clone()),
+                        None => None,
+                    };
+                    let from = match cause {
+                        Some(reg) => Some(frame.get(reg)?.clone()),
+                        None => None,
+                    };
+                    return Err(exception::raise(raised.as_ref(), from.as_ref()));
+                }
             }
         }
         // A body the compiler ended without a `ret`, which a module body is
@@ -457,10 +474,12 @@ impl Vm {
         // number called with a bad keyword complains about being a number.
         let builtin = callee.downcast::<Builtin>();
         let defined = callee.downcast::<Function>();
-        let function: &str = match (builtin, defined) {
-            (Some(builtin), _) => builtin.name(),
-            (None, Some(function)) => &function.code().name,
-            (None, None) => {
+        let class = callee.downcast::<exception::Class>();
+        let function: &str = match (builtin, defined, class) {
+            (Some(builtin), _, _) => builtin.name(),
+            (None, Some(function), _) => &function.code().name,
+            (None, None, Some(class)) => class.kind().name(),
+            (None, None, None) => {
                 return Err(Error::type_error(format!(
                     "'{}' object is not callable",
                     callee.type_name()
@@ -483,8 +502,18 @@ impl Vm {
             let positional = operands(code, frame, args)?;
             return builtin.call(self, Args::new(positional, named));
         }
+        if let Some(class) = class {
+            // An exception class takes whatever it is given and keeps it,
+            // positionally. None of them take a keyword, and the refusal is
+            // worded the same way it is for a builtin because in CPython that
+            // is what these are.
+            let positional = operands(code, frame, args)?;
+            let taken = Args::new(positional, named);
+            taken.no_keywords(function)?;
+            return Ok(class.instance(taken.take_positional()));
+        }
         let Some(function) = defined else {
-            unreachable!("the callee was one of the two kinds a moment ago")
+            unreachable!("the callee was one of the three kinds a moment ago")
         };
         // The body is taken by hand rather than borrowed through the callee,
         // because it runs with the machine borrowed mutably and the function

@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use kohebi_core::exception::{self, Exit};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -338,10 +339,16 @@ fn interpret(source: &str, name: &str) -> ExitCode {
     let flushed = vm.flush();
     match outcome.and(flushed) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("{error}");
-            ExitCode::FAILURE
-        }
+        // `raise SystemExit(2)` is a program asking to stop with a status
+        // rather than a program going wrong, so it gets one and says nothing.
+        // Everything else prints what went wrong and fails.
+        Err(error) => match exception::uncaught(&error) {
+            Exit::Report(report) => {
+                eprintln!("{report}");
+                ExitCode::FAILURE
+            }
+            Exit::Status(status) => ExitCode::from(status),
+        },
     }
 }
 

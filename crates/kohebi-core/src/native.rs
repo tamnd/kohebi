@@ -46,6 +46,14 @@ pub trait Native: fmt::Debug {
     /// not reproducible between runs, so nothing may depend on the exact text.
     fn repr(&self) -> String;
 
+    /// What `str` prints, which for a type with no `__str__` of its own is
+    /// whatever `repr` prints. Almost every native type wants the default. An
+    /// exception is the one that does not, because `str(e)` is the message and
+    /// `repr(e)` is the call that would make it again.
+    fn display(&self) -> String {
+        self.repr()
+    }
+
     /// Python's truth protocol, which for an object with no `__bool__` and no
     /// `__len__` is true. Almost every native type wants the default.
     fn truthy(&self) -> bool {
