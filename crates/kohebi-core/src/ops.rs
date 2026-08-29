@@ -30,6 +30,7 @@ use crate::error::{Error, Kind, Result};
 use crate::hash::Key;
 use crate::int::{DivideByZero, Int};
 use crate::object::Object;
+use crate::slice::Indices;
 use crate::text::{Str, StrBuf};
 
 /// How much a repetition may ask for before it is refused.
@@ -1543,4 +1544,333 @@ mod tests {
             "TypeError: argument of type 'int' is not a container or iterable"
         );
     }
+}
+
+/// `container[index]`.
+///
+/// # Errors
+///
+/// A container that has no subscript, a subscript of the wrong type, an index
+/// past the end, or a key nothing is filed under.
+pub fn get_item(container: &Object, index: &Object) -> Result<Object> {
+    match container {
+        Object::List(items) => {
+            match subscript(index, items.borrow().len(), Seq::List, Write::No)? {
+                Subscript::At(at) => Ok(items.borrow()[at].clone()),
+                Subscript::Range(range) => {
+                    let items = items.borrow();
+                    Ok(Object::list(
+                        range.offsets().map(|at| items[at].clone()).collect(),
+                    ))
+                }
+            }
+        }
+        Object::Tuple(items) => match subscript(index, items.len(), Seq::Tuple, Write::No)? {
+            Subscript::At(at) => Ok(items[at].clone()),
+            Subscript::Range(range) => Ok(Object::tuple(
+                range.offsets().map(|at| items[at].clone()).collect(),
+            )),
+        },
+        Object::Str(text) => match subscript(index, text.len(), Seq::Str, Write::No)? {
+            // A one code point string, which is what `str` has instead of a
+            // character type.
+            Subscript::At(at) => {
+                let mut out = StrBuf::new();
+                out.push_code_point(text.code_point_at(at).expect("the index was checked"));
+                Ok(Object::Str(Rc::new(out.finish())))
+            }
+            Subscript::Range(range) => {
+                // Collected once rather than walked per offset, because UTF-8
+                // has no way to reach the nth code point without counting from
+                // the front and doing that inside the loop would be quadratic.
+                let points: Vec<u32> = text.code_points().collect();
+                let mut out = StrBuf::new();
+                for at in range.offsets() {
+                    out.push_code_point(points[at]);
+                }
+                Ok(Object::Str(Rc::new(out.finish())))
+            }
+        },
+        Object::Bytes(bytes) => match subscript(index, bytes.len(), Seq::Bytes, Write::No)? {
+            // One byte of a `bytes` is an `int`, not a one byte `bytes`, which
+            // is the difference between `bytes` and `str` that surprises people.
+            Subscript::At(at) => Ok(Object::int(i64::from(bytes[at]))),
+            Subscript::Range(range) => {
+                let taken: Vec<u8> = range.offsets().map(|at| bytes[at]).collect();
+                Ok(Object::Bytes(taken.into()))
+            }
+        },
+        Object::Dict(entries) => {
+            let key = key(index, "dict key")?;
+            entries
+                .borrow()
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| missing_key(index))
+        }
+        other => Err(not_subscriptable(other)),
+    }
+}
+
+/// `container[index] = value`.
+///
+/// # Errors
+///
+/// A container that cannot be written through, an index past the end, or a
+/// slice assignment whose right hand side is the wrong length.
+pub fn set_item(container: &Object, index: &Object, value: &Object) -> Result<()> {
+    match container {
+        Object::List(items) => {
+            let len = items.borrow().len();
+            match subscript(index, len, Seq::List, Write::Yes)? {
+                Subscript::At(at) => {
+                    items.borrow_mut()[at] = value.clone();
+                    Ok(())
+                }
+                Subscript::Range(range) => {
+                    // Read the right hand side out before touching the list, so
+                    // that `x[:] = x` sees the list it started with.
+                    let replacement = elements(value).ok_or_else(|| {
+                        Error::type_error("must assign iterable to extended slice")
+                    })?;
+                    let mut items = items.borrow_mut();
+                    if range.is_contiguous() {
+                        let start = range.start.cast_unsigned();
+                        items.splice(start..start + range.len, replacement);
+                        return Ok(());
+                    }
+                    if replacement.len() != range.len {
+                        return Err(Error::value_error(format!(
+                            "attempt to assign sequence of size {} to extended slice of size {}",
+                            replacement.len(),
+                            range.len
+                        )));
+                    }
+                    for (at, value) in range.offsets().zip(replacement) {
+                        items[at] = value;
+                    }
+                    Ok(())
+                }
+            }
+        }
+        Object::Dict(entries) => {
+            entries
+                .borrow_mut()
+                .insert(key(index, "dict key")?, value.clone());
+            Ok(())
+        }
+        // Everything else, subscriptable or not, says the same thing here:
+        // having no subscript at all and having a read-only one are the same
+        // answer to "can I write to this".
+        other => Err(Error::type_error(format!(
+            "'{}' object does not support item assignment",
+            other.type_name()
+        ))),
+    }
+}
+
+/// `del container[index]`.
+///
+/// # Errors
+///
+/// A container that cannot be written through, an index past the end, or a key
+/// nothing is filed under.
+pub fn del_item(container: &Object, index: &Object) -> Result<()> {
+    match container {
+        Object::List(items) => {
+            let len = items.borrow().len();
+            match subscript(index, len, Seq::List, Write::Yes)? {
+                Subscript::At(at) => {
+                    items.borrow_mut().remove(at);
+                    Ok(())
+                }
+                Subscript::Range(range) => {
+                    // Back to front, so that removing one does not move the
+                    // offsets of the ones not yet removed.
+                    let mut doomed: Vec<usize> = range.offsets().collect();
+                    doomed.sort_unstable();
+                    let mut items = items.borrow_mut();
+                    for at in doomed.into_iter().rev() {
+                        items.remove(at);
+                    }
+                    Ok(())
+                }
+            }
+        }
+        Object::Dict(entries) => entries
+            .borrow_mut()
+            .remove(&key(index, "dict key")?)
+            .map(|_| ())
+            .ok_or_else(|| missing_key(index)),
+        // Two wordings, and which one a type gets is not arbitrary in CPython
+        // even though it reads that way. A container without deletion says
+        // "doesn't"; something that was never a container says "does not".
+        Object::Tuple(_) | Object::Str(_) | Object::Bytes(_) | Object::Set(_) => {
+            Err(Error::type_error(format!(
+                "'{}' object doesn't support item deletion",
+                container.type_name()
+            )))
+        }
+        other => Err(Error::type_error(format!(
+            "'{}' object does not support item deletion",
+            other.type_name()
+        ))),
+    }
+}
+
+/// The values inside something that can be walked without the iteration
+/// protocol, or `None` when it cannot be walked without one.
+///
+/// Every builtin container can be walked directly, which covers everything a
+/// program can build today. When the iteration protocol arrives this becomes
+/// the fast path in front of it rather than the whole of it.
+#[must_use]
+pub fn elements(value: &Object) -> Option<Vec<Object>> {
+    match value {
+        // Read out whole first, because the caller is usually about to write
+        // into the thing it just read.
+        Object::List(items) => Some(items.borrow().clone()),
+        Object::Tuple(items) => Some(items.to_vec()),
+        Object::Str(text) => Some(
+            text.code_points()
+                .map(|point| {
+                    let mut out = StrBuf::new();
+                    out.push_code_point(point);
+                    Object::Str(Rc::new(out.finish()))
+                })
+                .collect(),
+        ),
+        // A byte of a `bytes` is an `int`, so walking one gives integers.
+        Object::Bytes(bytes) => Some(bytes.iter().map(|&b| Object::int(i64::from(b))).collect()),
+        // A dict walks its keys, which is what `list(d)` gives.
+        Object::Dict(entries) => Some(
+            entries
+                .borrow()
+                .iter()
+                .map(|(key, _)| key.object().clone())
+                .collect(),
+        ),
+        Object::Set(members) => Some(
+            members
+                .borrow()
+                .iter()
+                .map(|key| key.object().clone())
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+/// What a subscript turned out to mean for a particular sequence.
+enum Subscript {
+    /// One element, at an offset already checked against the length.
+    At(usize),
+    /// A run of them, already resolved against the length.
+    Range(Indices),
+}
+
+/// The four builtin sequences, which word a bad subscript three different ways.
+#[derive(Clone, Copy)]
+enum Seq {
+    List,
+    Tuple,
+    Str,
+    Bytes,
+}
+
+impl Seq {
+    /// The `TypeError` for a subscript that is neither an integer nor a slice.
+    ///
+    /// Three phrasings for four types, because CPython's messages were written
+    /// one at a time rather than generated: a `str` leaves out "or slices" and
+    /// quotes the type name, and a `bytes` calls itself "byte".
+    fn not_an_index(self, index: &Object) -> Error {
+        let name = index.type_name();
+        Error::type_error(match self {
+            Seq::List => format!("list indices must be integers or slices, not {name}"),
+            Seq::Tuple => format!("tuple indices must be integers or slices, not {name}"),
+            Seq::Bytes => format!("byte indices must be integers or slices, not {name}"),
+            Seq::Str => format!("string indices must be integers, not '{name}'"),
+        })
+    }
+
+    /// The `IndexError` for an integer past the end.
+    ///
+    /// A list says "assignment" when it is being written through, and only a
+    /// list can be, so the other three never see the second wording.
+    fn out_of_range(self, write: Write) -> Error {
+        Error::new(
+            Kind::IndexError,
+            match (self, write) {
+                (Seq::List, Write::No) => "list index out of range",
+                (Seq::List, Write::Yes) => "list assignment index out of range",
+                (Seq::Tuple, _) => "tuple index out of range",
+                (Seq::Str, _) => "string index out of range",
+                (Seq::Bytes, _) => "index out of range",
+            },
+        )
+    }
+}
+
+/// Whether a subscript is being read or written through, which changes one
+/// message and nothing else.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Write {
+    No,
+    Yes,
+}
+
+/// One subscript resolved against a sequence of `len` elements.
+fn subscript(index: &Object, len: usize, seq: Seq, write: Write) -> Result<Subscript> {
+    match index {
+        Object::Slice(slice) => Ok(Subscript::Range(slice.indices(len)?)),
+        Object::Bool(_) | Object::Int(_) => {
+            let Some(Num::Int(at)) = number(index) else {
+                unreachable!("an int and a bool are both numbers")
+            };
+            Ok(Subscript::At(offset(at, len, seq, write)?))
+        }
+        other => Err(seq.not_an_index(other)),
+    }
+}
+
+/// An integer index turned into an offset, with a negative one counted from the
+/// end.
+///
+/// A number too large for the machine says so rather than being clamped, which
+/// is the one place an index and a slice bound part company: `x[2**100]` raises
+/// where `x[2**100:]` is an empty list. The two messages are different too, and
+/// the difference is worth keeping: one says the sequence is not that long, the
+/// other says the number was never an index to begin with.
+fn offset(index: &Int, len: usize, seq: Seq, write: Write) -> Result<usize> {
+    let too_big = || {
+        Error::new(
+            Kind::IndexError,
+            "cannot fit 'int' into an index-sized integer",
+        )
+    };
+    let at = index.to_i64().ok_or_else(too_big)?;
+    let at = isize::try_from(at).map_err(|_| too_big())?;
+    let at = if at < 0 {
+        at.checked_add(len.cast_signed()).ok_or_else(too_big)?
+    } else {
+        at
+    };
+    if at < 0 || at.cast_unsigned() >= len {
+        return Err(seq.out_of_range(write));
+    }
+    Ok(at.cast_unsigned())
+}
+
+/// `KeyError`, which prints the key itself rather than a sentence about it.
+fn missing_key(key: &Object) -> Error {
+    Error::new(Kind::KeyError, key.repr())
+}
+
+/// The `TypeError` for a value that has no subscript at all.
+fn not_subscriptable(value: &Object) -> Error {
+    Error::type_error(format!(
+        "'{}' object is not subscriptable",
+        value.type_name()
+    ))
 }

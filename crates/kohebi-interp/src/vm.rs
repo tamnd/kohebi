@@ -35,10 +35,10 @@
 //!
 //! ## What is not implemented
 //!
-//! Attributes, subscripting, slicing, iteration and `raise`. Each of those
-//! raises a `NotImplementedError` naming itself rather than being skipped or
-//! guessed at, so a program that needs one stops on it and says so. They are
-//! the next pieces of work and they are listed in `docs/spec/10-milestones.md`.
+//! Attributes, iteration and `raise`. Each of those raises a
+//! `NotImplementedError` naming itself rather than being skipped or guessed at,
+//! so a program that needs one stops on it and says so. They are the next
+//! pieces of work and they are listed in `docs/spec/10-milestones.md`.
 
 use std::cell::RefCell;
 use std::fmt;
@@ -47,7 +47,7 @@ use std::rc::Rc;
 
 use kohebi_bc::code::{Code, Instr, NameId, Reg, Span};
 use kohebi_core::dict::{Dict, Set};
-use kohebi_core::{Error, Kind, Object, Result, ops};
+use kohebi_core::{Error, Kind, Object, Result, Slice, ops};
 use kohebi_parse::Value;
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 use rustc_hash::FxHashMap;
@@ -251,10 +251,34 @@ impl Vm {
                 Instr::LoadAttr { .. } | Instr::StoreAttr { .. } | Instr::DeleteAttr { .. } => {
                     return Err(later("attribute access"));
                 }
-                Instr::LoadItem { .. } | Instr::StoreItem { .. } | Instr::DeleteItem { .. } => {
-                    return Err(later("subscripting"));
+                Instr::LoadItem { dst, object, index } => {
+                    let value = ops::get_item(frame.get(object)?, frame.get(index)?)?;
+                    frame.set(dst, value);
                 }
-                Instr::BuildSlice { .. } => return Err(later("slicing")),
+                Instr::StoreItem { object, index, src } => {
+                    // The value is read before the container is borrowed, so
+                    // that `x[0] = x` is a write and not a panic.
+                    let value = frame.get(src)?.clone();
+                    ops::set_item(frame.get(object)?, frame.get(index)?, &value)?;
+                }
+                Instr::DeleteItem { object, index } => {
+                    ops::del_item(frame.get(object)?, frame.get(index)?)?;
+                }
+                Instr::BuildSlice {
+                    dst,
+                    lower,
+                    upper,
+                    step,
+                } => {
+                    // A bound nobody wrote down is `None`, which is a value the
+                    // slice keeps rather than a hole it has to remember.
+                    let part = |reg: Option<Reg>| match reg {
+                        Some(reg) => frame.get(reg).cloned(),
+                        None => Ok(Object::None),
+                    };
+                    let slice = Slice::new(part(lower)?, part(upper)?, part(step)?);
+                    frame.set(dst, Object::Slice(Rc::new(slice)));
+                }
                 Instr::GetIter { .. } | Instr::Next { .. } | Instr::Exhausted { .. } => {
                     return Err(later("iteration"));
                 }
@@ -583,29 +607,16 @@ fn inplace(op: Operator, left: &Object, right: &Object) -> Result<Object> {
 
 /// `list += iterable`, for the iterables that can be walked without the
 /// iteration protocol.
+///
+/// Which is all of them for now: every builtin container walks directly, and
+/// nothing else can produce a value yet. The protocol becomes the fallback
+/// behind this rather than a replacement for it.
 fn extend(items: &Rc<RefCell<Vec<Object>>>, right: &Object) -> Result<()> {
-    let added = match right {
-        // `x += x` reads the list it is about to write, so it is read out
-        // whole first either way.
-        Object::List(other) => other.borrow().clone(),
-        Object::Tuple(other) => other.to_vec(),
-        Object::Str(_) | Object::Bytes(_) | Object::Dict(_) | Object::Set(_) => {
-            return Err(Error::new(
-                Kind::NotImplementedError,
-                format!(
-                    "extending a list with a {} needs the iteration protocol, \
-                     which is not implemented yet",
-                    right.type_name()
-                ),
-            ));
-        }
-        other => {
-            return Err(Error::type_error(format!(
-                "'{}' object is not iterable",
-                other.type_name()
-            )));
-        }
-    };
+    // `x += x` reads the list it is about to write, and `ops::elements` reads
+    // the whole right hand side out before this touches the left.
+    let added = ops::elements(right).ok_or_else(|| {
+        Error::type_error(format!("'{}' object is not iterable", right.type_name()))
+    })?;
     items.borrow_mut().extend(added);
     Ok(())
 }
