@@ -2,17 +2,19 @@
 //!
 //! The other fixtures ask what a program becomes. This one asks what the
 //! refusal looks like, which is a contract of its own and one nothing else here
-//! covers. `parse_module` is the entry point rather than `literal::string`,
+//! covers. `compile_module` is the entry point rather than `literal::string`,
 //! because half of what makes a block right comes from outside the decoder: the
 //! line the error is reported on, the span the carets are drawn from, and the
-//! class in front of the message.
+//! class in front of the message. It is `compile_module` and not `parse_module`
+//! because the generator calls `compile`, and some of what `compile` refuses
+//! parses into a tree first.
 //!
 //! Recorded from CPython 3.14.7 by `tools/gen-error-fixture.py`.
 
 use std::fs;
 use std::path::PathBuf;
 
-use kohebi_parse::parse_module;
+use kohebi_parse::compile_module;
 
 /// The name the generator compiled under, and the one `report` is given here.
 const FILENAME: &str = "<case>";
@@ -84,7 +86,7 @@ fn every_refusal_reads_the_way_cpython_writes_it() {
             // here would mean writing the difference off as a formatting one.
             continue;
         }
-        match parse_module(&case.source) {
+        match compile_module(&case.source) {
             Ok(_) => failures.push(format!(
                 "{:?}: CPython refuses this with {:?} and we accepted it",
                 case.source, case.block
@@ -116,7 +118,7 @@ fn the_refusals_with_no_position_are_still_refusals() {
     assert!(!bare.is_empty(), "the fixture no longer has any of these");
     let mut failures = Vec::new();
     for case in bare {
-        match parse_module(&case.source) {
+        match compile_module(&case.source) {
             Ok(_) => failures.push(format!("{:?}: we accepted this", case.source)),
             Err(e) => {
                 // The block is `UnicodeDecodeError: <message>` and the message
@@ -137,9 +139,9 @@ fn the_refusals_with_no_position_are_still_refusals() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// The refusal `parse_module` gives for this source, or a panic saying it did not.
+/// The refusal `compile_module` gives for this source, or a panic saying it did not.
 fn refusal(source: &str) -> String {
-    match parse_module(source) {
+    match compile_module(source) {
         Ok(_) => panic!("this is supposed to be refused: {source:?}"),
         Err(e) => e.to_string(),
     }

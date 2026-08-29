@@ -7,16 +7,18 @@
 //! library. The design lives in `docs/spec/15-frontend.md`.
 //!
 //! The lexer is complete, and so is the parser: every expression and every
-//! statement, `match` included. Five supporting pieces sit alongside: `source`
+//! statement, `match` included. Six supporting pieces sit alongside: `source`
 //! for turning the bytes of a file into the text the lexer reads, `value` for
 //! what a literal denotes and how `repr` prints it, `literal` for turning the
 //! source text of a literal token into one of those values, `ast` for the tree
-//! CPython's `ast` module describes, and `dump` for printing that tree the way
-//! `ast.dump` does.
+//! CPython's `ast` module describes, `dump` for printing that tree the way
+//! `ast.dump` does, and `check` for the refusals that come after a file has
+//! already parsed, which is where `ast.parse` and `compile` part company.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-parse/0.0.1")]
 
 pub mod ast;
+pub mod check;
 pub mod dump;
 pub mod error;
 pub mod lexer;
@@ -29,6 +31,7 @@ pub mod unicode_name;
 pub mod value;
 pub mod view;
 
+pub use check::{compile_expression, compile_module};
 pub use dump::{dump, dump_with_attributes};
 pub use error::{ErrorClass, LineMap, Position, Site, SyntaxError};
 pub use lexer::Lexer;

@@ -141,6 +141,18 @@ struct AstArgs {
     /// How to print the tree.
     #[arg(long, value_enum, default_value_t = AstFormat::Dump)]
     format: AstFormat,
+
+    /// Refuse what `compile` refuses rather than what `ast.parse` accepts.
+    ///
+    /// The two are not the same, and the gap is wider than it sounds.
+    /// `ast.parse` stops as soon as there is a tree, so `f(a=1, a=2)` and
+    /// `def g(x, x): pass` both come back as ordinary trees from it and are
+    /// both refused by `compile`, which runs two more passes over what the
+    /// parser built. Without this flag the subcommand is `ast.parse`, which is
+    /// what a tree by tree comparison wants. With it, it is `compile`, which is
+    /// what asking whether CPython would run the file wants.
+    #[arg(long)]
+    compile: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -325,7 +337,12 @@ fn ast(args: &AstArgs) -> ExitCode {
             }
         };
 
-        match kohebi_parse::parse_module(&source) {
+        let parsed = if args.compile {
+            kohebi_parse::compile_module(&source)
+        } else {
+            kohebi_parse::parse_module(&source)
+        };
+        match parsed {
             Ok(tree) => match args.format {
                 AstFormat::Dump => {
                     let _ = writeln!(out, "{}", kohebi_parse::dump(&tree));

@@ -130,6 +130,27 @@ SyntaxError	f(x): int\n	  File "<case>", line 1\n    f(x): int\n    ^^^^\nSyntax
 SyntaxError	f(x): 1+\n	  File "<case>", line 1\n    f(x): 1+\n    ^^^^\nSyntaxError: illegal target for annotation
 SyntaxError	[a]: int\n	  File "<case>", line 1\n    [a]: int\n    ^^^\nSyntaxError: only single target (not list) can be annotated
 SyntaxError	1: int\n	  File "<case>", line 1\n    1: int\n    ^\nSyntaxError: illegal target for annotation
+SyntaxError	def f(x, x): pass\n	  File "<case>", line 1\n    def f(x, x): pass\n             ^\nSyntaxError: duplicate argument 'x' in function definition
+SyntaxError	def f(x, *, x): pass\n	  File "<case>", line 1\n    def f(x, *, x): pass\n                ^\nSyntaxError: duplicate argument 'x' in function definition
+SyntaxError	def f(*a, a): pass\n	  File "<case>", line 1\n    def f(*a, a): pass\n           ^\nSyntaxError: duplicate argument 'a' in function definition
+SyntaxError	def f(a, **a): pass\n	  File "<case>", line 1\n    def f(a, **a): pass\n               ^\nSyntaxError: duplicate argument 'a' in function definition
+SyntaxError	def f(a, /, a): pass\n	  File "<case>", line 1\n    def f(a, /, a): pass\n                ^\nSyntaxError: duplicate argument 'a' in function definition
+SyntaxError	lambda x, x: x\n	  File "<case>", line 1\n    lambda x, x: x\n              ^\nSyntaxError: duplicate argument 'x' in function definition
+SyntaxError	async def f(x, x): pass\n	  File "<case>", line 1\n    async def f(x, x): pass\n                   ^\nSyntaxError: duplicate argument 'x' in function definition
+SyntaxError	def f(x: int, x: str): pass\n	  File "<case>", line 1\n    def f(x: int, x: str): pass\n                  ^^^^^^\nSyntaxError: duplicate argument 'x' in function definition
+SyntaxError	def f(x, x=1): pass\n	  File "<case>", line 1\n    def f(x, x=1): pass\n             ^\nSyntaxError: duplicate argument 'x' in function definition
+SyntaxError	def f[T, T](): pass\n	  File "<case>", line 1\n    def f[T, T](): pass\n             ^\nSyntaxError: duplicate type parameter 'T'
+SyntaxError	class C[T, *T]: pass\n	  File "<case>", line 1\n    class C[T, *T]: pass\n               ^^\nSyntaxError: duplicate type parameter 'T'
+SyntaxError	type A[T, **T] = int\n	  File "<case>", line 1\n    type A[T, **T] = int\n              ^^^\nSyntaxError: duplicate type parameter 'T'
+SyntaxError	f(a=1, a=2)\n	  File "<case>", line 1\n    f(a=1, a=2)\n           ^^^\nSyntaxError: keyword argument repeated: a
+SyntaxError	f(a=1, **k, a=2)\n	  File "<case>", line 1\n    f(a=1, **k, a=2)\n                ^^^\nSyntaxError: keyword argument repeated: a
+SyntaxError	f(1, a=2, b=3, a=4)\n	  File "<case>", line 1\n    f(1, a=2, b=3, a=4)\n                   ^^^\nSyntaxError: keyword argument repeated: a
+SyntaxError	C(x=1, x=2).y\n	  File "<case>", line 1\n    C(x=1, x=2).y\n           ^^^\nSyntaxError: keyword argument repeated: x
+SyntaxError	x = [f(k=1, k=2)]\n	  File "<case>", line 1\n    x = [f(k=1, k=2)]\n                ^^^\nSyntaxError: keyword argument repeated: k
+SyntaxError	f(a=1, a=2)\ndef g(x, x): pass\n	  File "<case>", line 2\n    def g(x, x): pass\n             ^\nSyntaxError: duplicate argument 'x' in function definition
+SyntaxError	def g(x, x): pass\nf(a=1, a=2)\n	  File "<case>", line 1\n    def g(x, x): pass\n             ^\nSyntaxError: duplicate argument 'x' in function definition
+SyntaxError	def f(a, a=(lambda z, z: 0)): pass\n	  File "<case>", line 1\n    def f(a, a=(lambda z, z: 0)): pass\n                          ^\nSyntaxError: duplicate argument 'z' in function definition
+SyntaxError	def f(a=g(x=1, x=2)) -> h(y=1, y=2): pass\n	  File "<case>", line 1\n    def f(a=g(x=1, x=2)) -> h(y=1, y=2): pass\n                   ^^^\nSyntaxError: keyword argument repeated: x
 SyntaxError	x = (1]\n	  File "<case>", line 1\n    x = (1]\n          ^\nSyntaxError: closing parenthesis ']' does not match opening parenthesis '('
 SyntaxError	x = (1,\n2]\n	  File "<case>", line 2\n    2]\n     ^\nSyntaxError: closing parenthesis ']' does not match opening parenthesis '(' on line 1
 SyntaxError	x = [\n\n(1}\n	  File "<case>", line 3\n    (1}\n      ^\nSyntaxError: closing parenthesis '}' does not match opening parenthesis '('

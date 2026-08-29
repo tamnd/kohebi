@@ -239,6 +239,42 @@ CASES = [
     "f(x): 1+\n",
     "[a]: int\n",
     "1: int\n",
+    # Everything below here parses. `ast.parse` hands back an ordinary tree for
+    # all of them and `compile` refuses every one, because what is wrong is not
+    # a shape the grammar can rule out. Two passes find these: `symtable.c`,
+    # which works out what the names in a scope mean, and `codegen.c`, which
+    # emits the bytecode. The symtable runs over the whole file first, so a file
+    # with one of each reports the symtable's however far down it sits.
+    "def f(x, x): pass\n",
+    "def f(x, *, x): pass\n",
+    "def f(*a, a): pass\n",
+    "def f(a, **a): pass\n",
+    "def f(a, /, a): pass\n",
+    "lambda x, x: x\n",
+    "async def f(x, x): pass\n",
+    # The position is the second one's whole node, which takes in an annotation
+    # and leaves out a default.
+    "def f(x: int, x: str): pass\n",
+    "def f(x, x=1): pass\n",
+    # Type parameters are the symtable's too, and get their own message.
+    "def f[T, T](): pass\n",
+    "class C[T, *T]: pass\n",
+    "type A[T, **T] = int\n",
+    # A repeated keyword is the code generator's, so it loses to any of the
+    # above anywhere in the file, and wins when there is none.
+    "f(a=1, a=2)\n",
+    "f(a=1, **k, a=2)\n",
+    "f(1, a=2, b=3, a=4)\n",
+    "C(x=1, x=2).y\n",
+    "x = [f(k=1, k=2)]\n",
+    # One of each, both ways round, which is what pins the order.
+    "f(a=1, a=2)\ndef g(x, x): pass\n",
+    "def g(x, x): pass\nf(a=1, a=2)\n",
+    # And two in one signature, which pins the order inside a function. The
+    # symtable takes the annotations and defaults before it opens the scope and
+    # takes the parameters, so the lambda buried in a default wins.
+    "def f(a, a=(lambda z, z: 0)): pass\n",
+    "def f(a=g(x=1, x=2)) -> h(y=1, y=2): pass\n",
     # A closing bracket of the wrong kind names the line the opening one is on,
     # but only when that is not the line already being shown.
     "x = (1]\n",
@@ -257,9 +293,34 @@ def block(source: str) -> tuple[str, str]:
     try:
         compile(source, FILENAME, "exec")
     except Exception as error:  # noqa: BLE001
+        fill_in_the_source_line(error, source)
         printed = "".join(traceback.format_exception_only(type(error), error))
         return type(error).__name__, printed.rstrip("\n")
     return "", ""
+
+
+def fill_in_the_source_line(error: BaseException, source: str) -> None:
+    """Put back the line the traceback would have shown for a real file.
+
+    The parser attaches the offending line to the `SyntaxError` it raises,
+    because it has the whole buffer in front of it. The two passes that run
+    after it do not, so they go and open the file named in the error instead,
+    and `<case>` is not a file. Compiling a string under a made up name is
+    therefore the one way to reach these errors and also the one way to lose
+    the source line and the carets from what gets printed.
+
+    Nothing is being invented here. Running any of these as an actual script
+    prints the line and the carets, drawn from the same `offset` and
+    `end_offset` the error is already carrying, and the whole point of this
+    fixture is what a person sees when they run the file.
+    """
+    if not isinstance(error, SyntaxError) or error.text is not None:
+        return
+    if error.lineno is None:
+        return
+    lines = source.splitlines(keepends=True)
+    if 1 <= error.lineno <= len(lines):
+        error.text = lines[error.lineno - 1]
 
 
 def escape(text: str) -> str:
