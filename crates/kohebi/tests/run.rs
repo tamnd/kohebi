@@ -21,6 +21,20 @@ fn run(args: &[&str]) -> (bool, String, String) {
     )
 }
 
+/// The same, for a test that cares which failure it was rather than only that
+/// it was one.
+fn status(args: &[&str]) -> (Option<i32>, String, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_kohebi"))
+        .args(args)
+        .output()
+        .expect("failed to run kohebi");
+    (
+        out.status.code(),
+        String::from_utf8(out.stdout).expect("stdout is not UTF-8"),
+        String::from_utf8(out.stderr).expect("stderr is not UTF-8"),
+    )
+}
+
 /// A file under the system temporary directory holding this source.
 fn source(name: &str, text: &str) -> String {
     let dir = std::env::temp_dir().join("kohebi-run-cli");
@@ -51,6 +65,60 @@ fn an_exception_goes_to_standard_error_and_fails() {
     // Whatever the program managed to print still gets out, in order.
     assert_eq!(out, "before\n");
     assert_eq!(err, "ZeroDivisionError: division by zero\n");
+}
+
+/// A `raise` that reaches the top is the same as any other exception, and the
+/// cause it was raised from prints above it.
+#[test]
+fn a_raise_that_nothing_catches_prints_the_chain_it_came_from() {
+    let file = source(
+        "raised",
+        "print('before')\nraise ValueError('a') from KeyError('b')\n",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(!ok);
+    assert_eq!(out, "before\n");
+    assert_eq!(
+        err,
+        "KeyError: 'b'\n\nThe above exception was the direct cause of the \
+         following exception:\n\nValueError: a\n"
+    );
+}
+
+/// `SystemExit` is the one exception that is asking for something rather than
+/// reporting something, so it sets the status and says nothing. A status is a
+/// byte, which is why 256 is a success.
+#[test]
+fn a_system_exit_sets_the_status_and_prints_nothing() {
+    for (argument, code) in [
+        ("3", 3),
+        ("", 0),
+        ("None", 0),
+        ("False", 0),
+        ("True", 1),
+        ("256", 0),
+    ] {
+        let name = format!("exiting{code}{}", argument.len());
+        let file = source(
+            &name,
+            &format!("print('done')\nraise SystemExit({argument})\n"),
+        );
+        let (status, out, err) = status(&["run", &file]);
+        assert_eq!(status, Some(code), "SystemExit({argument}) stderr {err:?}");
+        assert_eq!(out, "done\n");
+        assert_eq!(err, "");
+    }
+}
+
+/// A `SystemExit` given something that is not a number is a message, which is
+/// the one shape of it that prints.
+#[test]
+fn a_system_exit_given_a_message_prints_it_and_fails() {
+    let file = source("exiting-message", "raise SystemExit('no good')\n");
+    let (status, out, err) = status(&["run", &file]);
+    assert_eq!(status, Some(1));
+    assert_eq!(out, "");
+    assert_eq!(err, "no good\n");
 }
 
 #[test]

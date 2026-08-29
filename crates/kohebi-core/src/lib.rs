@@ -12,6 +12,7 @@
 
 pub mod dict;
 pub mod error;
+pub mod exception;
 pub mod float;
 pub mod hash;
 pub mod int;
@@ -24,6 +25,7 @@ pub mod text;
 
 pub use dict::{Dict, Set};
 pub use error::{Error, Kind, Result};
+pub use exception::Exception;
 pub use float::{DotZero, float_repr};
 pub use hash::{Key, Unhashable};
 pub use int::{DivideByZero, Int};

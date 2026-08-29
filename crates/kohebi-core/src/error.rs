@@ -1,70 +1,163 @@
 //! Exceptions, before there are classes to make them out of.
 //!
-//! A Python exception is an instance of a class, and a program can catch one by
-//! any of its base classes, define its own, and read attributes off it. None of
-//! that is possible yet, because there are no classes. What is possible, and
-//! what everything downstream needs first, is for the runtime to say what went
-//! wrong in exactly the words CPython says it, since that is what a program
-//! that prints an error message and a test that checks one both depend on.
+//! A Python exception is an instance of a class. Two thirds of that is here:
+//! the builtin classes and their instances are real values a program can name,
+//! call, bind and raise, and they are in [`exception`](crate::exception). What
+//! is missing is the third that needs the class machinery, which is a program
+//! defining one of its own and adding attributes and methods to it.
 //!
-//! So this is a kind and a message. When classes arrive the kind becomes the
-//! class and the message becomes the argument, and the places that build one
-//! do not have to change.
+//! So a class is a [`Kind`], which is a closed set of exactly the classes
+//! CPython has builtin, and the hierarchy between them is [`Kind::base`]. That
+//! is what lets `except ArithmeticError` catch a `ZeroDivisionError` without
+//! anything that could be called an object model existing yet.
+//!
+//! [`Error`] is what the runtime returns rather than what a program holds. It
+//! is a kind and a message because most of the time that is all there is: an
+//! operator that was handed the wrong type raises out of Rust and no Python
+//! object ever exists. When a program raises one itself the instance it raised
+//! comes along in [`Error::value`], so that the object it raised is the object
+//! it will eventually catch.
 
 use std::fmt;
 
-/// Which exception it is.
+use crate::exception::Exception;
+use crate::object::Object;
+
+/// Declare the builtin exception classes, their names and their hierarchy.
 ///
-/// One arm per builtin the runtime can raise on its own. There is no hierarchy
-/// here, so a program cannot catch an `ArithmeticError` and have a
-/// `ZeroDivisionError` land in it. That arrives with the class machinery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    TypeError,
-    ValueError,
-    ZeroDivisionError,
-    OverflowError,
-    MemoryError,
-    NameError,
-    /// A slot read before anything was put in it, which is a `NameError` in
-    /// CPython's hierarchy and has to be its own arm here because there is no
-    /// hierarchy yet.
-    UnboundLocalError,
-    AttributeError,
-    IndexError,
-    KeyError,
-    StopIteration,
-    /// Nothing more specific fits, which so far means a container that changed
-    /// size while something was walking it.
-    RuntimeError,
-    RecursionError,
-    NotImplementedError,
-    /// The operating system said no, which for now only happens on the way to
-    /// standard output.
-    OSError,
+/// One table rather than three, because a name and a base that disagreed about
+/// which class they belonged to would be a bug nothing could catch. The
+/// indentation is the tree, and `=> Parent` is the only thing a row has to say
+/// beyond its own name.
+macro_rules! hierarchy {
+    ($( $(#[$about:meta])* $name:ident $(=> $base:ident)? ),+ $(,)?) => {
+        /// Which exception it is, which is to say which class it is an
+        /// instance of.
+        ///
+        /// One arm per exception CPython has builtin, which is a closed set,
+        /// and the set is closed because a class a program defines is not one
+        /// of these and will not be until there are classes.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum Kind {
+            $( $(#[$about])* $name, )+
+        }
+
+        impl Kind {
+            /// Every builtin exception class, in the order the tree has them.
+            ///
+            /// This is what binds them as names, so a class missing from here
+            /// is a class a program cannot mention.
+            pub const ALL: &'static [Kind] = &[ $( Kind::$name, )+ ];
+
+            /// The name a traceback prints, which is the class name.
+            #[must_use]
+            pub const fn name(self) -> &'static str {
+                match self { $( Kind::$name => stringify!($name), )+ }
+            }
+
+            /// The class this one derives from.
+            ///
+            /// `None` for `BaseException` alone, which is the root and is the
+            /// reason walking this terminates.
+            #[must_use]
+            pub const fn base(self) -> Option<Kind> {
+                match self { $( Kind::$name => hierarchy!(@base $($base)?), )+ }
+            }
+        }
+    };
+    (@base) => { None };
+    (@base $base:ident) => { Some(Kind::$base) };
+}
+
+hierarchy! {
+    BaseException,
+        Exception => BaseException,
+            ArithmeticError => Exception,
+                FloatingPointError => ArithmeticError,
+                OverflowError => ArithmeticError,
+                ZeroDivisionError => ArithmeticError,
+            AssertionError => Exception,
+            AttributeError => Exception,
+            BufferError => Exception,
+            EOFError => Exception,
+            ImportError => Exception,
+                ModuleNotFoundError => ImportError,
+            LookupError => Exception,
+                IndexError => LookupError,
+                /// The one exception whose `str` is the `repr` of its argument,
+                /// so that a missing key of `''` is something rather than
+                /// nothing. See [`Exception::message`].
+                KeyError => LookupError,
+            MemoryError => Exception,
+            NameError => Exception,
+                /// A slot read before anything was put in it.
+                UnboundLocalError => NameError,
+            OSError => Exception,
+                BlockingIOError => OSError,
+                ChildProcessError => OSError,
+                ConnectionError => OSError,
+                    BrokenPipeError => ConnectionError,
+                    ConnectionAbortedError => ConnectionError,
+                    ConnectionRefusedError => ConnectionError,
+                    ConnectionResetError => ConnectionError,
+                FileExistsError => OSError,
+                FileNotFoundError => OSError,
+                InterruptedError => OSError,
+                IsADirectoryError => OSError,
+                NotADirectoryError => OSError,
+                PermissionError => OSError,
+                ProcessLookupError => OSError,
+                TimeoutError => OSError,
+            ReferenceError => Exception,
+            RuntimeError => Exception,
+                NotImplementedError => RuntimeError,
+                PythonFinalizationError => RuntimeError,
+                RecursionError => RuntimeError,
+            StopAsyncIteration => Exception,
+            StopIteration => Exception,
+            /// A syntax error the runtime raises, which is not the one the
+            /// parser reports. The parser refuses a file before there is a
+            /// program to raise anything, and says so in its own words.
+            SyntaxError => Exception,
+                IndentationError => SyntaxError,
+                    TabError => IndentationError,
+            SystemError => Exception,
+            TypeError => Exception,
+            ValueError => Exception,
+                UnicodeError => ValueError,
+                    UnicodeDecodeError => UnicodeError,
+                    UnicodeEncodeError => UnicodeError,
+                    UnicodeTranslateError => UnicodeError,
+            Warning => Exception,
+                BytesWarning => Warning,
+                DeprecationWarning => Warning,
+                EncodingWarning => Warning,
+                FutureWarning => Warning,
+                ImportWarning => Warning,
+                PendingDeprecationWarning => Warning,
+                ResourceWarning => Warning,
+                RuntimeWarning => Warning,
+                SyntaxWarning => Warning,
+                UnicodeWarning => Warning,
+                UserWarning => Warning,
+        GeneratorExit => BaseException,
+        KeyboardInterrupt => BaseException,
+        SystemExit => BaseException,
 }
 
 impl Kind {
-    /// The name a traceback prints, which is the class name.
+    /// Whether this class is that one or derives from it, which is the
+    /// question `except` asks and `isinstance` asks after it.
     #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Kind::TypeError => "TypeError",
-            Kind::ValueError => "ValueError",
-            Kind::ZeroDivisionError => "ZeroDivisionError",
-            Kind::OverflowError => "OverflowError",
-            Kind::MemoryError => "MemoryError",
-            Kind::NameError => "NameError",
-            Kind::UnboundLocalError => "UnboundLocalError",
-            Kind::AttributeError => "AttributeError",
-            Kind::IndexError => "IndexError",
-            Kind::KeyError => "KeyError",
-            Kind::StopIteration => "StopIteration",
-            Kind::RuntimeError => "RuntimeError",
-            Kind::RecursionError => "RecursionError",
-            Kind::NotImplementedError => "NotImplementedError",
-            Kind::OSError => "OSError",
+    pub fn derives_from(self, base: Kind) -> bool {
+        let mut at = Some(self);
+        while let Some(kind) = at {
+            if kind == base {
+                return true;
+            }
+            at = kind.base();
         }
+        false
     }
 }
 
@@ -74,13 +167,24 @@ impl fmt::Display for Kind {
     }
 }
 
-/// A raised exception.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A raised exception, on its way out of the runtime.
+///
+/// Not the same thing as an [`Exception`], which is the object a program holds.
+/// This is the Rust error the `?` in every operation propagates, and it is a
+/// kind and a message because that is all a division by zero has: no Python
+/// object is made for one unless something asks for it.
+#[derive(Debug, Clone)]
 pub struct Error {
     /// Which one it is.
     pub kind: Kind,
     /// What it says, which is empty for the ones that say nothing.
     pub message: String,
+    /// The instance a program raised, when a program raised one.
+    ///
+    /// Boxed because it is almost always absent and this type is inside every
+    /// `Result` the runtime returns, so an unboxed one would widen all of them
+    /// to pay for a case that hardly ever happens.
+    value: Option<Box<Object>>,
 }
 
 impl Error {
@@ -90,6 +194,7 @@ impl Error {
         Error {
             kind,
             message: message.into(),
+            value: None,
         }
     }
 
@@ -116,19 +221,85 @@ impl Error {
     pub fn overflow(message: impl Into<String>) -> Self {
         Error::new(Kind::OverflowError, message)
     }
+
+    /// The same exception, carrying the object a program raised.
+    ///
+    /// Carried rather than rebuilt at the catch, because `raise e` and the
+    /// `except ... as e` that catches it have to be the same object and there
+    /// is no way back to it from a kind and a message.
+    #[must_use]
+    pub fn with_value(mut self, value: Object) -> Self {
+        self.value = Some(Box::new(value));
+        self
+    }
+
+    /// The object that was raised, for a caller that has to hand back the very
+    /// one. `None` when the runtime raised this itself.
+    #[must_use]
+    pub fn value(&self) -> Option<&Object> {
+        self.value.as_deref()
+    }
+
+    /// The `raise ... from ...` chain, oldest first, which is the order a
+    /// traceback prints it in.
+    fn causes(&self) -> Vec<String> {
+        let mut chain = Vec::new();
+        // `raise e from e` is a ring, and printing one until the heap runs out
+        // is worse than printing it once. The exception being printed counts as
+        // seen before the walk starts, which is what makes an exception that is
+        // its own cause print once rather than twice.
+        let mut seen: Vec<*const Exception> = Vec::new();
+        let head = self.value.as_deref().and_then(Object::exception);
+        if let Some(head) = head {
+            seen.push(head);
+        }
+        let mut next = head.and_then(Exception::cause);
+        while let Some(value) = next {
+            let Some(exception) = value.exception() else {
+                break;
+            };
+            let address: *const Exception = exception;
+            if seen.contains(&address) {
+                break;
+            }
+            seen.push(address);
+            chain.push(last_line(exception.kind(), &exception.message()));
+            next = exception.cause();
+        }
+        chain.reverse();
+        chain
+    }
+}
+
+/// The last line of a traceback for one exception, which is the class name and
+/// then what the exception says.
+///
+/// A message-less exception prints as its name alone, with no colon, which is
+/// why this is not a format string.
+fn last_line(kind: Kind, message: &str) -> String {
+    if message.is_empty() {
+        kind.name().to_owned()
+    } else {
+        format!("{kind}: {message}")
+    }
 }
 
 impl fmt::Display for Error {
-    /// The last line of a traceback, which is the name and then the message.
+    /// The tail of a traceback: every exception this one was raised from,
+    /// oldest first, and then this one.
     ///
-    /// A message-less exception prints as its name alone, with no colon, which
-    /// is why this is not a plain format string.
+    /// There are no `File "x", line n` lines in between because there is no
+    /// line table yet, so what comes out is the part of a traceback that says
+    /// what happened without the part that says where.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.message.is_empty() {
-            write!(f, "{}", self.kind)
-        } else {
-            write!(f, "{}: {}", self.kind, self.message)
+        for cause in self.causes() {
+            writeln!(
+                f,
+                "{cause}\n\nThe above exception was the direct cause of the \
+                 following exception:\n"
+            )?;
         }
+        f.write_str(&last_line(self.kind, &self.message))
     }
 }
 
@@ -158,5 +329,41 @@ mod tests {
     #[test]
     fn an_exception_with_nothing_to_say_prints_its_name_alone() {
         assert_eq!(Error::new(Kind::MemoryError, "").to_string(), "MemoryError");
+    }
+
+    #[test]
+    fn a_class_derives_from_itself_and_from_everything_above_it() {
+        assert!(Kind::ZeroDivisionError.derives_from(Kind::ZeroDivisionError));
+        assert!(Kind::ZeroDivisionError.derives_from(Kind::ArithmeticError));
+        assert!(Kind::ZeroDivisionError.derives_from(Kind::Exception));
+        assert!(Kind::ZeroDivisionError.derives_from(Kind::BaseException));
+        assert!(!Kind::ZeroDivisionError.derives_from(Kind::ValueError));
+    }
+
+    /// `except Exception` is the line most programs are written with, and it
+    /// is the one that has to not catch a `KeyboardInterrupt`.
+    #[test]
+    fn the_three_that_are_not_exceptions_hang_off_the_root() {
+        for kind in [
+            Kind::GeneratorExit,
+            Kind::KeyboardInterrupt,
+            Kind::SystemExit,
+        ] {
+            assert!(kind.derives_from(Kind::BaseException));
+            assert!(!kind.derives_from(Kind::Exception));
+        }
+    }
+
+    /// Every class but the root has a base, so walking up from any of them
+    /// arrives at `BaseException` rather than stopping somewhere in between.
+    #[test]
+    fn every_class_is_reachable_from_the_root() {
+        for &kind in Kind::ALL {
+            assert!(
+                kind.derives_from(Kind::BaseException),
+                "{kind} does not derive from BaseException"
+            );
+        }
+        assert_eq!(Kind::BaseException.base(), None);
     }
 }
