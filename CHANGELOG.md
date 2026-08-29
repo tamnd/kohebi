@@ -14,6 +14,12 @@ The order things are walked in decides which of two errors you see, and it is no
 
 Forty eight more recorded blocks in the fixture and eighteen more files in the compat corpus, which is at 100% agreement over all 77. `'return' with value in async generator` is the one member of this family still missing, because it needs to know whether a function body holds a `yield` before it reaches the `return`, and the walk here only goes forwards.
 
+`improt os` now says `invalid syntax. Did you mean 'import'?`. This is not a parser rule and it does not run when the file is parsed. CPython works it out while the traceback is being printed, by brute force: take the source above the line that failed, try every name in it against the keywords that look like it, and keep the first substitution that turns the file into something that compiles. A suggestion costs a compile per candidate, which is why there are so many guards on how much it will look at.
+
+Two of those guards are the reason most misspellings get no suggestion at all, and both were surprises. The source it looks at starts at line 1 of the file rather than at the statement that failed, because the position it is given is always zero, so a typo on line 40 of anything real is past the 1024 character limit and stays `invalid syntax`. And the check that decides a substitution worked is a full compile rather than a parse, because `codeop._maybe_compile` is handed a parse-only flag and then makes one last call without passing it on. That is why `rr'a'` gets nothing: `return'a'` parses, and the code generator then refuses it for being a `return` outside a function.
+
+Over twelve hundred real files with one line broken in each, this takes agreement from 95.25% to 95.92%, and it fixes nothing else and breaks nothing else. `nonlocal declaration not allowed at module level` came along with it, since the suggestion for `nonlocl x` is only thrown away if we know that.
+
 The two measures behind `invalid syntax. Did you mean 'import'?`. CPython works that suggestion out when the traceback is printed, not when the file is parsed, and it uses two measures that disagree with each other. One is a Levenshtein distance where flipping the case of a letter costs half as much as changing it, and the other is the Ratcliff and Obershelp ratio at a cutoff of a half, which is why `len` can suggest `False`. Both are here, checked against CPython over 1955 words: every keyword, every one letter mistake in one, twenty names out of real code, and a few oddities. Nothing prints them yet.
 
 ## 0.0.8

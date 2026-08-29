@@ -532,10 +532,19 @@ impl<'a> Check<'a> {
             StmtKind::Expr { value } => self.expr(value),
             StmtKind::ImportFrom { names, .. } => self.star_import(names),
             StmtKind::Break | StmtKind::Continue => self.jump(stmt),
-            StmtKind::Import { .. }
-            | StmtKind::Global { .. }
-            | StmtKind::Nonlocal { .. }
-            | StmtKind::Pass => {}
+            StmtKind::Nonlocal { .. } => {
+                // The other half of this, `no binding for nonlocal 'x' found`,
+                // needs to know what every enclosing scope binds and is not
+                // here yet.
+                if self.scope == Scope::Module {
+                    self.refuse(
+                        Phase::Symbols,
+                        "nonlocal declaration not allowed at module level",
+                        stmt.attrs,
+                    );
+                }
+            }
+            StmtKind::Import { .. } | StmtKind::Global { .. } | StmtKind::Pass => {}
         }
     }
 

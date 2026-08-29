@@ -460,6 +460,38 @@ CASES = [
     "def f():\n    from os import *\n",
     "class C:\n    from os import *\n",
     "def f():\n    from os import a, *\n",
+    # A misspelled keyword, which CPython works out when the traceback is
+    # printed rather than when the file is parsed. It reads the source above
+    # the error, swaps each name it finds for the keywords it is closest to,
+    # and keeps the first swap that gives something that compiles.
+    "fro x in y:\n    pass\n",
+    "whille True:\n    pass\n",
+    "improt os\n",
+    "form os import path\n",
+    "clas C:\n    pass\n",
+    "def f():\n    retur 1\n",
+    "wile True:\n    pass\n",
+    "iff x:\n    pass\n",
+    "asert x\n",
+    "raies ValueError\n",
+    "wth open('f') as g:\n    pass\n",
+    "tyr:\n    pass\nexcept:\n    pass\n",
+    "lamda x: x\n",
+    "def f():\n    yeild 1\n",
+    "async def f():\n    awiat g()\n",
+    "gobal x\n",
+    # Words that look close to a keyword and get nothing. `im` has no keyword
+    # near enough to try, `elif` is already a keyword so it is never a name to
+    # swap, and `nonlocl` swaps to `nonlocal`, which then fails to compile at
+    # module level, so the swap is thrown away.
+    "im os\n",
+    "elif x:\n    pass\n",
+    "nonlocl x\n",
+    # The check that decides a swap worked is a full compile and not a parse,
+    # because `codeop` forgets to pass its flags on to its last attempt. So
+    # `return'a'` parses and is still rejected, and `rr'a'` gets nothing.
+    "nonlocal x\n",
+    "rr'a'\n",
 ]
 
 

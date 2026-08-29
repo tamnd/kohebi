@@ -147,8 +147,22 @@ impl SyntaxError {
     /// line, the offending source line with leading whitespace stripped, a run
     /// of carets under the span, then the exception line. An error that knows
     /// less than that prints less than that, stopping wherever its `Site` says.
+    ///
+    /// A refusal with nothing to say for itself gets one more chance here.
+    /// `impot os` is `invalid syntax` as far as the parser is concerned, and
+    /// the suggestion that makes it `Did you mean 'import'?` is worked out at
+    /// this point in CPython too, not earlier. The `typo` module has it.
     #[must_use]
     pub fn report(&self, source: &str, filename: &str) -> String {
+        match crate::typo::keyword_typo(self, source) {
+            Some(typo) => typo.block(source, filename),
+            None => self.block(source, filename),
+        }
+    }
+
+    /// `report` without the suggestion pass, which is the half that does the
+    /// printing.
+    fn block(&self, source: &str, filename: &str) -> String {
         let at = match self.site {
             Site::Message => return self.to_string(),
             Site::File => return format!("  File \"{filename}\", line 0\n{self}"),
