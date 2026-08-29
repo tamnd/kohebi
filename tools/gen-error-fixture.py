@@ -321,6 +321,75 @@ CASES = [
     # takes the parameters, so the lambda buried in a default wins.
     "def f(a, a=(lambda z, z: 0)): pass\n",
     "def f(a=g(x=1, x=2)) -> h(y=1, y=2): pass\n",
+    # An argument list has five refusals of its own, and they are worth pinning
+    # against each other because the same `=` reads four different ways
+    # depending on what is in front of it.
+    #
+    # Nothing after the sign is a missing value, and only the name and the sign
+    # are quoted back.
+    "f(a=)\n",
+    "f(x, a=)\n",
+    "f(a=, b=1)\n",
+    "f(a=1, b=)\n",
+    "g(a =)\n",
+    "class C(x=1, y=): pass\n",
+    "x = f(g(a=))\n",
+    # A word that stopped being a name in Python 3 gets named in the message.
+    "f(True=1)\n",
+    "f(None=1)\n",
+    "f(False=)\n",
+    # Anything else in front of the sign was an expression somebody tried to
+    # assign to, and that beats the ordering complaint the same line would
+    # otherwise get.
+    "f(a.b=1)\n",
+    "f(a[0]=1)\n",
+    "f(1=2)\n",
+    "f((x)=1)\n",
+    "f(a=1, b.c=2)\n",
+    "f(not a=1)\n",
+    "f(a if b else c=1)\n",
+    # A generator expression has no name to be given, so the sign was meant to
+    # be a comparison or a walrus.
+    "f(a=b for c in d)\n",
+    "f(a=b, c=d for e in g)\n",
+    "class C(a=b for c in d): pass\n",
+    # Unpacking has no name at all. The value has to be there for this wording,
+    # so the same line without one is refused at the sign instead.
+    "f(**k=1)\n",
+    "f(*a=1)\n",
+    "f(*[]=1)\n",
+    "f(a=1, *b=2)\n",
+    "f(**k=)\n",
+    "f(*a=)\n",
+    # A star with nothing it could unpack, in each of the places one can sit.
+    "f(*)\n",
+    "f(a, *)\n",
+    "x = [*]\n",
+    "x = {*}\n",
+    "x = (*)\n",
+    # And a star whose expression failed for a better reason than the star.
+    "f(*g(a=))\n",
+    "f(*[1 2])\n",
+    # The two ordering complaints are not reported where they are noticed. The
+    # rule that carries them has to read the whole argument list before it can
+    # fail, so the carets land on the token after the list and not on the
+    # argument that is in the wrong place.
+    "f(a=1, b)\n",
+    "f(a=1, b, c)\n",
+    "f(a=1, b=2, c)\n",
+    "f(a=1, *b, c)\n",
+    "f(a=1, b,)\n",
+    "f(a=1,\n  b)\n",
+    "f(a=1, b\n)\n",
+    "f(**k, b)\n",
+    "f(**k, b, c)\n",
+    "class C(a=1, b): pass\n",
+    # Unpacking an iterable after unpacking a mapping is its own complaint, and
+    # this one is measured from the comma in front of the run of stars.
+    "f(**k, *b)\n",
+    "f(**k, *b, *c)\n",
+    "f(**k, *b, c)\n",
+    "f(a, **k, *b)\n",
     # A closing bracket of the wrong kind names the line the opening one is on,
     # but only when that is not the line already being shown.
     "x = (1]\n",

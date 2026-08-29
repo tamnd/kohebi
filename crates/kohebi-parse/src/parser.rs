@@ -154,6 +154,12 @@ fn ends_expression(kind: TokenKind) -> bool {
 /// calls a `star_expressions` rather than an `expression`, and the places that
 /// take one or the other are different, so a caller that wants those has to say
 /// so itself.
+/// What `f(**k=1)` is refused for.
+const KEYWORD_UNPACKING: &str = "cannot assign to keyword argument unpacking";
+
+/// What `f(*a=1)` is refused for.
+const ITERABLE_UNPACKING: &str = "cannot assign to iterable argument unpacking";
+
 fn begins_expression(kind: TokenKind) -> bool {
     matches!(
         kind,
@@ -1257,6 +1263,128 @@ impl<'a> Parser<'a> {
         ))
     }
 
+    /// `f(*)` and `[* ]`, a `*` with nothing after it that could be unpacked.
+    ///
+    /// The grammar raises this without a location, so the caret lands on
+    /// whatever the parser is looking at, which is where the ordinary refusal
+    /// would have put it as well. Only the words change.
+    ///
+    /// Anything more specific keeps what it says. `f(*g(a=))` is about the
+    /// `a=` and not about the star, and a message from further in has already
+    /// been chosen more carefully than this one.
+    fn invalid_star(&self, mut error: SyntaxError) -> SyntaxError {
+        if !self.no_diagnostics && !self.raised_diagnostic && error.message == "invalid syntax" {
+            error.message = "Invalid star expression".into();
+        }
+        error
+    }
+
+    /// `f(*a=1)` and `f(**k=1)`, an assignment to something with no name to
+    /// assign to.
+    ///
+    /// Called with the cursor just past the unpacked expression, so `start` is
+    /// where the `*` or the `**` was and the span runs from there to the end
+    /// of whatever was on the right of the sign.
+    ///
+    /// The value has to be there for this to be the wording. `f(**k=)` is
+    /// plain invalid syntax at the sign, because the rule that carries the
+    /// message asks for an expression after it and does not get one.
+    fn no_assigning_to_unpacking(&mut self, start: u32, message: &'static str) -> Result<()> {
+        if self.no_diagnostics || !self.at(TokenKind::Equal) {
+            return Ok(());
+        }
+        let equal = self.bump();
+        if self.expression().is_err() {
+            return Err(Self::error("invalid syntax", equal.span));
+        }
+        self.raised_diagnostic = true;
+        Err(Self::error(message, Span::new(start, self.prev_end())))
+    }
+
+    /// `f(**k, *b)`, an iterable unpacked after a mapping already was.
+    ///
+    /// Called with the cursor on the `*`, and `comma` is the one in front of
+    /// it. The span runs from that comma to the first token that is not part
+    /// of the run of starred arguments, because the rule reports from the
+    /// comma to wherever the parser had reached, and where it had reached is
+    /// one token past the last star it could use.
+    fn unpacking_out_of_order(&mut self, comma: Span) -> SyntaxError {
+        while self.at(TokenKind::Star) {
+            self.bump();
+            if self.expression().is_err() || !self.eat(TokenKind::Comma) {
+                break;
+            }
+        }
+        self.raised_diagnostic = true;
+        Self::error(
+            "iterable argument unpacking follows keyword argument unpacking",
+            Span::new(comma.start, self.offset()),
+        )
+    }
+
+    /// Whether what is next reads as `name=value` rather than as a positional
+    /// argument.
+    ///
+    /// `True`, `False` and `None` are counted in even though none of them can
+    /// name a keyword, because the refusal they earn says so in its own words
+    /// and the positional branch would say something vaguer. They are only
+    /// counted in while the diagnostics are on, since off them there is nothing
+    /// to gain by taking a path that cannot succeed.
+    fn at_keyword_argument(&self) -> bool {
+        self.peek_at(1) == TokenKind::Equal
+            && (self.at(TokenKind::Name)
+                || (!self.no_diagnostics
+                    && matches!(
+                        self.peek(),
+                        TokenKind::Keyword(Keyword::True | Keyword::False | Keyword::None)
+                    )))
+    }
+
+    /// `name=value` inside an argument list, and the three ways it goes wrong.
+    ///
+    /// All three quote back the name and the sign and nothing else, which is
+    /// worth knowing because in two of the three the trouble is somewhere the
+    /// carets do not reach.
+    fn keyword_argument(&mut self, start: u32) -> Result<KwArg> {
+        let name = self.bump();
+        let equal = self.bump();
+        let sign = Span::new(name.span.start, equal.span.end);
+        if name.kind != TokenKind::Name {
+            // `f(True=1)`. The three of them stopped being names in Python 3
+            // and a keyword argument still has to be one, so this reads as an
+            // assignment to something that cannot be assigned to.
+            self.raised_diagnostic = true;
+            return Err(Self::error(
+                format!("cannot assign to {}", name.span.slice(self.source)),
+                sign,
+            ));
+        }
+        if !self.no_diagnostics && (self.at(TokenKind::Comma) || self.at(TokenKind::RParen)) {
+            // `f(a=)` and `f(a=, b=1)`. The name and the sign are what is
+            // quoted back rather than the empty space after them, because the
+            // space is where the answer would go and there is nothing there to
+            // point at.
+            self.raised_diagnostic = true;
+            return Err(Self::error("expected argument value expression", sign));
+        }
+        let value = self.expression()?;
+        if !self.no_diagnostics && self.at_comprehension() {
+            // `f(a=b for c in d)`. A generator expression cannot be given a
+            // name, so the sign was meant to be a comparison or a walrus.
+            self.raised_diagnostic = true;
+            return Err(Self::error(
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?",
+                sign,
+            ));
+        }
+        let end = self.prev_end();
+        Ok(KwArg {
+            arg: Some(self.ident(name.span)),
+            value,
+            attrs: self.attributes(start, end),
+        })
+    }
+
     /// What is between a pair of call brackets, from just past the `(` to just
     /// past the `)`.
     ///
@@ -1270,12 +1398,19 @@ impl<'a> Parser<'a> {
         let mut keywords: Vec<KwArg> = Vec::new();
         let mut seen_keyword = false;
         let mut seen_unpacking = false;
+        // The two ordering complaints are not raised where they are noticed.
+        // CPython finds them in a rule that has to consume the whole argument
+        // list before it can fail, so the caret lands on the token after the
+        // list rather than on the argument that is out of place.
+        let mut misplaced: Option<&'static str> = None;
+        let mut comma = open;
 
         while !self.at(TokenKind::RParen) {
             let item_start = self.offset();
             if self.at(TokenKind::DoubleStar) {
                 self.bump();
                 let value = self.expression()?;
+                self.no_assigning_to_unpacking(item_start, KEYWORD_UNPACKING)?;
                 let end = self.prev_end();
                 keywords.push(KwArg {
                     arg: None,
@@ -1284,8 +1419,12 @@ impl<'a> Parser<'a> {
                 });
                 seen_unpacking = true;
             } else if self.at(TokenKind::Star) {
+                if seen_unpacking && !self.no_diagnostics {
+                    return Err(self.unpacking_out_of_order(comma));
+                }
                 self.bump();
-                let value = self.expression()?;
+                let value = self.expression().map_err(|e| self.invalid_star(e))?;
+                self.no_assigning_to_unpacking(item_start, ITERABLE_UNPACKING)?;
                 let end = self.prev_end();
                 args.push(self.expr(
                     ExprKind::Starred {
@@ -1295,16 +1434,8 @@ impl<'a> Parser<'a> {
                     item_start,
                     end,
                 ));
-            } else if self.at(TokenKind::Name) && self.peek_at(1) == TokenKind::Equal {
-                let name = self.bump();
-                self.bump();
-                let value = self.expression()?;
-                let end = self.prev_end();
-                keywords.push(KwArg {
-                    arg: Some(self.ident(name.span)),
-                    value,
-                    attrs: self.attributes(item_start, end),
-                });
+            } else if self.at_keyword_argument() {
+                keywords.push(self.keyword_argument(item_start)?);
                 seen_keyword = true;
             } else {
                 let value = self.named_expression()?;
@@ -1334,23 +1465,37 @@ impl<'a> Parser<'a> {
                         end: close.span.end,
                     });
                 }
-                if seen_unpacking {
+                if !self.no_diagnostics && self.at(TokenKind::Equal) {
+                    // `f(a.b=1)` and `f(1=2)`. A keyword argument is a plain
+                    // name and a sign, so anything else in front of the sign
+                    // is an expression somebody tried to assign to. This is
+                    // ahead of the two ordering complaints below on purpose:
+                    // `f(a=1, b.c=2)` is refused for the assignment rather
+                    // than for the position.
+                    let equal = self.bump();
+                    self.raised_diagnostic = true;
                     return Err(Self::error(
-                        "positional argument follows keyword argument unpacking",
-                        Span::new(item_start, self.prev_end()),
+                        "expression cannot contain assignment, perhaps you meant \"==\"?",
+                        Span::new(self.span_of(&value).start, equal.span.end),
                     ));
                 }
-                if seen_keyword {
-                    return Err(Self::error(
-                        "positional argument follows keyword argument",
-                        Span::new(item_start, self.prev_end()),
-                    ));
+                if misplaced.is_none() {
+                    if seen_unpacking {
+                        misplaced = Some("positional argument follows keyword argument unpacking");
+                    } else if seen_keyword {
+                        misplaced = Some("positional argument follows keyword argument");
+                    }
                 }
                 args.push(value);
             }
-            if !self.eat(TokenKind::Comma) {
+            if !self.at(TokenKind::Comma) {
                 break;
             }
+            comma = self.bump().span;
+        }
+        if let Some(message) = misplaced {
+            self.raised_diagnostic = true;
+            return Err(Self::error(message, self.current().span));
         }
         let close = self.expect(TokenKind::RParen)?;
         Ok(CallArguments {
@@ -2208,7 +2353,7 @@ impl<'a> Parser<'a> {
         }
         let start = self.offset();
         self.bump();
-        let value = self.binary(1)?;
+        let value = self.binary(1).map_err(|e| self.invalid_star(e))?;
         let end = self.prev_end();
         Ok(self.expr(
             ExprKind::Starred {
