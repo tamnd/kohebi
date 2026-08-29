@@ -361,15 +361,15 @@ impl Parser<'_> {
     /// statement does.
     fn annotated_assignment(&mut self, start: u32, target: Expr, bare_tuple: bool) -> Result<Stmt> {
         let span = self.span_of(&target);
-        // A colon with nothing after it is not an annotated assignment at all,
-        // so none of the rules about what may be annotated ever come up.
-        // CPython falls through to a plain `invalid syntax`, and where it points
-        // depends on how far it got. A target it would have accepted takes it
-        // past the colon and into the annotation, so the error lands on
-        // whatever is sitting there. A target it would have refused leaves the
-        // colon as the last thing it managed to read. So `x:` points at the end
-        // of the line and `f(x):` points at the colon.
-        if super::ends_expression(self.peek_at(1)) {
+        // A colon with nothing an annotation could start with after it is not
+        // an annotated assignment at all, so none of the rules about what may
+        // be annotated ever come up. CPython falls through to a plain `invalid
+        // syntax`, and where it points depends on how far it got. A target it
+        // would have accepted takes it past the colon and into the annotation,
+        // so the error lands on whatever is sitting there. A target it would
+        // have refused leaves the colon as the last thing it managed to read.
+        // So `x: def` points at the `def` and `f(x): def` points at the colon.
+        if !super::begins_expression(self.peek_at(1)) {
             let at = if matches!(
                 target.kind,
                 ExprKind::Name { .. } | ExprKind::Attribute { .. } | ExprKind::Subscript { .. }
