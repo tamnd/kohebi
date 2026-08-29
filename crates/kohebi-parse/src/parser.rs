@@ -983,8 +983,22 @@ impl<'a> Parser<'a> {
         Self::error(style.parenthesized(), Span::new(open.start, close.end))
     }
 
-    /// `named_expression`: `x := 1`, or an ordinary expression.
+    /// `named_expression`: `x := 1`, an ordinary expression, or one of the
+    /// three ways an assignment written where a value belongs is explained.
+    ///
+    /// The three explanations are the only thing separating this from
+    /// `assignment_expression`, and the separation is the point. An argument
+    /// list spells the same mistakes differently, so `[a.b=1]` and `f(a.b=1)`
+    /// are refused with different words, and a call has to reach the other one.
     fn named_expression(&mut self) -> Result<Expr> {
+        let first = self.pos;
+        let value = self.assignment_expression()?;
+        self.not_a_value(first, &value)?;
+        Ok(value)
+    }
+
+    /// `assignment_expression | expression !':='`, with nothing said about it.
+    fn assignment_expression(&mut self) -> Result<Expr> {
         if self.at(TokenKind::Name) && self.peek_at(1) == TokenKind::Walrus {
             let start = self.offset();
             let name = self.bump();
@@ -1010,6 +1024,119 @@ impl<'a> Parser<'a> {
             ));
         }
         self.expression()
+    }
+
+    /// An `=` or a `:=` sitting where a value was wanted, and what to say.
+    ///
+    /// `[b=1]` is somebody who meant `==`, and CPython says so. Which of the
+    /// three sentences it says turns on what is in front of the sign, and the
+    /// rules do not agree with each other about how much they quote back:
+    /// a bare name takes the whole of `b=1` and everything else takes only the
+    /// part before the sign.
+    fn not_a_value(&mut self, first: usize, a: &Expr) -> Result<()> {
+        if self.no_diagnostics {
+            return Ok(());
+        }
+        if self.at(TokenKind::Walrus) {
+            // `[a.b := 1]`. Only a name can be given one, and this rule takes
+            // a whole expression, so `[a==b := 1]` is a comparison rather than
+            // something the code below would recognise.
+            self.raised_diagnostic = true;
+            return Err(Self::error(
+                format!(
+                    "cannot use assignment expressions with {}",
+                    assignment_target_name(&a.kind)
+                ),
+                self.span_of(a),
+            ));
+        }
+        if !self.at(TokenKind::Equal) {
+            return Ok(());
+        }
+        let sign = self.pos;
+        // Both `=` rules want a `bitwise_or` in front of the sign, so `or`,
+        // `and`, `not`, the comparisons, a conditional and a bare lambda all
+        // fall through to the ordinary refusal. Asking for one again from the
+        // front is the only honest test of that, since the tree cannot tell
+        // `(lambda: x) = 1`, which does get a sentence, from `lambda: x = 1`,
+        // which does not.
+        self.pos = first;
+        self.no_diagnostics = true;
+        let fits = self.binary(1).is_ok() && self.pos == sign;
+        self.no_diagnostics = false;
+        self.pos = sign;
+        if !fits {
+            return Ok(());
+        }
+        // And both want a `bitwise_or` after it with no second sign following,
+        // so `[a.b=]` and `[a.b=1=2]` fall through as well. Parsed on approval
+        // and put back, because the ordinary refusal is at the sign either way.
+        self.bump();
+        self.no_diagnostics = true;
+        let value =
+            self.binary(1).is_ok() && !matches!(self.peek(), TokenKind::Equal | TokenKind::Walrus);
+        self.no_diagnostics = false;
+        let end = self.prev_end();
+        self.pos = sign;
+        if !value {
+            return Ok(());
+        }
+        // A bare name is the one shape that could have been a walrus, so it is
+        // the one that gets told about both signs, and it is the one whose
+        // carets reach past the `=` to cover what was being assigned.
+        if self.tokens[first].kind == TokenKind::Name && first + 1 == sign {
+            self.raised_diagnostic = true;
+            return Err(Self::error(
+                "invalid syntax. Maybe you meant '==' or ':=' instead of '='?",
+                Span::new(self.span_of(a).start, end),
+            ));
+        }
+        if self.begins_a_display(first) {
+            return Ok(());
+        }
+        self.raised_diagnostic = true;
+        Err(Self::error(
+            format!(
+                "cannot assign to {} here. Maybe you meant '==' instead of '='?",
+                assignment_target_name(&a.kind)
+            ),
+            self.span_of(a),
+        ))
+    }
+
+    /// Whether the tokens at `at` open a list, a tuple, or one of `True`,
+    /// `False` and `None`.
+    ///
+    /// CPython steps over these before it will explain an `=`, and it does it
+    /// by looking at the tokens rather than at what they parsed into, which is
+    /// why `[None.x=1]` and `[[1][0]=2]` get nothing while `[(True)=1]` and
+    /// `[((1,2))=3]` get a sentence naming what they hold. A generator
+    /// expression is on the same list, and is why `[(a for a in b)=1]` is
+    /// quiet too.
+    fn begins_a_display(&self, at: usize) -> bool {
+        match self.tokens[at].kind {
+            TokenKind::Keyword(Keyword::True | Keyword::False | Keyword::None)
+            | TokenKind::LBracket => return true,
+            TokenKind::LParen => {}
+            _ => return false,
+        }
+        // A parenthesis is a tuple when it is empty or holds a comma of its
+        // own, and a generator expression when it holds a `for`, and neither
+        // when it is just a value someone wrapped.
+        let mut depth = 0u32;
+        for token in &self.tokens[at + 1..] {
+            match token.kind {
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                TokenKind::RBracket | TokenKind::RBrace => depth = depth.saturating_sub(1),
+                TokenKind::RParen if depth > 0 => depth -= 1,
+                // The empty pair is the one tuple with nothing in it to notice.
+                TokenKind::RParen => return self.tokens[at + 1].kind == TokenKind::RParen,
+                TokenKind::Comma | TokenKind::Keyword(Keyword::For) if depth == 0 => return true,
+                TokenKind::EndMarker => break,
+                _ => {}
+            }
+        }
+        false
     }
 
     fn disjunction(&mut self) -> Result<Expr> {
@@ -1438,7 +1565,11 @@ impl<'a> Parser<'a> {
                 keywords.push(self.keyword_argument(item_start)?);
                 seen_keyword = true;
             } else {
-                let value = self.named_expression()?;
+                // Not `named_expression`, on purpose. An argument list has its
+                // own sentence for an `=` in the wrong place and it is not the
+                // one a bracket would use, so `f(a.b=1)` and `[a.b=1]` are two
+                // different refusals.
+                let value = self.assignment_expression()?;
                 if genexp && self.at_comprehension() {
                     // `f(x for x in y)` is a generator expression that borrows
                     // the call's own brackets, and it is only legal when it is

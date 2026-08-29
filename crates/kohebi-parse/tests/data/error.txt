@@ -297,3 +297,49 @@ SyntaxError	elif x:\n    pass\n	  File "<case>", line 1\n    elif x:\n    ^^^^\n
 SyntaxError	nonlocl x\n	  File "<case>", line 1\n    nonlocl x\n            ^\nSyntaxError: invalid syntax
 SyntaxError	nonlocal x\n	  File "<case>", line 1\n    nonlocal x\n    ^^^^^^^^^^\nSyntaxError: nonlocal declaration not allowed at module level
 SyntaxError	rr'a'\n	  File "<case>", line 1\n    rr'a'\n      ^^^\nSyntaxError: invalid syntax
+SyntaxError	[b=1]\n	  File "<case>", line 1\n    [b=1]\n     ^^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	(b=1)\n	  File "<case>", line 1\n    (b=1)\n     ^^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	{b=1}\n	  File "<case>", line 1\n    {b=1}\n     ^^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	d[a=1]\n	  File "<case>", line 1\n    d[a=1]\n      ^^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	if b=1:\n    pass\n	  File "<case>", line 1\n    if b=1:\n       ^^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	while b=1:\n    pass\n	  File "<case>", line 1\n    while b=1:\n          ^^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	x = [a=1 for x in y]\n	  File "<case>", line 1\n    x = [a=1 for x in y]\n         ^^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	x[a=1:2]\n	  File "<case>", line 1\n    x[a=1:2]\n      ^^^\nSyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+SyntaxError	[a.b=1]\n	  File "<case>", line 1\n    [a.b=1]\n     ^^^\nSyntaxError: cannot assign to attribute here. Maybe you meant '==' instead of '='?
+SyntaxError	[a[0]=1]\n	  File "<case>", line 1\n    [a[0]=1]\n     ^^^^\nSyntaxError: cannot assign to subscript here. Maybe you meant '==' instead of '='?
+SyntaxError	[f()=1]\n	  File "<case>", line 1\n    [f()=1]\n     ^^^\nSyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
+SyntaxError	[1=2]\n	  File "<case>", line 1\n    [1=2]\n     ^\nSyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+SyntaxError	[...=1]\n	  File "<case>", line 1\n    [...=1]\n     ^^^\nSyntaxError: cannot assign to ellipsis here. Maybe you meant '==' instead of '='?
+SyntaxError	[{}=1]\n	  File "<case>", line 1\n    [{}=1]\n     ^^\nSyntaxError: cannot assign to dict literal here. Maybe you meant '==' instead of '='?
+SyntaxError	[a+b=1]\n	  File "<case>", line 1\n    [a+b=1]\n     ^^^\nSyntaxError: cannot assign to expression here. Maybe you meant '==' instead of '='?
+SyntaxError	[~a=1]\n	  File "<case>", line 1\n    [~a=1]\n     ^^\nSyntaxError: cannot assign to expression here. Maybe you meant '==' instead of '='?
+SyntaxError	[await a=1]\n	  File "<case>", line 1\n    [await a=1]\n     ^^^^^^^\nSyntaxError: cannot assign to await expression here. Maybe you meant '==' instead of '='?
+SyntaxError	[(a)=1]\n	  File "<case>", line 1\n    [(a)=1]\n      ^\nSyntaxError: cannot assign to name here. Maybe you meant '==' instead of '='?
+SyntaxError	[(lambda: x)=1]\n	  File "<case>", line 1\n    [(lambda: x)=1]\n      ^^^^^^^^^\nSyntaxError: cannot assign to lambda here. Maybe you meant '==' instead of '='?
+SyntaxError	[[1]=2]\n	  File "<case>", line 1\n    [[1]=2]\n        ^\nSyntaxError: invalid syntax
+SyntaxError	[[1][0]=2]\n	  File "<case>", line 1\n    [[1][0]=2]\n           ^\nSyntaxError: invalid syntax
+SyntaxError	[()=1]\n	  File "<case>", line 1\n    [()=1]\n       ^\nSyntaxError: invalid syntax
+SyntaxError	[(a,)=1]\n	  File "<case>", line 1\n    [(a,)=1]\n         ^\nSyntaxError: invalid syntax
+SyntaxError	[(1,2)+a=3]\n	  File "<case>", line 1\n    [(1,2)+a=3]\n            ^\nSyntaxError: invalid syntax
+SyntaxError	[(a for a in b)=1]\n	  File "<case>", line 1\n    [(a for a in b)=1]\n                   ^\nSyntaxError: invalid syntax
+SyntaxError	[True=1]\n	  File "<case>", line 1\n    [True=1]\n         ^\nSyntaxError: invalid syntax
+SyntaxError	[None.x=1]\n	  File "<case>", line 1\n    [None.x=1]\n           ^\nSyntaxError: invalid syntax
+SyntaxError	[a or b=1]\n	  File "<case>", line 1\n    [a or b=1]\n           ^\nSyntaxError: invalid syntax
+SyntaxError	[not a=1]\n	  File "<case>", line 1\n    [not a=1]\n          ^\nSyntaxError: invalid syntax
+SyntaxError	[a is b=1]\n	  File "<case>", line 1\n    [a is b=1]\n           ^\nSyntaxError: invalid syntax
+SyntaxError	[a if b else c=1]\n	  File "<case>", line 1\n    [a if b else c=1]\n                  ^\nSyntaxError: invalid syntax
+SyntaxError	[lambda: x=1]\n	  File "<case>", line 1\n    [lambda: x=1]\n              ^\nSyntaxError: invalid syntax
+SyntaxError	[b=1=2]\n	  File "<case>", line 1\n    [b=1=2]\n      ^\nSyntaxError: invalid syntax
+SyntaxError	[a.b=1=2]\n	  File "<case>", line 1\n    [a.b=1=2]\n        ^\nSyntaxError: invalid syntax
+SyntaxError	[a.b=]\n	  File "<case>", line 1\n    [a.b=]\n        ^\nSyntaxError: invalid syntax
+SyntaxError	[a.b=*c]\n	  File "<case>", line 1\n    [a.b=*c]\n        ^\nSyntaxError: invalid syntax
+SyntaxError	[a.b:=1]\n	  File "<case>", line 1\n    [a.b:=1]\n     ^^^\nSyntaxError: cannot use assignment expressions with attribute
+SyntaxError	[a[0]:=1]\n	  File "<case>", line 1\n    [a[0]:=1]\n     ^^^^\nSyntaxError: cannot use assignment expressions with subscript
+SyntaxError	[(1,2):=3]\n	  File "<case>", line 1\n    [(1,2):=3]\n     ^^^^^\nSyntaxError: cannot use assignment expressions with tuple
+SyntaxError	[True:=1]\n	  File "<case>", line 1\n    [True:=1]\n     ^^^^\nSyntaxError: cannot use assignment expressions with True
+SyntaxError	[a==b:=1]\n	  File "<case>", line 1\n    [a==b:=1]\n     ^^^^\nSyntaxError: cannot use assignment expressions with comparison
+SyntaxError	[a if b else c:=1]\n	  File "<case>", line 1\n    [a if b else c:=1]\n     ^^^^^^^^^^^^^\nSyntaxError: cannot use assignment expressions with conditional expression
+SyntaxError	[lambda: x:=1]\n	  File "<case>", line 1\n    [lambda: x:=1]\n     ^^^^^^^^^\nSyntaxError: cannot use assignment expressions with lambda
+SyntaxError	[a+b:=1]\n	  File "<case>", line 1\n    [a+b:=1]\n     ^^^\nSyntaxError: cannot use assignment expressions with expression
+SyntaxError	f(a.b:=1)\n	  File "<case>", line 1\n    f(a.b:=1)\n         ^^\nSyntaxError: invalid syntax
+SyntaxError	class C(a.b=1): pass\n	  File "<case>", line 1\n    class C(a.b=1): pass\n            ^^^^\nSyntaxError: expression cannot contain assignment, perhaps you meant "=="?
