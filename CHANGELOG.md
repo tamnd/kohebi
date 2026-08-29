@@ -6,6 +6,10 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+## 0.0.9
+
+Three merged pull requests since 0.0.8, still item 9, and the theme this time is the two passes that run after the parser has already built a tree. On the corpus of twelve hundred real modules with one line broken in each, agreement goes from 95.83% to 95.92%, which is a small number for a lot of work and is the honest one. What the corpus cannot see is the hand written half: the compat corpus of files written to be refused is at 100% over 83, up from 59, and all 1865 standard library files CPython compiles are still accepted.
+
 The refusals that are about where a statement is written rather than what it says. `return` outside a function, `break` and `continue` outside a loop, `yield` outside a function and `yield from` inside an async one, `await` outside a function and outside an async function, `async with` and `async for` outside an async function, an async comprehension outside an async function, a `yield` inside each of the four comprehensions, and `from x import *` anywhere but the top of a file. Fourteen messages, all of which we used to accept without comment.
 
 What decides every one of them is the innermost scope, and a scope is not a block. `while 1:` indents without being a scope, `class C:` is a scope without being a function, and a comprehension is a function that does not look like one. So `break` inside a class inside a loop is refused, `lambda: (yield)` is a generator and not a mistake, and `[(yield) for x in y]` gets a message naming the kind of comprehension it is in. A generator expression is exempt from the async rule because it is not run where it is written, which is why `def f(): [(x async for x in y) for z in w]` is legal and the same line with a list comprehension inside is not.
