@@ -88,7 +88,11 @@ pub fn hash(object: &Object) -> Result<i64, Unhashable> {
         Object::Str(value) => Ok(text(value)),
         Object::Bytes(value) => Ok(blob(value)),
         Object::Tuple(items) => tuple(items),
-        Object::List(_) => Err(Unhashable {
+        // Everything that can change is out, because a key that could change
+        // could move out from under the slot it was filed in. A `frozenset`
+        // is the way Python gives you a hashable one, and there is not one
+        // of those yet.
+        Object::List(_) | Object::Dict(_) | Object::Set(_) => Err(Unhashable {
             type_name: object.type_name(),
         }),
     }
