@@ -217,7 +217,7 @@ fn main() -> ExitCode {
     init_tracing(cli.log.as_deref());
 
     let unimplemented = match &cli.command {
-        Command::Run(_) => "kohebi run",
+        Command::Run(args) => return run(args),
         Command::Build(_) => "kohebi build",
         Command::Tokenize(args) => return tokenize(args),
         Command::Ast(args) => return ast(args),
@@ -240,6 +240,75 @@ fn main() -> ExitCode {
          for what has to happen before this command does anything."
     );
     ExitCode::FAILURE
+}
+
+/// Execute a Python program.
+///
+/// Everything runs in tier zero, which is the interpreter in `kohebi-interp`.
+/// The tiers above it do not exist yet, so `--max-tier` has nothing to choose
+/// between and the flags that ask the optimizer questions are refused rather
+/// than accepted and ignored.
+///
+/// An exception that reaches the top prints its last line and exits non-zero.
+/// The frames above it are missing because the bytecode has no line table yet,
+/// and a traceback header with nothing under it would say less than nothing.
+fn run(args: &RunArgs) -> ExitCode {
+    let refused: Vec<&str> = [
+        (args.profile_out.is_some(), "--profile-out"),
+        (args.gc_stress, "--gc-stress"),
+        (args.deopt_stress, "--deopt-stress"),
+        (args.deopt_stats, "--deopt-stats"),
+        (!args.argv.is_empty(), "arguments for the program"),
+    ]
+    .into_iter()
+    .filter_map(|(given, name)| given.then_some(name))
+    .collect();
+    if !refused.is_empty() {
+        eprintln!(
+            "kohebi: {} needs machinery that is not built yet. Everything runs in \
+             tier zero today, and there is no `sys` module for a program to read \
+             its arguments out of.",
+            refused.join(", ")
+        );
+        return ExitCode::FAILURE;
+    }
+
+    let name = args.script.display().to_string();
+    let source = match read(&args.script, &name) {
+        Ok(source) => source,
+        Err(report) => {
+            eprint!("{report}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let tree = match kohebi_parse::parse_module(&source) {
+        Ok(tree) => tree,
+        Err(error) => {
+            eprint!("{}", error.report(&source, &name));
+            return ExitCode::FAILURE;
+        }
+    };
+    let body = match kohebi_hir::lower_module(&tree, &name) {
+        Ok(body) => body,
+        Err(unsupported) => {
+            eprintln!("kohebi: {name}: {unsupported}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let code = kohebi_bc::compile(&body);
+    let mut vm = kohebi_interp::Vm::stdout();
+    let outcome = vm.run(&code);
+    // Whatever the program printed goes out before whatever it raised, the same
+    // way it would if the two shared a terminal.
+    let flushed = vm.flush();
+    match outcome.and(flushed) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// Print the token stream for one file, or count the tokens in many.
