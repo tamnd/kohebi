@@ -1391,3 +1391,165 @@ fn a_free_name_with_nothing_in_it_says_which_variable_and_where() {
          with a value in enclosing scope"
     );
 }
+
+// Comprehensions
+
+#[test]
+fn the_three_comprehensions_build_what_they_are_named_after() {
+    assert_eq!(
+        out("xs = [1, 2, 3, 4, 5]\n\
+             print([x * x for x in xs])\n\
+             print([x for x in xs if x % 2 == 0])\n\
+             print({x % 3 for x in xs} == {0, 1, 2})\n\
+             print({x: x * x for x in xs})\n"),
+        "[1, 4, 9, 16, 25]\n\
+         [2, 4]\n\
+         True\n\
+         {1: 1, 2: 4, 3: 9, 4: 16, 5: 25}\n"
+    );
+    // Nothing to iterate is not a special case, it is a loop that runs no
+    // turns, so the empty container is what comes back.
+    assert_eq!(
+        out("print([x for x in ()], {x: x for x in []})\n"),
+        "[] {}\n"
+    );
+}
+
+#[test]
+fn a_second_for_clause_runs_once_per_turn_of_the_first() {
+    assert_eq!(
+        out("print([(a, b) for a in [1, 2] for b in \"ab\"])\n"),
+        "[(1, 'a'), (1, 'b'), (2, 'a'), (2, 'b')]\n"
+    );
+    // And the second one can read what the first one bound, which is the whole
+    // reason for flattening a list of lists this way.
+    assert_eq!(
+        out("print([b for a in [[1, 2], [3, 4]] for b in a])\n"),
+        "[1, 2, 3, 4]\n"
+    );
+    // Two conditions on one clause, both of which have to hold.
+    assert_eq!(
+        out("print([b for a in [[1, 2], [3, 4]] for b in a if b > 1 if b < 4])\n"),
+        "[2, 3]\n"
+    );
+}
+
+#[test]
+fn the_loop_variable_does_not_leak_but_a_walrus_does() {
+    // The pair of rules that makes a comprehension a frame rather than a loop.
+    assert_eq!(
+        out("i = \"kept\"\n\
+             print([i for i in range(3)])\n\
+             print(i)\n"),
+        "[0, 1, 2]\n\
+         kept\n"
+    );
+    assert_eq!(
+        out("print([n for n in range(5) if (m := n * 2) > 4], m)\n"),
+        "[3, 4] 8\n"
+    );
+    // Inside a function the leak has somewhere to land, which is a cell of the
+    // enclosing frame rather than a global.
+    assert_eq!(
+        out("def f(xs):\n\
+             \x20   ys = [q for x in xs if (q := x)]\n\
+             \x20   return ys, q\n\
+             print(f([1, 2, 3]))\n"),
+        "([1, 2, 3], 3)\n"
+    );
+}
+
+#[test]
+fn a_comprehension_captures_the_frame_around_it_the_way_a_def_does() {
+    assert_eq!(
+        out("def scaled(n):\n\
+             \x20   return [i * n for i in range(4)]\n\
+             print(scaled(10))\n"),
+        "[0, 10, 20, 30]\n"
+    );
+    // Two frames up, carried by the one in between, which is the same chaining
+    // a nested `def` needs and not a second mechanism.
+    assert_eq!(
+        out("def three(n):\n\
+             \x20   def two():\n\
+             \x20       def one():\n\
+             \x20           return [i + n for i in range(3)]\n\
+             \x20       return one()\n\
+             \x20   return two()\n\
+             print(three(100))\n"),
+        "[100, 101, 102]\n"
+    );
+    // A `nonlocal` written from inside a comprehension reaches the frame that
+    // declared it, so the comprehension is a caller like any other.
+    assert_eq!(
+        out("def bumped():\n\
+             \x20   total = 0\n\
+             \x20   def bump():\n\
+             \x20       nonlocal total\n\
+             \x20       total += 1\n\
+             \x20   [bump() for _ in range(4)]\n\
+             \x20   return total\n\
+             print(bumped())\n"),
+        "4\n"
+    );
+}
+
+#[test]
+fn a_comprehension_nests_inside_another_one() {
+    assert_eq!(
+        out("print([[y for y in row] for row in [[1, 2], [3]]])\n"),
+        "[[1, 2], [3]]\n"
+    );
+    // The inner one reads the outer one's loop variable, which by then is two
+    // frames away from where it is used.
+    assert_eq!(
+        out("print([[j for j in range(i)] for i in range(3)])\n"),
+        "[[], [0], [0, 1]]\n"
+    );
+    // And a name from the function around both of them still reaches.
+    assert_eq!(
+        out("def deep():\n\
+             \x20   k = 5\n\
+             \x20   return [[k for _ in range(2)] for _ in range(2)]\n\
+             print(deep())\n"),
+        "[[5, 5], [5, 5]]\n"
+    );
+}
+
+#[test]
+fn a_comprehension_is_an_expression_and_goes_where_one_goes() {
+    // In a default, where it is evaluated once and the same list comes back
+    // from both calls, the same as any other default.
+    assert_eq!(
+        out("def defaults(xs=[i for i in range(3)]):\n\
+             \x20   return xs\n\
+             print(defaults(), defaults())\n"),
+        "[0, 1, 2] [0, 1, 2]\n"
+    );
+    assert_eq!(
+        out("f = lambda ys: [y for y in ys]\nprint(f([9, 8]))\n"),
+        "[9, 8]\n"
+    );
+    assert_eq!(
+        out("print(len([x for x in range(4)]) + len([x for x in \"ab\"]))\n"),
+        "6\n"
+    );
+}
+
+#[test]
+fn a_comprehension_raises_where_the_loop_it_stands_for_would() {
+    // `iter` is called where the comprehension is written rather than inside
+    // the frame, so this is the same message the `for` would have given.
+    assert_eq!(
+        raises("r = [x for x in 4]\n"),
+        "TypeError: 'int' object is not iterable"
+    );
+    assert_eq!(
+        raises("r = {[1] for _ in range(1)}\n"),
+        "TypeError: cannot use 'list' as a set element (unhashable type: 'list')"
+    );
+    assert_eq!(
+        raises("r = {[1]: 2 for _ in range(1)}\n"),
+        "TypeError: cannot use 'list' as a dict key (unhashable type: 'list')"
+    );
+}

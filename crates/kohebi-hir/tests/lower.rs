@@ -625,6 +625,192 @@ fn a_nonlocal_with_nothing_to_bind_to_is_a_syntax_error_rather_than_a_gap() {
     );
 }
 
+// Comprehensions
+
+#[test]
+fn a_comprehension_is_a_function_called_on_the_first_iterable() {
+    // The `iter` is on the outside, so the argument is already an iterator and
+    // `[x for x in 4]` raises where it is written rather than one frame in.
+    assert_eq!(
+        whole("squares = [x * x for x in xs if x % 2]\n"),
+        "body <test>:\n    \
+         squares = function <listcomp>(.0, /)(iter(xs))\n\
+         body <listcomp>(.0, /):\n    \
+         $0 = []\n    \
+         $1 = iter(.0)\n    \
+         loop:\n        \
+         setup:\n            \
+         $2 = next($1)\n        \
+         while not exhausted($2):\n            \
+         x = $2\n            \
+         if truthy(x % 2):\n                \
+         append $0, x * x\n    \
+         return $0"
+    );
+}
+
+#[test]
+fn a_set_and_a_dict_differ_from_a_list_in_one_statement_each() {
+    assert_eq!(
+        whole("r = {x for x in xs}\n"),
+        "body <test>:\n    \
+         r = function <setcomp>(.0, /)(iter(xs))\n\
+         body <setcomp>(.0, /):\n    \
+         $0 = {}\n    \
+         $1 = iter(.0)\n    \
+         loop:\n        \
+         setup:\n            \
+         $2 = next($1)\n        \
+         while not exhausted($2):\n            \
+         x = $2\n            \
+         insert $0, x\n    \
+         return $0"
+    );
+    // The key is evaluated before the value, which is the order they are
+    // written in and not the order `d[k] = v` uses.
+    assert_eq!(
+        whole("r = {k: v for k, v in pairs}\n"),
+        "body <test>:\n    \
+         r = function <dictcomp>(.0, /)(iter(pairs))\n\
+         body <dictcomp>(.0, /):\n    \
+         $0 = {}\n    \
+         $1 = iter(.0)\n    \
+         loop:\n        \
+         setup:\n            \
+         $2 = next($1)\n        \
+         while not exhausted($2):\n            \
+         $3 = unpack($2, 2)\n            \
+         k = $3[0]\n            \
+         v = $3[1]\n            \
+         entry $0, k, v\n    \
+         return $0"
+    );
+}
+
+#[test]
+fn a_second_for_clause_is_a_loop_inside_the_first_one() {
+    // And so its iterable is evaluated once per turn of the clause outside it,
+    // rather than once, which is why only the first one is an argument.
+    assert_eq!(
+        whole("r = [a for xs in m for a in xs]\n"),
+        "body <test>:\n    \
+         r = function <listcomp>(.0, /)(iter(m))\n\
+         body <listcomp>(.0, /):\n    \
+         $0 = []\n    \
+         $1 = iter(.0)\n    \
+         loop:\n        \
+         setup:\n            \
+         $2 = next($1)\n        \
+         while not exhausted($2):\n            \
+         xs = $2\n            \
+         $3 = iter(xs)\n            \
+         loop:\n                \
+         setup:\n                    \
+         $4 = next($3)\n                \
+         while not exhausted($4):\n                    \
+         a = $4\n                    \
+         append $0, a\n    \
+         return $0"
+    );
+}
+
+#[test]
+fn a_name_a_comprehension_reads_from_the_function_around_it_is_a_capture() {
+    // Which is the whole reason a comprehension is a frame and not a loop: the
+    // rule is the same one a `def` inside a function follows, so it is the same
+    // machinery rather than a second one that has to agree with it.
+    assert_eq!(
+        whole("def f(n):\n    return {i * n for i in n}\n"),
+        "body <test>:\n    \
+         f = function f(n)\n\
+         body f(n):\n    \
+         return function <setcomp>(.0, /) over cell n(iter(cell n))\n\
+         body <setcomp>(.0, /) over n:\n    \
+         $0 = {}\n    \
+         $1 = iter(.0)\n    \
+         loop:\n        \
+         setup:\n            \
+         $2 = next($1)\n        \
+         while not exhausted($2):\n            \
+         i = $2\n            \
+         insert $0, i * free n\n    \
+         return $0"
+    );
+}
+
+#[test]
+fn a_walrus_in_a_comprehension_binds_in_the_frame_around_it() {
+    // The loop variable does not leak and the walrus does, which is the pair of
+    // rules that makes a comprehension worth writing down carefully. Inside a
+    // function that means the name is a cell of the enclosing frame, so the
+    // write reaches the `return` after it.
+    assert_eq!(
+        whole("def f(xs):\n    ys = [q for x in xs if (q := x)]\n    return q\n"),
+        "body <test>:\n    \
+         f = function f(xs)\n\
+         body f(xs):\n    \
+         ys = function <listcomp>(.0, /) over cell q(iter(xs))\n    \
+         return cell q\n\
+         body <listcomp>(.0, /) over q:\n    \
+         $0 = []\n    \
+         $1 = iter(.0)\n    \
+         loop:\n        \
+         setup:\n            \
+         $2 = next($1)\n        \
+         while not exhausted($2):\n            \
+         x = $2\n            \
+         free q = x\n            \
+         if truthy(x):\n                \
+         append $0, free q\n    \
+         return $0"
+    );
+    // At module level there is nothing to capture into, so it is a global. The
+    // listing says so by having no `over` clause on the body: the comprehension
+    // took nothing from the frame around it, so the `q` it writes is not
+    // anybody's slot.
+    assert_eq!(
+        whole("ys = [q for x in xs if (q := x)]\n"),
+        "body <test>:\n    \
+         ys = function <listcomp>(.0, /)(iter(xs))\n\
+         body <listcomp>(.0, /):\n    \
+         $0 = []\n    \
+         $1 = iter(.0)\n    \
+         loop:\n        \
+         setup:\n            \
+         $2 = next($1)\n        \
+         while not exhausted($2):\n            \
+         x = $2\n            \
+         q = x\n            \
+         if truthy(x):\n                \
+         append $0, q\n    \
+         return $0"
+    );
+}
+
+#[test]
+fn a_walrus_a_comprehension_could_not_place_is_a_syntax_error() {
+    // Both of these are the same problem said twice: the name would have to be
+    // the comprehension's and the enclosing frame's at once. Python refuses
+    // rather than picking one.
+    assert_eq!(
+        refused("r = [i := i for i in xs]\n"),
+        "line 1: SyntaxError: assignment expression cannot rebind comprehension \
+         iteration variable 'i'"
+    );
+    assert_eq!(
+        refused("r = [x for x in (y := xs)]\n"),
+        "line 1: SyntaxError: assignment expression cannot be used in a \
+         comprehension iterable expression"
+    );
+    // The second clause's iterable counts too, even though it is evaluated
+    // inside the frame rather than outside it.
+    assert_eq!(
+        refused("r = [b for a in m for b in (y := a)]\n"),
+        "line 1: SyntaxError: assignment expression cannot be used in a \
+         comprehension iterable expression"
+    );
+}
+
 // What is not done yet
 
 #[test]
@@ -634,8 +820,8 @@ fn an_unlowered_construct_says_what_it_was_and_where() {
         "line 1: a with statement is not lowered yet"
     );
     assert_eq!(
-        refused("x = [i for i in y]\n"),
-        "line 1: a list comprehension is not lowered yet"
+        refused("x = (i for i in y)\n"),
+        "line 1: a generator expression is not lowered yet"
     );
     assert_eq!(
         refused("a, *b, *c = d\n"),

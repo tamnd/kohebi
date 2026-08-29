@@ -348,6 +348,22 @@ impl Vm {
                 Instr::DeleteItem { object, index } => {
                     ops::del_item(frame.get(object)?, frame.get(index)?)?;
                 }
+                Instr::Append { into, value } => {
+                    // The value is cloned before the list is borrowed, because
+                    // `[xs for _ in ...]` can be appending the list to itself.
+                    let value = frame.get(value)?.clone();
+                    let Object::List(items) = frame.get(into)? else {
+                        unreachable!("the compiler emits this for a list it made itself")
+                    };
+                    items.borrow_mut().push(value);
+                }
+                Instr::Insert { into, value } => {
+                    let member = ops::key(frame.get(value)?, "set element")?;
+                    let Object::Set(members) = frame.get(into)? else {
+                        unreachable!("the compiler emits this for a set it made itself")
+                    };
+                    members.borrow_mut().insert(member);
+                }
                 Instr::BuildSlice {
                     dst,
                     lower,

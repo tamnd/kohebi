@@ -24,8 +24,8 @@
 //! Quickening, the `dis` compatible view, and a line table. The first two are
 //! their own pieces of work and the third has nothing to read it until the
 //! interpreter has frames. Everything this crate compiles today is whatever the
-//! HIR can lower today, which is module level code without functions, classes,
-//! comprehensions, `with`, `try`, `match`, imports or unpacking.
+//! HIR can lower today, which leaves out classes, generators, `with`, `try`,
+//! `match` and imports.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-bc/0.0.0")]
 

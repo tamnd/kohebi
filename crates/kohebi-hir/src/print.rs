@@ -14,7 +14,7 @@ use kohebi_parse::Value;
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 use kohebi_parse::value::Str;
 
-use crate::hir::{Block, Body, Expr, FuncId, Local, Place, Slot, Stmt};
+use crate::hir::{Block, Body, Expr, FuncId, Grow, Local, Place, Slot, Stmt};
 
 /// The whole body, one statement per line, ending in a newline.
 ///
@@ -147,6 +147,19 @@ fn statement(out: &mut String, body: &Body, stmt: &Stmt, depth: usize) {
         }
         Stmt::Delete(place) => {
             let _ = writeln!(out, "delete {}", target(body, place));
+        }
+        Stmt::Accumulate { into, what } => {
+            let into = slot(body, *into);
+            let _ = match what {
+                Grow::Append(value) => writeln!(out, "append {into}, {}", expr(body, value)),
+                Grow::Insert(value) => writeln!(out, "insert {into}, {}", expr(body, value)),
+                Grow::Entry { key, value } => writeln!(
+                    out,
+                    "entry {into}, {}, {}",
+                    expr(body, key),
+                    expr(body, value)
+                ),
+            };
         }
         Stmt::Return(value) => {
             let _ = writeln!(out, "return {}", expr(body, value));
