@@ -1,0 +1,1955 @@
+False	else	False else raise
+alse	False	False else raise
+FFalse	False	False else raise
+aFlse	False	False else raise
+aalse	False	False else raise
+ealse	False	else False raise
+ialse	False	False else while
+oalse	False	False else raise
+ualse	False	False else raise
+salse	False	False else raise
+talse	False	False else raise
+ralse	False	raise False else
+nalse	False	False else raise
+Flse	False	False else
+Faalse	False	False else raise
+Flase	False	False else raise
+Felse	False	else False del
+Filse	False	False else while
+Folse	False	False else
+Fulse	False	False else
+Fslse	False	False else assert
+Ftlse	False	False else
+Frlse	False	False else raise
+Fnlse	False	False else
+Fase	False	False raise as
+Fallse	False	False else raise
+Fasle	False	False raise as
+Faase	False	False raise as
+Faese	False	False else raise
+Faise	False	raise False is
+Faose	False	False raise as
+Fause	False	False raise as
+Fasse	False	False assert pass
+Fatse	False	False raise as
+Farse	False	False raise as
+Fanse	False	False raise as
+Fale	False	False
+Falsse	False	False assert pass
+Fales	False	False as
+Falae	False	False
+Falee	False	False
+Falie	False	False raise
+Faloe	False	False
+Falue	False	False
+Falte	False	False
+Falre	False	False
+Falne	False	False and
+Fals	False	False as pass
+Falsee	False	False else raise
+Falsa	False	False as
+Falsi	False	False as
+Falso	False	False as
+Falsu	False	False as
+Falss	False	False pass class
+Falst	False	False as assert
+Falsr	False	False as assert
+Falsn	False	False async as
+FALSE	False	
+None	-	None continue
+one	None	None continue
+NNone	None	None
+oNne	-	None continue
+aone	None	None and continue
+eone	None	None else continue
+ione	None	None in continue
+oone	None	None continue
+uone	None	None continue True
+sone	None	None continue
+tone	None	None continue
+rone	None	None from continue
+none	None	None not nonlocal
+Nne	None	None
+Noone	None	None
+Nnoe	-	None not
+Nane	None	None and
+Nene	None	None else
+Nine	None	None in continue
+Nune	None	None True
+Nsne	None	None
+Ntne	None	None
+Nrne	None	None True
+Nnne	None	None continue
+Noe	None	None
+Nonne	None	None continue
+Noen	-	None
+Noae	None	None
+Noee	None	None else
+Noie	None	None continue
+Nooe	None	None
+Noue	None	None continue True
+Nose	None	None else
+Note	None	None not continue
+Nore	None	None or for
+Non	None	None
+Nonee	None	None
+Nona	None	None nonlocal
+Noni	None	None continue
+Nono	None	None not
+Nonu	None	None continue
+Nons	None	None
+Nont	None	None not continue
+Nonr	None	None or for
+Nonn	None	None continue
+NONE	None	
+True	-	True
+rue	True	True raise break
+TTrue	True	True
+rTue	-	True
+arue	True	True
+erue	True	True else
+irue	True	True continue
+orue	True	True or for
+urue	True	True
+srue	True	True
+true	True	True try continue
+rrue	True	True
+nrue	True	True continue None
+Tue	True	True
+Trrue	True	True
+Ture	-	True
+Taue	True	True
+Teue	True	True else
+Tiue	True	True continue
+Toue	True	True continue None
+Tuue	True	True
+Tsue	True	True
+Ttue	True	True continue
+Tnue	True	True continue None
+Tre	True	True raise break
+Truue	True	True
+Treu	-	True return
+Trae	True	True raise
+Tree	True	True else
+Trie	True	True raise
+Troe	True	True from None
+Trse	True	True raise else
+Trte	True	True
+Trre	True	True
+Trne	True	True None
+Tru	True	True
+Truee	True	True
+Trua	True	True
+Trui	True	True
+Truo	True	True from
+Truu	True	True
+Trus	True	True
+Trut	True	True
+Trur	True	True return
+Trun	True	True return
+TRUE	True	
+and	-	and async
+nd	and	and in
+aand	and	and
+nad	-	and
+end	and	and yield
+ind	and	in and yield
+ond	and	and None
+und	and	and
+snd	and	and async
+tnd	and	and
+rnd	and	and
+nnd	and	and
+ad	and	and lambda as
+annd	and	and
+adn	-	and async
+aad	and	and await
+aed	and	and yield raise
+aid	and	and yield raise
+aod	and	and
+aud	and	and
+asd	and	as and pass
+atd	and	and await
+ard	and	and
+an	and	and async in
+andd	and	and
+ana	and	and await async
+ane	and	and None raise
+ani	and	and raise await
+ano	and	not and async
+anu	and	and async
+ans	and	as and pass
+ant	and	not and await
+anr	and	and async
+ann	and	and async
+And	and	and
+AND	and	
+as	is	as pass raise
+s	as	is as
+aas	as	as pass raise
+sa	-	is as
+es	as	else is as
+is	as	is raise in
+os	as	or is as
+us	as	is as
+ss	as	pass class is
+ts	as	is as
+rs	as	raise or is
+ns	as	is in as
+a	as	as and
+ass	as	pass as class
+aa	as	await lambda as
+ae	as	raise False assert
+ai	as	raise await is
+ao	as	or as
+au	as	as
+at	as	await assert as
+ar	as	or assert as
+As	as	is as
+AS	as	
+assert	-	assert pass raise
+ssert	assert	assert
+aassert	assert	assert pass raise
+sasert	assert	assert raise False
+essert	assert	assert else except
+issert	assert	assert raise is
+ossert	assert	assert or import
+ussert	assert	assert
+sssert	assert	assert
+tssert	assert	assert
+rssert	assert	assert raise return
+nssert	assert	assert
+asert	assert	assert raise False
+asssert	assert	assert pass raise
+aasert	assert	assert raise await
+aesert	assert	assert else raise
+aisert	assert	assert raise await
+aosert	assert	assert raise False
+ausert	assert	assert raise False
+atsert	assert	assert raise False
+arsert	assert	assert raise False
+ansert	assert	assert raise False
+asesrt	assert	assert pass raise
+asaert	assert	assert await False
+aseert	assert	assert raise False
+asiert	assert	assert await False
+asoert	assert	assert False or
+asuert	assert	assert False as
+astert	assert	assert False as
+asrert	assert	assert False return
+asnert	assert	assert async False
+assrt	assert	assert pass class
+asseert	assert	assert pass raise
+assret	assert	assert pass class
+assart	assert	assert pass class
+assirt	assert	assert pass class
+assort	assert	assert pass class
+assurt	assert	assert pass class
+asssrt	assert	assert pass class
+asstrt	assert	assert pass class
+assrrt	assert	assert pass class
+assnrt	assert	assert pass class
+asset	assert	assert pass raise
+asserrt	assert	assert pass raise
+assetr	assert	assert pass raise
+asseat	assert	assert pass raise
+asseet	assert	assert pass raise
+asseit	assert	assert pass raise
+asseot	assert	assert pass raise
+asseut	assert	assert pass raise
+assest	assert	assert pass raise
+assett	assert	assert pass raise
+assent	assert	assert pass raise
+asser	assert	assert pass raise
+assertt	assert	assert pass raise
+assera	assert	assert pass class
+assere	assert	assert pass raise
+asseri	assert	assert pass raise
+assero	assert	assert pass raise
+asseru	assert	assert pass raise
+assers	assert	assert pass raise
+asserr	assert	assert pass raise
+assern	assert	assert pass raise
+Assert	assert	assert
+ASSERT	-	
+async	-	async as and
+sync	async	async
+aasync	async	async as
+saync	async	async and
+esync	async	async
+isync	async	async is in
+osync	async	async
+usync	async	async
+ssync	async	async
+tsync	async	async try
+rsync	async	async try
+nsync	async	async
+aync	async	async and
+assync	async	async pass class
+aysnc	async	async as and
+aaync	async	async and
+aeync	async	async and
+aiync	async	async in and
+aoync	async	async and
+auync	async	async and
+atync	async	async try and
+arync	async	async try and
+anync	async	async and
+asnc	async	async as and
+asyync	async	async as
+asnyc	async	async as and
+asanc	async	async as and
+asenc	async	async raise False
+asinc	async	async in as
+asonc	async	async as and
+asunc	async	async as and
+assnc	async	async pass class
+astnc	async	async as assert
+asrnc	async	async as assert
+asnnc	async	async as and
+asyc	async	async as pass
+asynnc	async	async as
+asycn	async	async as and
+asyac	async	async as
+asyec	async	async raise False
+asyic	async	async as
+asyoc	async	async as
+asyuc	async	async as
+asysc	async	async pass class
+asytc	async	async as assert
+asyrc	async	async as assert
+asyn	async	async as and
+asyncc	async	async as
+asyna	async	async as and
+asyne	async	async raise False
+asyni	async	async as and
+asyno	async	async as not
+asynu	async	async as and
+asyns	async	async pass class
+asynt	async	async as assert
+asynr	async	async as assert
+asynn	async	async as and
+Async	async	async
+ASYNC	-	
+await	-	await with
+wait	await	await with
+aawait	await	await with
+waait	await	await with
+ewait	await	await with
+iwait	await	await with
+owait	await	await with not
+uwait	await	await with
+swait	await	await with
+twait	await	await with
+rwait	await	await with raise
+nwait	await	await with not
+aait	await	await with
+awwait	await	await with
+aawit	await	await with
+aaait	await	await
+aeait	await	await assert
+aiait	await	await
+aoait	await	await not
+auait	await	await
+asait	await	await as assert
+atait	await	await
+arait	await	await raise assert
+anait	await	await not and
+awit	await	await with
+awaait	await	await with
+awiat	await	await with
+aweit	await	await with assert
+awiit	await	await with
+awoit	await	await with not
+awuit	await	await with
+awsit	await	await with as
+awtit	await	await with
+awrit	await	await with assert
+awnit	await	await with not
+awat	await	await with
+awaiit	await	await with
+awati	await	await
+awaat	await	await
+awaet	await	await assert
+awaot	await	await not
+awaut	await	await
+awast	await	await as assert
+awatt	await	await
+awart	await	await assert
+awant	await	await not and
+awai	await	await with
+awaitt	await	await with
+awaia	await	await
+awaie	await	await while raise
+awaii	await	await
+awaio	await	await
+awaiu	await	await
+awais	await	await raise is
+awair	await	await
+awain	await	await in and
+Await	await	await with
+AWAIT	-	
+break	-	break
+reak	break	break True
+bbreak	break	break
+rbeak	break	break
+areak	break	break
+ereak	break	break
+ireak	break	break
+oreak	break	break or for
+ureak	break	break
+sreak	break	break
+treak	break	break try
+rreak	break	break
+nreak	break	break
+beak	break	break
+brreak	break	break
+berak	break	break
+baeak	break	break
+beeak	break	break
+bieak	break	break
+boeak	break	break
+bueak	break	break
+bseak	break	break
+bteak	break	break
+bneak	break	break
+brak	break	break
+breeak	break	break
+braek	break	break raise
+braak	break	break
+briak	break	break
+broak	break	break
+bruak	break	break
+brsak	break	break
+brtak	break	break
+brrak	break	break
+brnak	break	break
+brek	break	break True
+breaak	break	break
+breka	break	break
+breek	break	break
+breik	break	break
+breok	break	break
+breuk	break	break return
+bresk	break	break
+bretk	break	break return
+brerk	break	break return
+brenk	break	break return
+brea	break	break True
+breakk	break	break
+breaa	break	break
+breae	break	break raise
+breai	break	break raise
+breao	break	break
+breau	break	break return
+breas	break	break raise as
+breat	break	break return
+brear	break	break return
+brean	break	break return and
+Break	break	break
+BREAK	-	
+class	pass	class pass as
+lass	class	class pass as
+cclass	class	class pass assert
+lcass	class	class pass as
+alass	class	class pass False
+elass	class	class pass else
+ilass	class	class pass is
+olass	class	class pass as
+ulass	class	class pass as
+slass	class	class pass as
+tlass	class	class pass as
+rlass	class	class pass raise
+nlass	class	class pass as
+cass	class	class pass as
+cllass	class	class pass assert
+calss	False	class pass False
+caass	class	class pass as
+ceass	class	class pass as
+ciass	class	class pass is
+coass	class	class pass as
+cuass	class	class pass as
+csass	class	class pass as
+ctass	class	class pass as
+crass	class	class pass raise
+cnass	class	class pass as
+clss	class	class pass else
+claass	class	class pass lambda
+clsas	class	class as
+cless	class	class
+cliss	class	class is
+closs	class	class
+cluss	class	class
+clsss	class	class
+cltss	class	class
+clrss	class	class
+clnss	class	class
+clas	class	class as pass
+classs	class	class pass assert
+claas	class	class as lambda
+claes	class	class as
+clais	class	class raise is
+claos	class	class as
+claus	class	class as
+clats	class	class as
+clars	class	class as
+clans	class	class as and
+clasa	class	class as lambda
+clase	class	class else raise
+clasi	class	class as
+claso	class	class as
+clasu	class	class as
+clast	class	class as assert
+clasr	class	class as assert
+clasn	class	class async as
+Class	class	class pass as
+CLASS	-	
+continue	-	continue None
+ontinue	continue	continue None
+ccontinue	continue	continue
+ocntinue	continue	continue None
+aontinue	continue	continue None
+eontinue	continue	continue None
+iontinue	continue	continue None
+oontinue	continue	continue None
+uontinue	continue	continue None
+sontinue	continue	continue None
+tontinue	continue	continue None
+rontinue	continue	continue True None
+nontinue	continue	continue not None
+cntinue	continue	continue
+coontinue	continue	continue
+cnotinue	continue	continue not None
+cantinue	continue	continue
+centinue	continue	continue
+cintinue	continue	continue
+cuntinue	continue	continue
+csntinue	continue	continue
+ctntinue	continue	continue
+crntinue	continue	continue True
+cnntinue	continue	continue
+cotinue	continue	continue None
+conntinue	continue	continue
+cotninue	continue	continue None
+coatinue	continue	continue None
+coetinue	continue	continue None
+coitinue	continue	continue None
+cootinue	continue	continue None
+coutinue	continue	continue None
+costinue	continue	continue None
+cottinue	continue	continue None
+cortinue	continue	continue True None
+coninue	continue	continue None
+conttinue	continue	continue
+conitnue	continue	continue None
+conainue	continue	continue None
+coneinue	continue	continue None
+coniinue	continue	continue None
+conoinue	continue	continue None
+conuinue	continue	continue None
+consinue	continue	continue None
+conrinue	continue	continue True None
+conninue	continue	continue None
+contnue	continue	continue None
+contiinue	continue	continue
+contniue	continue	continue None
+contanue	continue	continue None
+contenue	continue	continue None
+contonue	continue	continue None
+contunue	continue	continue None
+contsnue	continue	continue None
+conttnue	continue	continue None
+contrnue	continue	continue True None
+contnnue	continue	continue None
+contiue	continue	continue None
+continnue	continue	continue
+contiune	continue	continue None
+contiaue	continue	continue None
+contieue	continue	continue None
+contiiue	continue	continue None
+contioue	continue	continue None
+contiuue	continue	continue None
+contisue	continue	continue None
+contitue	continue	continue None
+contirue	continue	continue True None
+contine	continue	continue None
+continuue	continue	continue
+contineu	continue	continue None
+continae	continue	continue None
+continee	continue	continue None
+continie	continue	continue None
+continoe	continue	continue None
+continse	continue	continue None
+continte	continue	continue None
+continre	continue	continue None
+continne	continue	continue None
+continu	continue	continue
+continuee	continue	continue
+continua	continue	continue
+continui	continue	continue
+continuo	continue	continue
+continuu	continue	continue
+continus	continue	continue
+continut	continue	continue
+continur	continue	continue
+continun	continue	continue
+Continue	continue	continue None
+CONTINUE	-	
+def	del	def del elif
+ef	def	def elif if
+ddef	def	def del elif
+edf	-	def elif yield
+aef	def	def elif raise
+eef	def	def else elif
+ief	def	if def elif
+oef	def	def elif None
+uef	def	def elif True
+sef	def	def else elif
+tef	def	def elif
+ref	def	def elif True
+nef	def	def elif None
+df	def	def if
+deef	def	def del else
+dfe	-	del def
+daf	def	def
+dif	def	if def elif
+dof	def	def
+duf	def	def
+dsf	def	def
+dtf	def	def
+drf	def	def
+dnf	def	def
+de	def	del def
+deff	def	def del elif
+dea	def	del def break
+dee	def	del def else
+dei	def	del def elif
+deo	def	del def
+deu	def	del def
+des	def	del def else
+det	def	del def
+der	def	del def
+den	def	del def
+Def	def	def elif
+DEF	def	
+del	def	del def else
+el	del	del else elif
+ddel	del	del def else
+edl	-	del else elif
+ael	del	del else elif
+eel	del	del else elif
+iel	del	yield del else
+oel	del	del else elif
+uel	del	del else elif
+sel	del	del else elif
+tel	del	del else elif
+rel	del	del else elif
+nel	del	del else elif
+dl	del	del
+deel	del	del def else
+dle	-	del def while
+dal	del	del False
+dil	del	del yield while
+dol	del	del
+dul	del	del
+dsl	del	del
+dtl	del	del
+drl	del	del
+dnl	del	del
+dell	del	del def else
+Del	del	del else elif
+DEL	del	
+elif	-	elif if del
+lif	elif	elif if
+eelif	elif	elif if del
+leif	-	elif if def
+alif	elif	elif if
+ilif	elif	elif if
+olif	elif	elif if
+ulif	elif	elif if
+slif	elif	elif if
+tlif	elif	elif if
+rlif	elif	elif if
+nlif	elif	elif if
+eif	elif	elif if def
+ellif	elif	elif if del
+eilf	-	elif if del
+eaif	elif	elif if def
+eeif	elif	elif if def
+eiif	elif	elif if def
+eoif	elif	elif if def
+euif	elif	elif if def
+esif	elif	elif if def
+etif	elif	elif if def
+erif	elif	elif if def
+enif	elif	elif if def
+elf	elif	elif del def
+eliif	elif	elif if del
+elfi	-	elif del def
+elaf	elif	elif del def
+elef	elif	else elif del
+elof	elif	elif del def
+eluf	elif	elif del def
+elsf	elif	else elif del
+eltf	elif	elif del def
+elrf	elif	elif del def
+elnf	elif	elif del def
+eli	elif	elif del else
+eliff	elif	elif if del
+elia	elif	elif del else
+elie	elif	else elif del
+elii	elif	elif del else
+elio	elif	elif del else
+eliu	elif	elif del else
+elis	elif	else elif is
+elit	elif	elif del with
+elir	elif	elif del else
+elin	elif	elif in del
+Elif	elif	elif if
+ELIF	-	
+else	False	else False del
+lse	else	else False while
+eelse	else	else False del
+lese	-	else False
+ilse	else	else while raise
+olse	else	else False None
+ulse	else	else False True
+slse	else	else False assert
+tlse	else	else False
+rlse	else	else raise False
+nlse	else	else False None
+ese	else	else raise False
+ellse	else	else False del
+esle	-	else del elif
+ease	else	else raise as
+eese	else	else
+eise	else	else raise is
+eose	else	else None
+euse	else	else True
+esse	else	else assert pass
+etse	else	else
+erse	else	else raise True
+ense	else	else None
+ele	else	else del elif
+elsse	else	else class False
+eles	-	else del elif
+elae	else	else del elif
+elee	else	else del elif
+eloe	else	else del elif
+elue	else	else del elif
+elte	else	else del elif
+elre	else	else del elif
+elne	else	else del elif
+els	else	else del elif
+elsee	else	else False del
+elsa	else	else del elif
+elsi	else	else elif del
+elso	else	else del elif
+elsu	else	else del elif
+elss	else	else class del
+elst	else	else del elif
+elsr	else	else del elif
+elsn	else	else del elif
+Else	else	else False
+ELSE	-	
+except	-	except
+xcept	except	except
+eexcept	except	except
+xecept	except	except
+axcept	except	except assert
+ixcept	except	except import
+oxcept	except	except
+uxcept	except	except
+sxcept	except	except assert
+txcept	except	except
+rxcept	except	except return
+nxcept	except	except
+ecept	except	except
+exxcept	except	except
+ecxept	except	except
+eacept	except	except assert
+eecept	except	except
+eicept	except	except import
+eocept	except	except
+eucept	except	except
+escept	except	except else assert
+etcept	except	except
+ercept	except	except return assert
+encept	except	except
+exept	except	except
+exccept	except	except
+execpt	except	except
+exaept	except	except assert
+exeept	except	except
+exiept	except	except import
+exoept	except	except
+exuept	except	except
+exsept	except	except else assert
+extept	except	except
+exrept	except	except return assert
+exnept	except	except
+excpt	except	except
+exceept	except	except
+excpet	except	except
+excapt	except	except
+excipt	except	except import
+excopt	except	except
+excupt	except	except
+excspt	except	except
+exctpt	except	except
+excrpt	except	except assert
+excnpt	except	except
+excet	except	except
+exceppt	except	except
+excetp	except	except
+exceat	except	except
+exceet	except	except
+exceit	except	except
+exceot	except	except
+exceut	except	except
+excest	except	except
+excett	except	except
+excert	except	except assert
+excent	except	except
+excep	except	except
+exceptt	except	except
+excepa	except	except
+excepe	except	except
+excepi	except	except
+excepo	except	except
+excepu	except	except
+exceps	except	except
+excepr	except	except
+excepn	except	except
+Except	except	except
+EXCEPT	-	
+finally	-	finally
+inally	finally	finally in
+ffinally	finally	finally
+ifnally	finally	finally
+ainally	finally	finally
+einally	finally	finally
+iinally	finally	finally
+oinally	finally	finally
+uinally	finally	finally
+sinally	finally	finally
+tinally	finally	finally
+rinally	finally	finally
+ninally	finally	finally nonlocal
+fnally	finally	finally
+fiinally	finally	finally
+fnially	finally	finally
+fanally	finally	finally
+fenally	finally	finally
+fonally	finally	finally nonlocal
+funally	finally	finally
+fsnally	finally	finally
+ftnally	finally	finally
+frnally	finally	finally
+fnnally	finally	finally nonlocal
+fially	finally	finally
+finnally	finally	finally nonlocal
+fianlly	finally	finally
+fiaally	finally	finally
+fieally	finally	finally yield
+fiially	finally	finally
+fioally	finally	finally
+fiually	finally	finally
+fisally	finally	finally
+fitally	finally	finally
+firally	finally	finally
+finlly	finally	finally in
+finaally	finally	finally
+finlaly	finally	finally nonlocal
+finelly	finally	finally yield
+finilly	finally	finally
+finolly	finally	finally nonlocal
+finully	finally	finally
+finslly	finally	finally
+fintlly	finally	finally
+finrlly	finally	finally
+finnlly	finally	finally nonlocal
+finaly	finally	finally in
+finallly	finally	finally
+finaaly	finally	finally
+finaely	finally	finally yield
+finaily	finally	finally
+finaoly	finally	finally
+finauly	finally	finally
+finasly	finally	finally async
+finatly	finally	finally
+finarly	finally	finally
+finanly	finally	finally
+finalyl	finally	finally
+finalay	finally	finally
+finaley	finally	finally while False
+finaliy	finally	finally
+finaloy	finally	finally
+finaluy	finally	finally
+finalsy	finally	finally async False
+finalty	finally	finally
+finalry	finally	finally
+finalny	finally	finally
+finall	finally	finally in
+finallyy	finally	finally
+finalla	finally	finally
+finalle	finally	finally while False
+finalli	finally	finally
+finallo	finally	finally
+finallu	finally	finally
+finalls	finally	finally False
+finallt	finally	finally
+finallr	finally	finally
+finalln	finally	finally
+Finally	finally	finally False
+FINALLY	-	
+for	or	for or from
+or	for	or for import
+ffor	for	for or from
+ofr	or	or for from
+aor	for	or for
+eor	for	or for
+ior	for	or import for
+oor	for	or for
+uor	for	or for
+sor	for	or for
+tor	for	or try for
+ror	for	or for from
+nor	for	or not for
+fr	for	for from or
+foor	for	for or from
+fro	from	from for
+far	for	for from
+fer	for	for from
+fir	for	for from
+fur	for	for from
+fsr	for	for from
+ftr	for	try for from
+frr	for	for from
+fnr	for	for from
+fo	for	for from or
+forr	for	for or from
+foa	for	for from
+foe	for	for from None
+foi	for	for from
+foo	for	for from
+fou	for	for from
+fos	for	for from
+fot	for	not for from
+fon	for	for from None
+For	for	or for
+FOR	for	
+from	-	from for
+rom	from	from
+ffrom	from	from for
+rfom	-	from for
+arom	from	from
+erom	from	from
+irom	from	from
+orom	from	from or for
+urom	from	from
+srom	from	from
+trom	from	from try
+rrom	from	from
+nrom	from	from not
+fom	for	from for
+frrom	from	from for
+form	for	for from or
+faom	from	from for
+feom	from	from for
+fiom	from	from for
+foom	from	from for
+fuom	from	from for
+fsom	from	from for
+ftom	from	from for
+fnom	from	from not for
+frm	from	from for
+froom	from	from for
+frmo	-	from for
+fram	from	from for
+frem	from	from for True
+frim	from	from for
+frum	from	from for True
+frsm	from	from for
+frtm	from	from for
+frrm	from	from for
+frnm	from	from for
+fromm	from	from for
+froa	from	from for
+froe	from	from for True
+froi	from	from for
+froo	from	from for
+frou	from	from for True
+fros	from	from for
+frot	from	from not for
+fror	for	for from or
+fron	from	from for None
+From	from	from
+FROM	-	
+global	-	global nonlocal
+lobal	global	global nonlocal
+gglobal	global	global nonlocal
+lgobal	global	global
+alobal	global	global nonlocal
+elobal	global	global nonlocal
+ilobal	global	global nonlocal
+olobal	global	global nonlocal
+ulobal	global	global nonlocal
+slobal	global	global nonlocal
+tlobal	global	global nonlocal
+rlobal	global	global nonlocal
+nlobal	global	global nonlocal
+gobal	global	global
+gllobal	global	global nonlocal
+golbal	global	global nonlocal
+gaobal	global	global
+geobal	global	global
+giobal	global	global
+goobal	global	global nonlocal
+guobal	global	global
+gsobal	global	global
+gtobal	global	global
+grobal	global	global
+gnobal	global	global nonlocal
+glbal	global	global
+gloobal	global	global nonlocal
+glboal	global	global
+glabal	global	global lambda
+glebal	global	global
+glibal	global	global
+glubal	global	global
+glsbal	global	global
+gltbal	global	global
+glrbal	global	global
+glnbal	global	global
+gloal	global	global nonlocal
+globbal	global	global nonlocal
+gloabl	global	global nonlocal lambda
+gloaal	global	global nonlocal lambda
+gloeal	global	global nonlocal
+gloial	global	global nonlocal
+glooal	global	global nonlocal
+gloual	global	global nonlocal
+glosal	global	global nonlocal
+glotal	global	global nonlocal
+gloral	global	global nonlocal or
+glonal	global	global nonlocal
+globl	global	global
+globaal	global	global nonlocal
+globla	global	global
+globel	global	global
+globil	global	global
+globol	global	global
+globul	global	global
+globsl	global	global
+globtl	global	global
+globrl	global	global or
+globnl	global	global
+globa	global	global
+globall	global	global nonlocal
+globaa	global	global lambda
+globae	global	global
+globai	global	global
+globao	global	global
+globau	global	global
+globas	global	global class as
+globat	global	global
+globar	global	global or
+globan	global	global
+Global	global	global nonlocal
+GLOBAL	-	
+if	in	if elif is
+f	if	if for def
+iif	if	if elif
+fi	-	is in if
+af	as	if as
+of	if	or if
+uf	if	if
+sf	if	is if as
+tf	if	if
+rf	if	or if
+nf	if	in if
+i	if	is in if
+iff	if	if elif
+ia	if	is in if
+ie	if	yield while raise
+ii	if	is in if
+io	if	or is in
+iu	if	is in if
+it	if	with await is
+ir	if	or is in
+in	if	in is if
+If	if	if
+IF	if	
+import	-	import or
+mport	import	import or not
+iimport	import	import
+miport	import	import or
+amport	import	import or assert
+emport	import	import or except
+omport	import	import or
+umport	import	import or
+smport	import	import or assert
+tmport	import	import or
+rmport	import	import or
+nmport	import	import not or
+iport	import	import or not
+immport	import	import
+ipmort	import	import or
+iaport	import	import or assert
+ieport	import	import or except
+iiport	import	import or
+ioport	import	import or
+iuport	import	import or
+isport	import	import or is
+itport	import	import or
+irport	import	import or
+inport	import	import not or
+imort	import	import or not
+impport	import	import
+imoprt	import	import or
+imaort	import	import or assert
+imeort	import	import or assert
+imiort	import	import or
+imoort	import	import or
+imuort	import	import or
+imsort	import	import or is
+imtort	import	import or
+imrort	import	import or
+imnort	import	import not or
+imprt	import	import
+impoort	import	import
+improt	import	import
+impart	import	import assert
+impert	import	import assert
+impirt	import	import
+impurt	import	import
+impsrt	import	import is assert
+imptrt	import	import
+imprrt	import	import
+impnrt	import	import in
+impot	import	import not
+imporrt	import	import
+impotr	import	import or
+impoat	import	import
+impoet	import	import
+impoit	import	import
+impoot	import	import
+impout	import	import
+impost	import	import is
+impott	import	import
+impont	import	import in
+impor	import	import or for
+importt	import	import
+impora	import	import or
+impore	import	import or
+impori	import	import or
+imporo	import	import or
+imporu	import	import or
+impors	import	import or is
+imporr	import	import or
+imporn	import	import or in
+Import	import	import or
+IMPORT	-	
+n	in	in not and
+iin	in	in
+ni	-	is in if
+en	in	return in
+on	in	None or in
+un	in	return in
+sn	in	async is in
+tn	in	return in
+rn	in	return or in
+nn	in	in
+inn	in	in
+In	in	in
+IN	in	
+iis	is	is raise
+si	-	is in if
+iss	is	is pass raise
+Is	is	is as
+IS	is	
+lambda	-	lambda global
+ambda	lambda	lambda and
+llambda	lambda	lambda
+almbda	lambda	lambda
+aambda	lambda	lambda
+eambda	lambda	lambda
+iambda	lambda	lambda
+oambda	lambda	lambda global
+uambda	lambda	lambda
+sambda	lambda	lambda
+tambda	lambda	lambda
+rambda	lambda	lambda
+nambda	lambda	lambda
+lmbda	lambda	lambda global
+laambda	lambda	lambda
+lmabda	lambda	lambda global
+lembda	lambda	lambda global
+limbda	lambda	lambda global
+lombda	lambda	lambda global
+lumbda	lambda	lambda global
+lsmbda	lambda	lambda global
+ltmbda	lambda	lambda global
+lrmbda	lambda	lambda global
+lnmbda	lambda	lambda global
+labda	lambda	lambda global and
+lammbda	lambda	lambda
+labmda	lambda	lambda global
+laabda	lambda	lambda global
+laebda	lambda	lambda global
+laibda	lambda	lambda global
+laobda	lambda	lambda global
+laubda	lambda	lambda global
+lasbda	lambda	lambda class global
+latbda	lambda	lambda global
+larbda	lambda	lambda global
+lanbda	lambda	lambda and global
+lamda	lambda	lambda and
+lambbda	lambda	lambda
+lamdba	lambda	lambda global
+lamada	lambda	lambda
+lameda	lambda	lambda
+lamida	lambda	lambda
+lamoda	lambda	lambda global
+lamuda	lambda	lambda
+lamsda	lambda	lambda class as
+lamtda	lambda	lambda
+lamrda	lambda	lambda
+lamnda	lambda	lambda and
+lamba	lambda	lambda global
+lambdda	lambda	lambda
+lambad	lambda	lambda global
+lambaa	lambda	lambda global
+lambea	lambda	lambda break global
+lambia	lambda	lambda global
+lamboa	lambda	lambda global
+lambua	lambda	lambda global
+lambsa	lambda	lambda class global
+lambta	lambda	lambda global
+lambra	lambda	lambda break global
+lambna	lambda	lambda global
+lambd	lambda	lambda and
+lambdaa	lambda	lambda
+lambde	lambda	lambda
+lambdi	lambda	lambda
+lambdo	lambda	lambda
+lambdu	lambda	lambda
+lambds	lambda	lambda class as
+lambdt	lambda	lambda
+lambdr	lambda	lambda
+lambdn	lambda	lambda
+Lambda	lambda	lambda
+LAMBDA	-	
+nonlocal	-	nonlocal global
+onlocal	nonlocal	nonlocal global
+nnonlocal	nonlocal	nonlocal global
+onnlocal	nonlocal	nonlocal global
+aonlocal	nonlocal	nonlocal global
+eonlocal	nonlocal	nonlocal global
+ionlocal	nonlocal	nonlocal global finally
+oonlocal	nonlocal	nonlocal global
+uonlocal	nonlocal	nonlocal global
+sonlocal	nonlocal	nonlocal global
+tonlocal	nonlocal	nonlocal global
+ronlocal	nonlocal	nonlocal global
+nnlocal	nonlocal	nonlocal global
+noonlocal	nonlocal	nonlocal global
+nnolocal	nonlocal	nonlocal global
+nanlocal	nonlocal	nonlocal global finally
+nenlocal	nonlocal	nonlocal global
+ninlocal	nonlocal	nonlocal global finally
+nunlocal	nonlocal	nonlocal global
+nsnlocal	nonlocal	nonlocal global
+ntnlocal	nonlocal	nonlocal global
+nrnlocal	nonlocal	nonlocal global
+nnnlocal	nonlocal	nonlocal global
+nolocal	nonlocal	nonlocal global
+nonnlocal	nonlocal	nonlocal global
+nolnocal	nonlocal	nonlocal global
+noalocal	nonlocal	nonlocal global finally
+noelocal	nonlocal	nonlocal global
+noilocal	nonlocal	nonlocal global
+noolocal	nonlocal	nonlocal global
+noulocal	nonlocal	nonlocal global
+noslocal	nonlocal	nonlocal global
+notlocal	nonlocal	nonlocal global not
+norlocal	nonlocal	nonlocal global
+nonocal	nonlocal	nonlocal
+nonllocal	nonlocal	nonlocal global
+nonolcal	nonlocal	nonlocal
+nonaocal	nonlocal	nonlocal
+noneocal	nonlocal	nonlocal None
+noniocal	nonlocal	nonlocal
+nonoocal	nonlocal	nonlocal
+nonuocal	nonlocal	nonlocal
+nonsocal	nonlocal	nonlocal
+nontocal	nonlocal	nonlocal not
+nonrocal	nonlocal	nonlocal
+nonnocal	nonlocal	nonlocal
+nonlcal	nonlocal	nonlocal
+nonloocal	nonlocal	nonlocal global
+nonlcoal	nonlocal	nonlocal global
+nonlacal	nonlocal	nonlocal
+nonlecal	nonlocal	nonlocal None
+nonlical	nonlocal	nonlocal
+nonlucal	nonlocal	nonlocal
+nonlscal	nonlocal	nonlocal
+nonltcal	nonlocal	nonlocal not
+nonlrcal	nonlocal	nonlocal
+nonlncal	nonlocal	nonlocal
+nonloal	nonlocal	nonlocal global
+nonloccal	nonlocal	nonlocal global
+nonloacl	nonlocal	nonlocal global
+nonloaal	nonlocal	nonlocal global
+nonloeal	nonlocal	nonlocal global None
+nonloial	nonlocal	nonlocal global
+nonlooal	nonlocal	nonlocal global
+nonloual	nonlocal	nonlocal global
+nonlosal	nonlocal	nonlocal global
+nonlotal	nonlocal	nonlocal global not
+nonloral	nonlocal	nonlocal global
+nonlonal	nonlocal	nonlocal global
+nonlocl	nonlocal	nonlocal
+nonlocaal	nonlocal	nonlocal global
+nonlocla	nonlocal	nonlocal
+nonlocel	nonlocal	nonlocal None
+nonlocil	nonlocal	nonlocal
+nonlocol	nonlocal	nonlocal
+nonlocul	nonlocal	nonlocal
+nonlocsl	nonlocal	nonlocal
+nonloctl	nonlocal	nonlocal not
+nonlocrl	nonlocal	nonlocal
+nonlocnl	nonlocal	nonlocal
+nonloca	nonlocal	nonlocal
+nonlocall	nonlocal	nonlocal global finally
+nonlocaa	nonlocal	nonlocal
+nonlocae	nonlocal	nonlocal None
+nonlocai	nonlocal	nonlocal
+nonlocao	nonlocal	nonlocal
+nonlocau	nonlocal	nonlocal
+nonlocas	nonlocal	nonlocal
+nonlocat	nonlocal	nonlocal not
+nonlocar	nonlocal	nonlocal
+nonlocan	nonlocal	nonlocal
+Nonlocal	nonlocal	nonlocal global None
+NONLOCAL	-	
+not	-	not
+ot	not	not or import
+nnot	not	not
+ont	-	not None continue
+aot	not	not await
+eot	not	not
+iot	not	not import with
+oot	not	not
+uot	not	not
+sot	not	not
+tot	not	not
+rot	not	not from
+nt	not	not in
+noot	not	not nonlocal
+nto	-	not
+nat	not	not await
+net	not	not None
+nit	not	not with await
+nut	not	not
+nst	not	not
+ntt	not	not
+nrt	not	not
+nnt	not	not
+no	not	not or in
+nott	not	not
+noa	not	not nonlocal
+noe	not	not None
+noi	not	not
+noo	not	not nonlocal
+nou	not	not
+nos	not	not
+non	not	not None nonlocal
+Not	not	not None
+NOT	not	
+r	or	or try for
+ro	-	from or
+er	or	or assert
+ur	or	return or
+sr	or	or is assert
+tr	or	try or
+rr	or	return or
+nr	or	or in
+o	or	or not for
+orr	or	or for
+oa	or	or global as
+oe	or	None or
+oi	or	or is in
+oo	or	or
+ou	or	or
+Or	or	or
+OR	or	
+pass	class	pass class as
+ppass	pass	pass class as
+apss	-	pass class as
+aass	pass	pass class as
+eass	pass	pass class as
+iass	pass	pass is class
+oass	pass	pass class as
+uass	pass	pass class as
+sass	pass	pass class as
+tass	pass	pass class as
+rass	pass	pass raise class
+nass	pass	pass class as
+pss	pass	pass class
+paass	pass	pass class as
+psas	-	pass as
+pess	pass	pass else
+piss	pass	pass is
+poss	pass	pass
+puss	pass	pass
+psss	pass	pass
+ptss	pass	pass
+prss	pass	pass
+pnss	pass	pass
+pas	as	pass as raise
+passs	pass	pass class as
+paas	pass	pass as
+paes	pass	pass as else
+pais	pass	pass raise is
+paos	pass	pass as
+paus	pass	pass as
+pats	pass	pass as
+pars	pass	pass as
+pans	pass	pass as and
+pasa	pass	pass as
+pase	pass	pass raise as
+pasi	pass	pass as
+paso	pass	pass as
+pasu	pass	pass as
+past	pass	pass as assert
+pasr	pass	pass as assert
+pasn	pass	pass async as
+Pass	pass	pass class as
+PASS	-	
+raise	False	raise False is
+aise	raise	raise is as
+rraise	raise	raise False is
+arise	raise	raise False is
+aaise	raise	raise await False
+eaise	raise	raise else False
+iaise	raise	raise False is
+oaise	raise	raise False is
+uaise	raise	raise False is
+saise	raise	raise False is
+taise	raise	raise False is
+naise	raise	raise False is
+rise	raise	raise is else
+raaise	raise	raise await False
+riase	raise	raise False is
+reise	raise	raise else is
+riise	raise	raise is
+roise	raise	raise is
+ruise	raise	raise True is
+rsise	raise	raise is assert
+rtise	raise	raise is
+rrise	raise	raise is
+rnise	raise	raise is
+rase	raise	raise as False
+raiise	raise	raise False is
+rasie	raise	raise False as
+raase	raise	raise False as
+raese	raise	raise else False
+raose	raise	raise False as
+rause	raise	raise True False
+rasse	raise	raise assert pass
+ratse	raise	raise False as
+rarse	raise	raise False as
+ranse	raise	raise False as
+raie	raise	raise True
+raisse	raise	raise assert pass
+raies	raise	raise is as
+raiae	raise	raise
+raiee	raise	raise
+raiie	raise	raise
+raioe	raise	raise
+raiue	raise	raise True
+raite	raise	raise await
+raire	raise	raise
+raine	raise	raise in and
+rais	raise	raise is as
+raisee	raise	raise False is
+raisa	raise	raise is as
+raisi	raise	raise is as
+raiso	raise	raise is as
+raisu	raise	raise is as
+raiss	raise	raise pass class
+raist	raise	raise await is
+raisr	raise	raise is as
+raisn	raise	raise async is
+Raise	raise	raise False is
+RAISE	-	
+return	-	return
+eturn	return	return try
+rreturn	return	return
+erturn	return	return assert
+aeturn	return	return assert
+eeturn	return	return except
+ieturn	return	return in
+oeturn	return	return or
+ueturn	return	return
+seturn	return	return assert
+teturn	return	return
+neturn	return	return
+rturn	return	return try
+reeturn	return	return
+rteurn	return	return
+raturn	return	return
+riturn	return	return in
+roturn	return	return or
+ruturn	return	return
+rsturn	return	return
+rtturn	return	return
+rrturn	return	return
+rnturn	return	return
+reurn	return	return
+retturn	return	return
+reutrn	return	return
+reaurn	return	return break
+reeurn	return	return
+reiurn	return	return in
+reourn	return	return or
+reuurn	return	return
+resurn	return	return
+rerurn	return	return
+renurn	return	return
+retrn	return	return try
+retuurn	return	return
+retrun	return	return
+retarn	return	return break
+retern	return	return
+retirn	return	return in
+retorn	return	return or
+retsrn	return	return
+rettrn	return	return
+retrrn	return	return
+retnrn	return	return
+retun	return	return
+returrn	return	return
+retunr	return	return
+retuan	return	return break
+retuen	return	return True
+retuin	return	return in
+retuon	return	return
+retuun	return	return
+retusn	return	return
+retutn	return	return
+retunn	return	return
+retur	return	return try
+returnn	return	return
+retura	return	return break
+reture	return	return True
+returi	return	return
+returo	return	return
+returu	return	return
+returs	return	return
+returt	return	return assert
+returr	return	return
+Return	return	return
+RETURN	-	
+try	-	try
+ry	try	try or
+ttry	try	try
+rty	-	try
+ary	try	try async
+ery	try	try
+iry	try	try
+ory	or	or try for
+ury	try	try
+sry	try	try async
+rry	try	try
+nry	try	try
+ty	try	try
+trry	try	try
+tyr	-	try
+tay	try	try async
+tey	try	try
+tiy	try	try
+toy	try	try
+tuy	try	try
+tsy	try	try async
+tty	try	try
+tny	try	try
+tryy	try	try
+tra	try	try raise break
+tre	try	try True raise
+tri	try	try raise
+tro	try	try from
+tru	try	try True
+trs	try	try raise
+trt	try	try
+trr	try	try
+trn	try	try return
+Try	try	try True
+TRY	try	
+while	-	while
+hile	while	while
+wwhile	while	while
+hwile	while	while
+ahile	while	while raise False
+ehile	while	while else del
+ihile	while	while
+ohile	while	while
+uhile	while	while
+shile	while	while
+thile	while	while
+rhile	while	while raise
+nhile	while	while
+wile	while	while with
+whhile	while	while
+wihle	while	while with
+waile	while	while raise await
+weile	while	while else del
+wiile	while	while
+woile	while	while
+wuile	while	while
+wsile	while	while
+wtile	while	while
+wrile	while	while raise
+wnile	while	while
+whle	while	while with
+whiile	while	while
+whlie	while	while
+whale	while	while False
+whele	while	while else del
+whole	while	while
+whule	while	while
+whsle	while	while
+whtle	while	while
+whrle	while	while
+whnle	while	while
+whie	while	while with
+whille	while	while
+whiel	while	while yield del
+whiae	while	while
+whiee	while	while
+whiie	while	while
+whioe	while	while
+whiue	while	while
+whise	while	while raise is
+white	while	while with await
+whire	while	while
+whine	while	while in
+whil	while	while with
+whilee	while	while
+whila	while	while
+whili	while	while
+whilo	while	while
+whilu	while	while
+whils	while	while is
+whilt	while	while with await
+whilr	while	while
+whiln	while	while in
+While	while	while
+WHILE	-	
+with	-	with await
+ith	with	with await
+wwith	with	with await
+iwth	-	with
+aith	with	with await
+eith	with	with elif
+iith	with	with
+oith	with	with not
+uith	with	with
+sith	with	with
+tith	with	with
+rith	with	with
+nith	with	with not
+wth	with	with while await
+wiith	with	with await
+wtih	-	with
+wath	with	with await
+weth	with	with
+woth	with	with not
+wuth	with	with
+wsth	with	with
+wtth	with	with
+wrth	with	with
+wnth	with	with not
+wih	with	with while await
+witth	with	with await
+wiht	-	with await
+wiah	with	with
+wieh	with	with
+wiih	with	with
+wioh	with	with
+wiuh	with	with
+wish	with	with is
+wirh	with	with
+winh	with	with in
+wit	with	with await while
+withh	with	with await
+wita	with	with await
+wite	with	with while await
+witi	with	with await
+wito	with	with await
+witu	with	with await
+wits	with	with is await
+witt	with	with await
+witr	with	with await try
+witn	with	with in await
+With	with	with
+WITH	-	
+yield	-	yield del
+ield	yield	yield del else
+yyield	yield	yield
+iyeld	yield	yield del
+aield	yield	yield raise del
+eield	yield	yield del
+iield	yield	yield del
+oield	yield	yield del
+uield	yield	yield del
+sield	yield	yield del
+tield	yield	yield del
+rield	yield	yield raise del
+nield	yield	yield del and
+yeld	yield	yield del else
+yiield	yield	yield
+yeild	yield	yield
+yaeld	yield	yield del and
+yeeld	yield	yield del
+yoeld	yield	yield del
+yueld	yield	yield del
+yseld	yield	yield del
+yteld	yield	yield del
+yreld	yield	yield del
+yneld	yield	yield del and
+yild	yield	yield
+yieeld	yield	yield
+yiled	yield	yield while
+yiald	yield	yield finally and
+yiild	yield	yield
+yiold	yield	yield
+yiuld	yield	yield
+yisld	yield	yield is
+yitld	yield	yield
+yirld	yield	yield
+yinld	yield	yield in finally
+yied	yield	yield
+yielld	yield	yield
+yiedl	yield	yield del
+yiead	yield	yield and
+yieed	yield	yield
+yieid	yield	yield
+yieod	yield	yield
+yieud	yield	yield
+yiesd	yield	yield is
+yietd	yield	yield
+yierd	yield	yield
+yiend	yield	yield in and
+yiel	yield	yield del else
+yieldd	yield	yield
+yiela	yield	yield del
+yiele	yield	yield else while
+yieli	yield	yield elif del
+yielo	yield	yield del
+yielu	yield	yield del
+yiels	yield	yield else is
+yielt	yield	yield del
+yielr	yield	yield del
+yieln	yield	yield in del
+Yield	yield	yield del
+YIELD	-	
+_	-	
+	-	
+__	-	
+e	-	del def
+u	-	
+t	-	try not
+case	False	raise class as
+ase	as	as raise False
+ccase	class	raise class False
+acse	False	raise as False
+aase	False	raise as False
+iase	False	raise is as
+oase	False	raise as False
+uase	False	raise as False
+sase	False	raise as False
+tase	False	raise as False
+nase	False	raise as False
+cse	-	else raise class
+caase	False	raise class False
+csae	-	
+cese	-	else
+cise	raise	raise is else
+cose	-	else continue None
+cuse	-	else continue True
+csse	-	class assert pass
+ctse	-	else continue
+crse	-	raise else True
+cnse	-	else continue None
+cae	-	raise class False
+casse	False	class assert pass
+caes	class	class as pass
+caae	-	
+caee	-	else
+caie	raise	raise continue
+caoe	-	continue None
+caue	-	continue True
+cate	-	continue
+care	-	True
+cane	-	and continue None
+cas	as	as class pass
+casee	-	raise class False
+casa	class	class as pass
+casi	class	class as pass
+caso	class	class as pass
+casu	class	class as pass
+cast	class	class as assert
+casr	class	class as assert
+casn	class	class async as
+Case	False	raise as False
+CASE	-	
+match	-	
+atch	-	with
+mmatch	-	
+amtch	-	
+aatch	-	await
+eatch	-	
+iatch	-	with
+oatch	-	not
+uatch	-	
+satch	-	
+tatch	-	
+ratch	-	
+natch	-	not
+mtch	-	with
+maatch	-	await
+mtach	-	
+metch	-	
+mitch	with	with
+motch	-	import not
+mutch	-	
+mstch	-	
+mttch	-	
+mrtch	-	import
+mntch	-	not
+mach	-	
+mattch	-	
+macth	-	
+maach	-	
+maech	-	
+maich	-	
+maoch	-	
+mauch	-	
+masch	-	async as
+march	-	
+manch	-	async and
+math	-	with
+matcch	-	
+mathc	-	
+matah	-	
+mateh	-	
+matih	-	
+matoh	-	
+matuh	-	
+matsh	-	as
+matth	-	
+matrh	-	try
+matnh	-	and
+matc	-	
+matchh	-	
+matca	-	
+matce	-	
+matci	-	
+matco	-	
+matcu	-	
+matcs	-	as
+matct	-	
+matcr	-	try
+matcn	-	and
+Match	-	
+MATCH	-	
+type	-	try
+ype	-	yield
+ttype	-	try
+ytpe	-	
+aype	-	
+eype	-	else
+iype	-	
+oype	-	None
+uype	-	True
+sype	-	
+rype	-	try True
+nype	-	None
+tpe	-	
+tyype	-	try
+tpye	-	try
+tape	-	
+tepe	-	else
+tipe	-	continue
+tope	-	None
+tupe	-	continue True
+tspe	-	
+ttpe	-	
+trpe	True	try True
+tnpe	-	None
+tye	-	try yield
+typpe	-	try
+tyep	-	try
+tyae	-	try
+tyee	-	try else
+tyie	-	yield try continue
+tyoe	-	try None
+tyue	True	try continue True
+tyse	-	try else
+tyte	-	try
+tyre	-	try True
+tyne	-	try None
+typ	-	try
+typee	-	try
+typa	-	try pass
+typi	-	try
+typo	-	try
+typu	-	try
+typs	-	try pass
+typt	-	try
+typr	-	try
+typn	-	try
+Type	-	True
+TYPE	-	
+self	-	elif del def
+len	-	while False
+print	-	in not
+data	-	
+result	-	return
+sys	-	pass class async
+collections	-	continue
+value	False	False
+name	-	None
+file	while	while finally
+line	-	in elif continue
+args	-	as pass
+kwargs	-	as
+cls	-	class else False
+obj	-	
+key	-	
+item	-	with
+index	-	in del def
+count	-	continue not
+b	-	
+c	-	
+d	-	del def and
+g	-	
+h	-	
+j	-	
+k	-	
+l	-	del
+m	-	
+p	-	
+q	-	
+v	-	
+w	-	
+x	-	
+y	-	try
+z	-	
+impört	import	import
+ímport	import	import or
+iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii	-	
+importxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx	-	
