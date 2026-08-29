@@ -13,22 +13,26 @@
 //!
 //! ## What it runs today
 //!
-//! Module level code: assignment, arithmetic, comparison, the boolean
-//! operators, `if`, `while` and `for`, subscripting and slicing, tuple, list,
-//! set and dict displays, and calls to the builtins there are, which are
-//! `print`, `len`, `iter`, `next` and `range`. What it does not run yet is
-//! anything needing attributes or `raise`, and each of those raises a
-//! `NotImplementedError` naming itself rather than doing something almost
-//! right.
+//! Assignment, arithmetic, comparison, the boolean operators, `if`, `while` and
+//! `for`, subscripting and slicing, tuple, list, set and dict displays,
+//! unpacking, and calls: to the builtins there are, which are `print`, `len`,
+//! `iter`, `next` and `range`, and to functions the program defined with `def`
+//! or `lambda`. What it does not run yet is anything needing attributes or
+//! `raise`, and each of those raises a `NotImplementedError` naming itself
+//! rather than doing something almost right.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-interp/0.0.0")]
 
 pub mod builtin;
+pub mod function;
 pub mod iterate;
+pub mod ready;
 pub mod vm;
 
 pub use builtin::{Args, Builtin, Flavour};
+pub use function::Function;
 pub use iterate::{Iter, Range};
+pub use ready::Ready;
 pub use vm::Vm;
 
 /// The design documents that govern this crate.

@@ -13,17 +13,28 @@ use std::fmt::Write as _;
 
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 
-use crate::code::{Code, Instr, Reg, Span};
+use crate::code::{Code, Instr, Module, Reg, Span};
 
-/// The whole thing, ending in a newline.
+/// The whole module, ending in a newline.
+///
+/// The functions follow the body they were defined in, in the order they were
+/// defined, each under a heading of its own. A `makefunc` says which one it
+/// built, so the listing can still be read top to bottom.
 #[must_use]
-pub fn print(code: &Code) -> String {
+pub fn print(module: &Module) -> String {
     let mut out = String::new();
+    body(&mut out, module, &module.body);
+    out
+}
+
+fn body(out: &mut String, module: &Module, code: &Code) {
     let _ = writeln!(out, "code {}: {} registers", code.name, code.registers);
     for (at, instr) in code.instrs.iter().enumerate() {
-        let _ = writeln!(out, "{at:>4}  {}", line(code, instr).trim_end());
+        let _ = writeln!(out, "{at:>4}  {}", line(module, code, instr).trim_end());
     }
-    out
+    for func in &code.functions {
+        body(out, module, func);
+    }
 }
 
 fn reg(reg: Reg) -> String {
@@ -44,8 +55,8 @@ fn maybe(value: Option<Reg>) -> String {
 }
 
 /// The mnemonic and its operands, padded so the operands line up.
-fn line(code: &Code, instr: &Instr) -> String {
-    let (name, operands) = parts(code, instr);
+fn line(module: &Module, code: &Code, instr: &Instr) -> String {
+    let (name, operands) = parts(module, code, instr);
     format!("{name:<10} {operands}")
 }
 
@@ -53,7 +64,7 @@ fn line(code: &Code, instr: &Instr) -> String {
     clippy::too_many_lines,
     reason = "one arm per instruction, which is the point of a listing"
 )]
-fn parts(code: &Code, instr: &Instr) -> (&'static str, String) {
+fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) {
     match instr {
         Instr::Move { dst, src } => ("move", format!("{}, {}", reg(*dst), reg(*src))),
         Instr::Const { dst, value } => (
@@ -66,25 +77,25 @@ fn parts(code: &Code, instr: &Instr) -> (&'static str, String) {
         ),
         Instr::LoadGlobal { dst, name } => (
             "getglobal",
-            format!("{}, {}", reg(*dst), code.name_at(*name)),
+            format!("{}, {}", reg(*dst), module.name_at(*name)),
         ),
         Instr::StoreGlobal { name, src } => (
             "setglobal",
-            format!("{}, {}", code.name_at(*name), reg(*src)),
+            format!("{}, {}", module.name_at(*name), reg(*src)),
         ),
-        Instr::DeleteGlobal { name } => ("delglobal", code.name_at(*name).to_owned()),
+        Instr::DeleteGlobal { name } => ("delglobal", module.name_at(*name).to_owned()),
         Instr::DeleteLocal { reg: target } => ("dellocal", reg(*target)),
         Instr::LoadAttr { dst, object, name } => (
             "getattr",
-            format!("{}, {}.{}", reg(*dst), reg(*object), code.name_at(*name)),
+            format!("{}, {}.{}", reg(*dst), reg(*object), module.name_at(*name)),
         ),
         Instr::StoreAttr { object, name, src } => (
             "setattr",
-            format!("{}.{}, {}", reg(*object), code.name_at(*name), reg(*src)),
+            format!("{}.{}, {}", reg(*object), module.name_at(*name), reg(*src)),
         ),
         Instr::DeleteAttr { object, name } => (
             "delattr",
-            format!("{}.{}", reg(*object), code.name_at(*name)),
+            format!("{}.{}", reg(*object), module.name_at(*name)),
         ),
         Instr::LoadItem { dst, object, index } => (
             "getitem",
@@ -148,6 +159,27 @@ fn parts(code: &Code, instr: &Instr) -> (&'static str, String) {
         ),
         Instr::Not { dst, src } => ("not", format!("{}, {}", reg(*dst), reg(*src))),
         Instr::Truthy { dst, src } => ("truthy", format!("{}, {}", reg(*dst), reg(*src))),
+        Instr::MakeFunction {
+            dst,
+            func,
+            defaults,
+            kw_defaults,
+        } => {
+            let named = code
+                .functions
+                .get(func.0 as usize)
+                .map_or_else(|| format!("?{}", func.0), |func| func.name.to_string());
+            let mut parts = vec![reg(*dst), named];
+            parts.extend(code.operands(*defaults).iter().map(|r| reg(*r)));
+            // A hole is a keyword-only parameter with no default, which has to
+            // print as something or the ones after it would look shifted along.
+            parts.extend(
+                code.optional[kw_defaults.range()]
+                    .iter()
+                    .map(|value| maybe(*value)),
+            );
+            ("makefunc", parts.join(", "))
+        }
         Instr::Call {
             dst,
             callee,
@@ -157,7 +189,7 @@ fn parts(code: &Code, instr: &Instr) -> (&'static str, String) {
             let mut parts: Vec<String> = code.operands(*args).iter().map(|r| reg(*r)).collect();
             for (name, value) in &code.keywords[keywords.range()] {
                 parts.push(match name {
-                    Some(name) => format!("{}={}", code.name_at(*name), reg(*value)),
+                    Some(name) => format!("{}={}", module.name_at(*name), reg(*value)),
                     None => format!("**{}", reg(*value)),
                 });
             }

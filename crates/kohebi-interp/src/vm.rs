@@ -23,15 +23,21 @@
 //! There is one namespace because there is one module. Imports bring the
 //! second one and the map from module name to namespace with it.
 //!
-//! While a body runs its globals are a vector of slots rather than a map, one
-//! slot per name in that body's name table. Every name at module scope is a
+//! While a module runs its globals are a vector of slots rather than a map, one
+//! slot per name in the module's name table. Every name at module scope is a
 //! global, so a module that does anything in a loop reads and writes globals in
 //! that loop, and through a map each of those costs a string hash, a probe, a
 //! `memcmp` and, on a write, a fresh allocation for a key that was already
 //! there. The compiler has already interned every name into a dense table, so
 //! the interpreter indexes that table and none of it happens. The map is what
-//! holds the namespace between bodies, since the name table belongs to one body
-//! and the namespace does not.
+//! holds the namespace between runs, since a run owns the slots and the
+//! namespace outlives it.
+//!
+//! The table belongs to the module rather than to a body, which is what lets
+//! the slots be opened once and handed down through every call inside it. A
+//! table per body would make the `total` a function reads and the `total` the
+//! module writes two unrelated indices, and the only way back from that is to
+//! hash a string on every global access.
 //!
 //! ## What is not implemented
 //!
@@ -45,24 +51,38 @@ use std::fmt;
 use std::io::{self, Write};
 use std::rc::Rc;
 
-use kohebi_bc::code::{Code, Instr, NameId, Reg, Span};
+use kohebi_bc::code::{Code, Instr, Module, NameId, Reg, Span};
 use kohebi_core::dict::{Dict, Set};
 use kohebi_core::{Error, Kind, Object, Result, Slice, ops};
-use kohebi_parse::Value;
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
 use rustc_hash::FxHashMap;
 
 use crate::builtin::{Args, Builtin, table};
+use crate::function::Function;
 use crate::iterate;
+use crate::ready::Ready;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
 type Names = FxHashMap<Box<str>, Object>;
+
+/// How many Python calls may be on the stack at once.
+///
+/// The same number `sys.getrecursionlimit()` starts at, and for the same
+/// reason: a call here is a call in Rust, so the thing this really guards is
+/// the machine's stack, and a runaway recursion has to become an exception the
+/// program can catch before it becomes a crash the program cannot. The stack it
+/// is measured against is the one `kohebi` starts the interpreter on, which is
+/// asked for explicitly rather than inherited, since the default on Windows is
+/// a megabyte and would run out long before this did.
+const LIMIT: usize = 1000;
 
 /// One running program.
 pub struct Vm {
     globals: Names,
     builtins: Names,
     output: Box<dyn Write>,
+    /// How many calls are on the stack, against [`LIMIT`].
+    depth: usize,
 }
 
 impl fmt::Debug for Vm {
@@ -86,6 +106,7 @@ impl Vm {
                 .map(|(name, value)| (Box::from(name), value))
                 .collect(),
             output,
+            depth: 0,
         }
     }
 
@@ -98,18 +119,31 @@ impl Vm {
         Vm::new(Box::new(io::BufWriter::new(io::stdout())))
     }
 
-    /// Run a compiled body to completion and give back what it returned.
+    /// Run a compiled module to completion and give back what its body
+    /// returned.
     ///
     /// # Errors
     ///
     /// Whatever the program raises, which for a module body is the exception
     /// that reached the top without being caught.
-    pub fn run(&mut self, code: &Code) -> Result<Object> {
-        let mut globals = Globals::open(&code.names, &mut self.globals);
-        let outcome = self.execute(code, &mut globals);
+    pub fn run(&mut self, module: &Module) -> Result<Object> {
+        // Opened once for the whole run rather than once per body. Every
+        // function in the module reads globals through these same slots, so a
+        // call is a Rust call and not also a namespace rebuild.
+        let mut globals = Globals::open(&module.names, &mut self.globals);
+        // The module body is a frame like any other and counts against the
+        // limit like any other, which is why the deepest recursion that works
+        // here is one shallower than the limit rather than exactly it.
+        let ready = Ready::new(module);
+        let outcome = self.enter().and_then(|()| {
+            let frame = Frame::new(ready.code());
+            let outcome = self.execute(&ready, &mut globals, frame);
+            self.depth -= 1;
+            outcome
+        });
         // Whatever the body bound goes back into the namespace even when it
         // raised, because a program that fails halfway has still run the half
-        // before the failure and the next body has to see it.
+        // before the failure and the next run has to see it.
         globals.close(&mut self.globals);
         outcome
     }
@@ -122,9 +156,13 @@ impl Vm {
                   and the work in another, which is harder to read rather than \
                   easier and is not how any interpreter worth copying is written"
     )]
-    fn execute(&mut self, code: &Code, globals: &mut Globals<'_>) -> Result<Object> {
-        let consts = constants(code);
-        let mut frame = Frame::new(code.registers);
+    fn execute(
+        &mut self,
+        ready: &Ready,
+        globals: &mut Globals<'_>,
+        mut frame: Frame<'_>,
+    ) -> Result<Object> {
+        let code = ready.code();
 
         while let Some(&instr) = code.instrs.get(frame.pc) {
             frame.pc += 1;
@@ -134,7 +172,7 @@ impl Vm {
                     frame.set(dst, value);
                 }
                 Instr::Const { dst, value } => {
-                    let value = consts[value.0 as usize].get()?;
+                    let value = ready.constant(value)?;
                     frame.set(dst, value);
                 }
 
@@ -213,8 +251,30 @@ impl Vm {
                     args,
                     keywords,
                 } => {
-                    let value = self.call(code, &frame, callee, args, keywords)?;
+                    let value = self.call(code, &frame, globals, callee, args, keywords)?;
                     frame.set(dst, value);
+                }
+                Instr::MakeFunction {
+                    dst,
+                    func,
+                    defaults,
+                    kw_defaults,
+                } => {
+                    let Some(body) = ready.function(func) else {
+                        unreachable!("a def is numbered into the body that holds it")
+                    };
+                    // Evaluated here and kept, which is the whole of why
+                    // `def f(x=[])` shares one list between calls.
+                    let defaults = operands(code, &frame, defaults)?;
+                    let mut optional = Vec::with_capacity(kw_defaults.len as usize);
+                    for value in &code.optional[kw_defaults.range()] {
+                        optional.push(match value {
+                            Some(reg) => Some(frame.get(*reg)?.clone()),
+                            None => None,
+                        });
+                    }
+                    let function = Function::new(Rc::clone(body), defaults, optional);
+                    frame.set(dst, Object::native(function));
                 }
                 Instr::BuildTuple { dst, items } => {
                     let items = operands(code, &frame, items)?;
@@ -344,7 +404,8 @@ impl Vm {
     fn call(
         &mut self,
         code: &Code,
-        frame: &Frame,
+        frame: &Frame<'_>,
+        globals: &mut Globals<'_>,
         callee: Reg,
         args: Span,
         keywords: Span,
@@ -352,26 +413,71 @@ impl Vm {
         // Cloned out of the register before the call, so that a builtin taking
         // the machine mutably is not also holding a borrow of the frame.
         let callee = frame.get(callee)?.clone();
-        let Some(builtin) = callee.downcast::<Builtin>() else {
-            return Err(Error::type_error(format!(
-                "'{}' object is not callable",
-                callee.type_name()
-            )));
+        // Whether it is callable is settled before a single argument is
+        // gathered, because that is the order the messages come out in: a
+        // number called with a bad keyword complains about being a number.
+        let builtin = callee.downcast::<Builtin>();
+        let defined = callee.downcast::<Function>();
+        let function: &str = match (builtin, defined) {
+            (Some(builtin), _) => builtin.name(),
+            (None, Some(function)) => &function.code().name,
+            (None, None) => {
+                return Err(Error::type_error(format!(
+                    "'{}' object is not callable",
+                    callee.type_name()
+                )));
+            }
         };
 
-        let positional = operands(code, frame, args)?;
         let mut named: Vec<(Box<str>, Object)> = Vec::new();
         for (name, reg) in &code.keywords[keywords.range()] {
             let value = frame.get(*reg)?;
-            let function = builtin.name();
             match name {
                 Some(name) => {
-                    push_keyword(&mut named, Box::from(code.name_at(*name)), value, function)?;
+                    let name = Box::from(globals.name(*name));
+                    push_keyword(&mut named, name, value, function)?;
                 }
                 None => spread(&mut named, value, function)?,
             }
         }
-        builtin.call(self, Args::new(positional, named))
+        if let Some(builtin) = builtin {
+            let positional = operands(code, frame, args)?;
+            return builtin.call(self, Args::new(positional, named));
+        }
+        let Some(function) = defined else {
+            unreachable!("the callee was one of the two kinds a moment ago")
+        };
+        // The body is taken by hand rather than borrowed through the callee,
+        // because it runs with the machine borrowed mutably and the function
+        // object it came from is only a register away from being rebound by the
+        // very call about to happen.
+        let body = Rc::clone(function.ready());
+        let registers = function.bind(
+            code.operands(args)
+                .iter()
+                .map(|reg| frame.get(*reg).cloned()),
+            named,
+        )?;
+        self.enter()?;
+        let outcome = self.execute(&body, globals, Frame::with(body.code(), registers));
+        self.depth -= 1;
+        outcome
+    }
+
+    /// Take a step down, refusing one that goes deeper than [`LIMIT`].
+    ///
+    /// The depth is only put back by the caller on the way out, so an
+    /// exception unwinding through a hundred frames restores a hundred of it,
+    /// which is what makes a caught `RecursionError` leave the machine usable.
+    fn enter(&mut self) -> Result<()> {
+        if self.depth >= LIMIT {
+            return Err(Error::new(
+                Kind::RecursionError,
+                "maximum recursion depth exceeded",
+            ));
+        }
+        self.depth += 1;
+        Ok(())
     }
 }
 
@@ -426,16 +532,26 @@ impl<'a> Globals<'a> {
 }
 
 /// One call's frame.
-struct Frame {
+struct Frame<'a> {
     registers: Vec<Option<Object>>,
     pc: usize,
+    /// What the registers are called, borrowed from the code so that an empty
+    /// one can say which variable it was. Read on the error path only.
+    locals: &'a [Box<str>],
 }
 
-impl Frame {
-    fn new(registers: u32) -> Self {
+impl<'a> Frame<'a> {
+    /// An empty frame, which is what a module body starts with.
+    fn new(code: &'a Code) -> Self {
+        Frame::with(code, vec![None; code.registers as usize])
+    }
+
+    /// A frame whose low registers a call has already filled in.
+    fn with(code: &'a Code, registers: Vec<Option<Object>>) -> Self {
         Frame {
-            registers: vec![None; registers as usize],
+            registers,
             pc: 0,
+            locals: &code.locals,
         }
     }
 
@@ -443,12 +559,20 @@ impl Frame {
     fn get(&self, reg: Reg) -> Result<&Object> {
         match self.registers.get(reg.0 as usize) {
             Some(Some(value)) => Ok(value),
-            // The name is missing from the message because a register does not
-            // carry one. It arrives with the table of local names, which is
-            // what functions need anyway and which nothing reads yet.
+            // A scratch register has no name, and reading an empty one would be
+            // a bug in the compiler rather than in the program, so there is
+            // nothing better to say about it than that it happened.
             _ => Err(Error::new(
                 Kind::UnboundLocalError,
-                "cannot access local variable where it is not associated with a value",
+                match self.locals.get(reg.0 as usize).map(|name| &**name) {
+                    Some("") | None => "cannot access local variable where it is \
+                                        not associated with a value"
+                        .to_owned(),
+                    Some(name) => format!(
+                        "cannot access local variable '{name}' where it is not \
+                         associated with a value"
+                    ),
+                },
             )),
         }
     }
@@ -466,44 +590,8 @@ impl Frame {
     }
 }
 
-/// A literal, converted once for the run rather than on every execution of the
-/// instruction that loads it.
-enum Constant {
-    Value(Object),
-    /// A literal this runtime cannot build yet, named for its message. Kept
-    /// here rather than refused when the pool is built, so that a program with
-    /// a complex literal it never evaluates still runs.
-    Missing(&'static str),
-}
-
-impl Constant {
-    fn get(&self) -> Result<Object> {
-        match self {
-            Constant::Value(value) => Ok(value.clone()),
-            Constant::Missing(what) => Err(later(what)),
-        }
-    }
-}
-
-/// The constant pool, as objects.
-fn constants(code: &Code) -> Vec<Constant> {
-    code.consts
-        .iter()
-        .map(|value| match value {
-            Value::None => Constant::Value(Object::None),
-            Value::Ellipsis => Constant::Value(Object::Ellipsis),
-            Value::Bool(value) => Constant::Value(Object::Bool(*value)),
-            Value::Int(value) => Constant::Value(Object::Int(value.clone())),
-            Value::Float(value) => Constant::Value(Object::Float(*value)),
-            Value::Str(value) => Constant::Value(Object::Str(Rc::new(value.clone()))),
-            Value::Bytes(value) => Constant::Value(Object::Bytes(Rc::from(&**value))),
-            Value::Imaginary(_) => Constant::Missing("the complex type"),
-        })
-        .collect()
-}
-
 /// The values a span of registers holds.
-fn operands(code: &Code, frame: &Frame, span: Span) -> Result<Vec<Object>> {
+fn operands(code: &Code, frame: &Frame<'_>, span: Span) -> Result<Vec<Object>> {
     code.operands(span)
         .iter()
         .map(|reg| frame.get(*reg).cloned())
@@ -511,7 +599,7 @@ fn operands(code: &Code, frame: &Frame, span: Span) -> Result<Vec<Object>> {
 }
 
 /// A dict display, which is entries and `**` spreads in the order written.
-fn build_dict(code: &Code, frame: &Frame, entries: Span) -> Result<Object> {
+fn build_dict(code: &Code, frame: &Frame<'_>, entries: Span) -> Result<Object> {
     let mut dict = Dict::new();
     for (key, value) in &code.entries[entries.range()] {
         let value = frame.get(*value)?;
@@ -789,7 +877,7 @@ fn undefined(name: &str) -> Error {
 }
 
 /// Something this tier does not do yet.
-fn later(what: &str) -> Error {
+pub(crate) fn later(what: &str) -> Error {
     Error::new(
         Kind::NotImplementedError,
         format!("{what} is not implemented yet"),

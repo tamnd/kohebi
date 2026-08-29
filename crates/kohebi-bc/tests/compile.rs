@@ -5,19 +5,25 @@
 //! against what Python does, and cannot check a debug-printed enum against
 //! anything.
 
-use kohebi_bc::{Code, compile, print};
+use kohebi_bc::code::Module;
+use kohebi_bc::{compile, print};
 use kohebi_hir::lower_module;
 use kohebi_parse::parse_module;
 
-fn code(source: &str) -> Code {
+fn module(source: &str) -> Module {
     let tree = parse_module(source).expect("expected this to parse");
     let body = lower_module(&tree, "<test>").expect("expected this to lower");
     compile(&body)
 }
 
+/// The compiled module body, for a test about one body's own tables.
+fn code(source: &str) -> std::rc::Rc<kohebi_bc::Code> {
+    module(source).body
+}
+
 /// The listing for a module, with the header line dropped.
 fn bc(source: &str) -> String {
-    print(&code(source))
+    print(&module(source))
         .lines()
         .skip(1)
         .collect::<Vec<_>>()
@@ -270,7 +276,7 @@ fn a_constant_used_twice_is_stored_once() {
 #[test]
 fn a_name_used_twice_is_stored_once() {
     assert_eq!(
-        code("x = a\ny = a\n").names,
+        module("x = a\ny = a\n").names,
         vec!["a".into(), "x".into(), "y".into()]
     );
 }
@@ -327,4 +333,55 @@ fn every_jump_in_every_shape_gets_patched() {
             "an unpatched jump in {source:?}:\n{listing}"
         );
     }
+}
+
+// Functions
+
+#[test]
+fn a_def_builds_a_function_and_stores_it() {
+    assert_eq!(
+        bc("def f():\n    return 1\n"),
+        "   0  makefunc   r0, f\n   \
+            1  setglobal  f, r0\n   \
+            2  const      r0, None\n   \
+            3  ret        r0\n\
+         code f: 1 registers\n   \
+            0  const      r0, 1\n   \
+            1  ret        r0\n   \
+            2  const      r0, None\n   \
+            3  ret        r0"
+    );
+}
+
+#[test]
+fn defaults_are_evaluated_where_the_def_is_and_handed_to_it() {
+    // Registers rather than constants, because a default is an arbitrary
+    // expression this frame evaluates once. A hole is a keyword-only parameter
+    // with no default, and it has to print or the ones after it would look
+    // shifted along.
+    assert!(bc("def f(a, b=g()):\n    pass\n").contains("makefunc   r0, f, r1"));
+    assert!(bc("def f(*, a=1, b):\n    pass\n").contains("makefunc   r0, f, r1, _"));
+}
+
+#[test]
+fn a_parameter_is_a_register_the_call_fills_in() {
+    // The parameters are the low registers in the order `Params` says, so the
+    // body reads them by number and never by name.
+    assert!(bc("def f(a, b):\n    return b\n").contains("code f: 3 registers"));
+    assert!(bc("def f(a, b):\n    return b\n").contains("   0  ret        r1"));
+}
+
+#[test]
+fn a_nested_def_is_a_body_of_the_body_that_wrote_it() {
+    let listing = bc("def outer():\n    def inner():\n        pass\n");
+    assert!(listing.contains("code outer: 2 registers"));
+    assert!(listing.contains("code inner: 1 registers"));
+}
+
+#[test]
+fn every_body_in_a_module_shares_one_name_table() {
+    // The `total` a function reads and the `total` the module writes have to be
+    // the same index, or reading a global would be back to hashing a string.
+    let module = module("total = 0\ndef f():\n    global total\n    total = 1\n");
+    assert_eq!(module.names, vec!["total".into(), "f".into()]);
 }

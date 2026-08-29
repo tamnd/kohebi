@@ -281,14 +281,48 @@ fn run(args: &RunArgs) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let tree = match kohebi_parse::parse_module(&source) {
-        Ok(tree) => tree,
+
+    // Everything from here down happens on a thread we asked for the stack of.
+    // A Python call is a Rust call, so the recursion limit the interpreter
+    // enforces is only worth anything if there is stack behind it, and the
+    // default main thread stack on Windows is a megabyte. Nothing crosses the
+    // boundary but the source, because a compiled module is full of `Rc` and
+    // the whole point of an `Rc` is that it does not.
+    let started = std::thread::Builder::new()
+        .name("kohebi".to_owned())
+        .stack_size(STACK)
+        .spawn(move || interpret(&source, &name));
+    let handle = match started {
+        Ok(handle) => handle,
         Err(error) => {
-            eprint!("{}", error.report(&source, &name));
+            eprintln!("kohebi: could not start the interpreter: {error}");
             return ExitCode::FAILURE;
         }
     };
-    let body = match kohebi_hir::lower_module(&tree, &name) {
+    // A panic in there has already said what it was through the hook, so there
+    // is nothing to add and the payload is not worth printing twice.
+    handle.join().unwrap_or(ExitCode::FAILURE)
+}
+
+/// How much stack the interpreter runs on.
+///
+/// Enough for the thousand nested calls `kohebi_interp` allows, with room for
+/// the ones a builtin makes on the way through, and no more than an operating
+/// system hands out without thinking about it. It is an address space
+/// reservation rather than memory: only the pages actually touched are ever
+/// backed by anything.
+const STACK: usize = 256 * 1024 * 1024;
+
+/// Parse, lower, compile and run one program, on the thread that has the stack.
+fn interpret(source: &str, name: &str) -> ExitCode {
+    let tree = match kohebi_parse::parse_module(source) {
+        Ok(tree) => tree,
+        Err(error) => {
+            eprint!("{}", error.report(source, name));
+            return ExitCode::FAILURE;
+        }
+    };
+    let body = match kohebi_hir::lower_module(&tree, name) {
         Ok(body) => body,
         Err(unsupported) => {
             eprintln!("kohebi: {name}: {unsupported}");
@@ -296,9 +330,9 @@ fn run(args: &RunArgs) -> ExitCode {
         }
     };
 
-    let code = kohebi_bc::compile(&body);
+    let module = kohebi_bc::compile(&body);
     let mut vm = kohebi_interp::Vm::stdout();
-    let outcome = vm.run(&code);
+    let outcome = vm.run(&module);
     // Whatever the program printed goes out before whatever it raised, the same
     // way it would if the two shared a terminal.
     let flushed = vm.flush();

@@ -24,6 +24,18 @@ fn hir(source: &str) -> String {
         .join("\n")
 }
 
+/// The whole printed HIR, module header and all, with the trailing newline
+/// dropped.
+///
+/// Functions are the one thing worth reading as a whole listing rather than as
+/// statements alone, because which body a `def` put its code in is half of what
+/// the test is claiming.
+fn whole(source: &str) -> String {
+    let tree = parse_module(source).expect("expected this to parse");
+    let body = lower_module(&tree, "<test>").expect("expected this to lower");
+    print(&body).trim_end().to_owned()
+}
+
 /// The message from a construct that has no lowering yet.
 fn refused(source: &str) -> String {
     let tree = parse_module(source).expect("expected this to parse");
@@ -414,13 +426,119 @@ fn a_slice_is_an_expression_in_the_subscript() {
     assert_eq!(hir("x = a[::2]\n"), "x = a[::2]");
 }
 
+// Functions
+
+#[test]
+fn a_def_is_a_value_and_a_store_like_any_other() {
+    // Nothing about a `def` is special at the point it runs. It builds a
+    // function and binds it, which is why `def f(): pass` twice leaves the
+    // second one and why a `def` inside an `if` only happens if the `if` does.
+    assert_eq!(
+        whole("def f():\n    return 1\n"),
+        "body <test>:\n    f = function f()\nbody f():\n    return 1"
+    );
+}
+
+#[test]
+fn a_name_a_function_assigns_anywhere_is_a_slot_everywhere() {
+    // The `x = 2` on the last line is what makes the `x` on the first line a
+    // local, which is a rule you cannot follow by lowering statements in order.
+    assert_eq!(
+        whole("def f():\n    y = x\n    x = 2\n"),
+        "body <test>:\n    f = function f()\nbody f():\n    y = x\n    x = 2"
+    );
+    // At module level the same two lines are two globals, because a module has
+    // no locals for them to be.
+    assert_eq!(hir("y = x\nx = 2\n"), "y = x\nx = 2");
+}
+
+#[test]
+fn a_global_declaration_takes_a_name_back_out_of_the_frame() {
+    assert_eq!(
+        whole("def f():\n    global x\n    x = 1\n"),
+        "body <test>:\n    f = function f()\nbody f():\n    nop\n    x = 1"
+    );
+}
+
+#[test]
+fn a_parameter_list_keeps_every_shape_python_has() {
+    assert_eq!(
+        whole("def f(a, b, /, c, *rest, d, **kw):\n    pass\n"),
+        "body <test>:\n    f = function f(a, b, /, c, *rest, d, **kw)\n\
+         body f(a, b, /, c, *rest, d, **kw):\n    nop"
+    );
+    // A bare `*` is how Python says the rest can only be passed by name with
+    // nothing collecting what came before it.
+    assert_eq!(
+        whole("def f(a, *, b):\n    pass\n"),
+        "body <test>:\n    f = function f(a, *, b)\nbody f(a, *, b):\n    nop"
+    );
+}
+
+#[test]
+fn defaults_belong_to_the_def_rather_than_to_the_body() {
+    // Printed against the frame the `def` is in, because that is the frame they
+    // are evaluated in, and evaluated once, which is why `def f(x=[])` shares
+    // one list between calls.
+    assert_eq!(
+        whole("def f(a, b=1, *, c=2, d):\n    pass\n"),
+        "body <test>:\n    f = function f(a, b=1, *, c=2, d)\n\
+         body f(a, b, *, c, d):\n    nop"
+    );
+}
+
+#[test]
+fn decorators_are_loaded_downwards_and_applied_upwards() {
+    // `@a` above `@b` means `a(b(f))`, and the loads happen in the order they
+    // are written, which a decorator with a side effect can tell apart from any
+    // other order.
+    assert_eq!(
+        whole("@a\n@b\ndef f():\n    pass\n"),
+        "body <test>:\n    $0 = a\n    $1 = b\n    f = $0($1(function f()))\nbody f():\n    nop"
+    );
+}
+
+#[test]
+fn a_lambda_is_a_function_whose_body_is_a_return() {
+    assert_eq!(
+        whole("g = lambda a, b=1: a + b\n"),
+        "body <test>:\n    g = function <lambda>(a, b=1)\n\
+         body <lambda>(a, b):\n    return a + b"
+    );
+}
+
+#[test]
+fn a_nested_def_lands_in_the_body_that_wrote_it() {
+    assert_eq!(
+        whole("def outer():\n    def inner():\n        return 1\n    return inner\n"),
+        "body <test>:\n    outer = function outer()\n\
+         body outer():\n    inner = function inner()\n    return inner\n\
+         body inner():\n    return 1"
+    );
+}
+
+#[test]
+fn a_name_from_an_enclosing_function_is_refused_rather_than_guessed_at() {
+    // Quietly reading a global of the same spelling would be a wrong answer
+    // rather than a missing feature, so this says so instead.
+    assert_eq!(
+        refused("def outer():\n    x = 1\n    def inner():\n        return x\n"),
+        "line 4: a name from an enclosing function is not lowered yet"
+    );
+    // A module level name really is a global, so reading one is not a closure.
+    assert_eq!(
+        whole("x = 1\ndef f():\n    return x\n"),
+        "body <test>:\n    x = 1\n    f = function f()\nbody f():\n    return x"
+    );
+}
+
 // What is not done yet
 
 #[test]
 fn an_unlowered_construct_says_what_it_was_and_where() {
     assert_eq!(
-        refused("x = 1\ndef f():\n    pass\n"),
-        "line 2: a function definition is not lowered yet"
+        refused("def f():\n    nonlocal x\n"),
+        "line 2: a nonlocal declaration is not lowered yet"
     );
     assert_eq!(
         refused("with a:\n    pass\n"),

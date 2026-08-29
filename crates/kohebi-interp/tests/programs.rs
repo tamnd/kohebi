@@ -999,3 +999,224 @@ fn iter_and_next_are_the_loop_taken_apart() {
         "NotImplementedError: the two argument form of iter() is not implemented yet"
     );
 }
+
+// Functions
+
+#[test]
+fn a_function_takes_its_arguments_and_gives_back_what_it_returns() {
+    assert_eq!(
+        out("def add(a, b):\n    return a + b\nprint(add(2, 3))\n"),
+        "5\n"
+    );
+    // A body that falls off the end returns `None`, and so does a bare
+    // `return`, which are the same thing written two ways.
+    assert_eq!(out("def f():\n    pass\nprint(f())\n"), "None\n");
+    assert_eq!(out("def f():\n    return\nprint(f())\n"), "None\n");
+}
+
+#[test]
+fn a_return_leaves_the_body_where_it_is() {
+    assert_eq!(
+        out("def f(n):\n    if n:\n        return 'yes'\n    return 'no'\nprint(f(1), f(0))\n"),
+        "yes no\n"
+    );
+}
+
+#[test]
+fn a_function_can_call_itself() {
+    assert_eq!(
+        out(
+            "def fib(n):\n    if n < 2:\n        return n\n    return fib(n - 1) + fib(n - 2)\nprint(fib(15))\n"
+        ),
+        "610\n"
+    );
+}
+
+#[test]
+fn a_call_binds_every_shape_of_parameter_list() {
+    let source = "def shape(a, b=2, *rest, c=3, d, **kw):\n    print(a, b, rest, c, d, kw)\n";
+    assert_eq!(out(&format!("{source}shape(1, d=4)\n")), "1 2 () 3 4 {}\n");
+    assert_eq!(
+        out(&format!("{source}shape(1, 9, 8, 7, c=6, d=5, e=4)\n")),
+        "1 9 (8, 7) 6 5 {'e': 4}\n"
+    );
+}
+
+#[test]
+fn a_positional_only_name_is_free_for_a_keyword_argument_to_reuse() {
+    // The one way a positional-only parameter's name can be passed at all is
+    // into a `**kwargs`, where it is an ordinary entry rather than the
+    // parameter of that name.
+    assert_eq!(
+        out("def po(x, y, /, z, **kw):\n    print(x, y, z, kw)\npo(1, 2, 3, x=9)\n"),
+        "1 2 3 {'x': 9}\n"
+    );
+}
+
+#[test]
+fn a_lambda_is_a_function_that_returns_its_one_expression() {
+    assert_eq!(
+        out("f = lambda a, b=10: a * b\nprint(f(3), f(3, 4))\n"),
+        "30 12\n"
+    );
+}
+
+#[test]
+fn a_default_is_evaluated_once_where_the_def_is() {
+    // Which is the whole of why `def f(x=[])` shares one list between calls,
+    // and is the difference between a default and an assignment in the body.
+    assert_eq!(
+        out("def keeps(x=[]):\n    x += [1]\n    return x\nprint(keeps(), keeps())\n"),
+        "[1, 1] [1, 1]\n"
+    );
+}
+
+#[test]
+fn a_function_reads_and_writes_the_module_it_was_defined_in() {
+    // The name table belongs to the module, so `counter` inside the function
+    // and `counter` outside it are the same slot rather than two indices that
+    // happen to spell the same thing.
+    assert_eq!(
+        out(
+            "counter = 0\ndef bump():\n    global counter\n    counter += 1\nbump()\nbump()\nprint(counter)\n"
+        ),
+        "2\n"
+    );
+    // A global a function reads is looked up when the call happens, not when
+    // the `def` runs, which is why this order works.
+    assert_eq!(
+        out("def outer():\n    return inner()\ndef inner():\n    return 'late'\nprint(outer())\n"),
+        "late\n"
+    );
+}
+
+#[test]
+fn a_function_prints_as_one() {
+    let printed = out("def f():\n    pass\nprint(f)\ng = lambda: 1\nprint(g)\n");
+    let mut lines = printed.lines();
+    assert!(
+        lines
+            .next()
+            .is_some_and(|line| line.starts_with("<function f at 0x"))
+    );
+    assert!(
+        lines
+            .next()
+            .is_some_and(|line| line.starts_with("<function <lambda> at 0x"))
+    );
+    // Identity, because nothing has given a function an `__eq__` and the
+    // default one is identity.
+    assert_eq!(
+        out("def f():\n    pass\nprint(f == f, f is f)\n"),
+        "True True\n"
+    );
+}
+
+#[test]
+fn a_call_that_does_not_match_the_parameters_says_which_way() {
+    // Every one of these is CPython 3.14's wording, checked against a running
+    // one rather than written from memory, down to whether the list at the end
+    // has an Oxford comma in it.
+    assert_eq!(
+        raises("def f(a, b):\n    pass\nf(1)\n"),
+        "TypeError: f() missing 1 required positional argument: 'b'"
+    );
+    assert_eq!(
+        raises("def f(a, b, c, d):\n    pass\nf()\n"),
+        "TypeError: f() missing 4 required positional arguments: 'a', 'b', 'c', and 'd'"
+    );
+    assert_eq!(
+        raises("def f(*, a, b):\n    pass\nf()\n"),
+        "TypeError: f() missing 2 required keyword-only arguments: 'a' and 'b'"
+    );
+    assert_eq!(
+        raises("def f(a):\n    pass\nf(1, 2)\n"),
+        "TypeError: f() takes 1 positional argument but 2 were given"
+    );
+    assert_eq!(
+        raises("def f(a, b=1):\n    pass\nf(1, 2, 3)\n"),
+        "TypeError: f() takes from 1 to 2 positional arguments but 3 were given"
+    );
+    assert_eq!(
+        raises("def f():\n    pass\nf(1)\n"),
+        "TypeError: f() takes 0 positional arguments but 1 was given"
+    );
+    // A keyword-only argument that did arrive is counted separately, because
+    // one number cannot stand for two different things.
+    assert_eq!(
+        raises("def f(a, *, b):\n    pass\nf(1, 2, b=3)\n"),
+        "TypeError: f() takes 1 positional argument but 2 positional arguments \
+         (and 1 keyword-only argument) were given"
+    );
+    assert_eq!(
+        raises("def f(*, b):\n    pass\nf(1, b=2)\n"),
+        "TypeError: f() takes 0 positional arguments but 1 positional argument \
+         (and 1 keyword-only argument) were given"
+    );
+    // A keyword failure is reported ahead of a count that is also wrong, which
+    // is the order CPython reports them in.
+    assert_eq!(
+        raises("def f(a):\n    pass\nf(1, 2, y=3)\n"),
+        "TypeError: f() got an unexpected keyword argument 'y'"
+    );
+    assert_eq!(
+        raises("def f(a):\n    pass\nf(1, a=2)\n"),
+        "TypeError: f() got multiple values for argument 'a'"
+    );
+    // Named in parameter order rather than the order they were passed, and
+    // comma joined inside one pair of quotes, which is the one list in all of
+    // this punctuated differently from the others.
+    assert_eq!(
+        raises("def f(x, y, /):\n    pass\nf(y=2, x=1)\n"),
+        "TypeError: f() got some positional-only arguments passed as keyword arguments: 'x, y'"
+    );
+}
+
+#[test]
+fn a_local_read_before_it_is_written_says_which_local() {
+    // The `x = 1` on the last line is what makes the read on the first line an
+    // `UnboundLocalError` rather than a read of the module's `x`.
+    assert_eq!(out("x = 'global'\nprint(x)\n"), "global\n");
+    assert_eq!(
+        raises("x = 'global'\ndef f():\n    print(x)\n    x = 1\nf()\n"),
+        "UnboundLocalError: cannot access local variable 'x' where it is not associated with a value"
+    );
+}
+
+/// Run something on a stack big enough for the recursion limit.
+///
+/// A Python call is a Rust call, so the limit only means anything with stack
+/// behind it. The `kohebi` driver asks for that stack explicitly and so does
+/// this, because a test thread gets a couple of megabytes and a thousand nested
+/// calls want more.
+fn deep<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(work)
+        .expect("expected the thread to start")
+        .join()
+        .expect("expected the thread not to panic")
+}
+
+#[test]
+fn recursion_that_does_not_stop_raises_rather_than_crashing() {
+    assert_eq!(
+        deep(|| raises("def f():\n    return f()\nf()\n")),
+        "RecursionError: maximum recursion depth exceeded"
+    );
+}
+
+#[test]
+fn the_recursion_limit_counts_the_module_body_the_way_python_does() {
+    // Which is why a limit of a thousand lets nine hundred and ninety eight
+    // nested calls through and not nine hundred and ninety nine.
+    let count = "def f(n):\n    if n == 0:\n        return 0\n    return 1 + f(n - 1)\n";
+    assert_eq!(
+        deep(move || out(&format!("{count}print(f(998))\n"))),
+        "998\n"
+    );
+    assert_eq!(
+        deep(move || raises(&format!("{count}print(f(999))\n"))),
+        "RecursionError: maximum recursion depth exceeded"
+    );
+}
