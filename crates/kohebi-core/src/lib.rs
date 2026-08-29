@@ -11,18 +11,22 @@
 #![doc(html_root_url = "https://docs.rs/kohebi-core/0.0.0")]
 
 pub mod dict;
+pub mod error;
 pub mod float;
 pub mod hash;
 pub mod int;
 pub mod object;
+pub mod ops;
 pub mod printable;
 pub mod text;
 
 pub use dict::{Dict, Set};
+pub use error::{Error, Kind, Result};
 pub use float::{DotZero, float_repr};
 pub use hash::{Key, Unhashable};
 pub use int::{DivideByZero, Int};
 pub use object::Object;
+pub use ops::Compare;
 pub use printable::is_printable;
 pub use text::{Str, StrBuf, bytes_repr, str_repr};
 
