@@ -6,6 +6,10 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+## 0.0.7
+
+Three merged pull requests since 0.0.6, all of them item 9 again, and all of them measured the same way. The measurement is the new part. `kohebi-compat` can now take a real standard library module, break one random line of it, keep the result only if CPython refuses it, and do that twelve hundred times, which gives a number for how often a refusal matches rather than a list of cases someone thought to write down. That number went from 55.33% to 90.75% over these three changes, and every fix below was picked because the corpus said it was the largest thing left.
+
 Which of two refusals a user sees, when a file is wrong in two places at once. A file with a bad statement on line 56 and a bad dedent on line 58 reported the dedent, and CPython reports the statement, because it runs its tokenizer and its parser together and the parser gives up before the tokenizer reaches line 58. Then, once the parser has given up, CPython tokenizes the rest of the file on purpose to see whether the tokenizer had something better to say, and some tokenizer errors win that argument and some lose it.
 
 Three rules, all of them CPython's. A parser that ran out of tokens was cut short rather than failing, so the tokenizer's error is the one to print, which is why `x = (1` still says the bracket was never closed. A mistake inside a token, meaning a bad character, an unterminated string, a malformed number or a mismatched bracket, wins from wherever it is. A line that does not fit the file, meaning indentation, tabs against spaces, or junk after a line continuation, loses to a parse error anywhere above it. An unclosed bracket is its own rule and wins only from a line above, which is why `import a[b` is invalid syntax at the bracket rather than a complaint about the bracket.
