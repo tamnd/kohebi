@@ -151,7 +151,7 @@ impl SyntaxError {
     /// A refusal with nothing to say for itself gets one more chance here.
     /// `impot os` is `invalid syntax` as far as the parser is concerned, and
     /// the suggestion that makes it `Did you mean 'import'?` is worked out at
-    /// this point in CPython too, not earlier. See [`crate::typo`].
+    /// this point in CPython too, not earlier. The `typo` module has it.
     #[must_use]
     pub fn report(&self, source: &str, filename: &str) -> String {
         match crate::typo::keyword_typo(self, source) {
