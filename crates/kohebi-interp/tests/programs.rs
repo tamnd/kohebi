@@ -392,3 +392,59 @@ fn a_module_body_answers_none() {
         Some("1".to_owned())
     );
 }
+
+/// Two bodies in one machine share a namespace, which is what a REPL and an
+/// `exec` both need and what the slot layout has to preserve. The second body
+/// has its own name table, so a global only survives if it goes back into the
+/// namespace between the two.
+#[test]
+fn what_one_body_binds_the_next_one_sees() {
+    let mut vm = Vm::new(Box::new(io::sink()));
+    for source in ["x = 41\ny = 'kept'\n", "x = x + 1\n"] {
+        let tree = parse_module(source).expect("expected this to parse");
+        let body = lower_module(&tree, "<test>").expect("expected this to lower");
+        vm.run(&compile(&body)).expect("expected this not to raise");
+    }
+    assert_eq!(
+        vm.global("x").map(kohebi_core::Object::repr).as_deref(),
+        Some("42")
+    );
+    // A name the second body never mentions is still there afterwards.
+    assert_eq!(
+        vm.global("y").map(kohebi_core::Object::repr).as_deref(),
+        Some("'kept'")
+    );
+}
+
+/// A body that raises halfway has still run the half before the failure, so
+/// what it bound before then is in the namespace afterwards.
+#[test]
+fn a_body_that_raises_keeps_what_it_bound_first() {
+    let tree = parse_module("a = 1\nb = 1 / 0\n").expect("expected this to parse");
+    let body = lower_module(&tree, "<test>").expect("expected this to lower");
+    let mut vm = Vm::new(Box::new(io::sink()));
+    vm.run(&compile(&body)).expect_err("expected this to raise");
+    assert_eq!(
+        vm.global("a").map(kohebi_core::Object::repr).as_deref(),
+        Some("1")
+    );
+    assert!(vm.global("b").is_none());
+}
+
+/// `del` in one body unbinds the name for the next one rather than leaving an
+/// empty slot behind that later reads as bound.
+#[test]
+fn a_deleted_global_stays_deleted_across_bodies() {
+    let mut vm = Vm::new(Box::new(io::sink()));
+    for source in ["x = 1\n", "del x\n"] {
+        let tree = parse_module(source).expect("expected this to parse");
+        let body = lower_module(&tree, "<test>").expect("expected this to lower");
+        vm.run(&compile(&body)).expect("expected this not to raise");
+    }
+    assert!(vm.global("x").is_none());
+
+    let tree = parse_module("print(x)\n").expect("expected this to parse");
+    let body = lower_module(&tree, "<test>").expect("expected this to lower");
+    let raised = vm.run(&compile(&body)).expect_err("expected this to raise");
+    assert_eq!(raised.to_string(), "NameError: name 'x' is not defined");
+}
