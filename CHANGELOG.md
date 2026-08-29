@@ -6,6 +6,10 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+## 0.0.10
+
+Three merged pull requests since 0.0.9, still item 9, and this time the corpus of twelve hundred real modules with one line broken in each moved properly: 96.42% to 97.00%. Both families here are about a punctuation mark in the wrong place, which is the kind of mistake people actually make, so they show up in real broken files in a way the last release's did not. The standard library is unchanged and the hand written corpus of files written to be refused is at 100% over 100.
+
 `{"a": 1, "b" 50}` has both a colon and a comma missing, and it now says the colon like CPython does rather than the comma. Both rules match it and the comma rule is the one that wins everywhere else inside a bracket, so which one fires is not obvious. What settles it is that the key is already a complete expression on its own, so the rule about what has to follow a key gets there first. A key that is not complete on its own, `{"a": 1, (b c)}` or `{"a": 1, [b c]: 2}`, is a missing comma again.
 
 That is a reading of the two rules and not a special case, so the key is read once with the comma rule turned off and once with it back on if the first attempt failed. One shape is still wrong: `{"a": 1, f(b c)}` says the comma and CPython says the colon, because CPython can drop the call and keep `f` as a key on its own and we cannot. Nothing in the standard library or in twelve hundred broken files looks like that, so it is written down rather than worked around. Over those twelve hundred this takes 96.75% to 97.00%.
