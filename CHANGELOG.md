@@ -4,7 +4,9 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for it.
 
-## Unreleased
+## 0.0.11
+
+Three merged pull requests since 0.0.10, still item 9, and the corpus of twelve hundred real modules with one line broken in each goes 97.00% to 98.25%. The theme this time is what stops the tokenizer and what does not, which turns out to be the thing that decides which of two errors in a file gets reported. An indent has to stop it, a stray backtick must not, and we had both of those the wrong way round. The third family is a keyword suggestion appearing on files longer than a few dozen lines, which it never did before. The standard library is unchanged and the hand written corpus of files written to be refused is at 100% over 118.
 
 An indent that nothing opened, or a dedent that closes a block with a decorator dangling off the end of it, now stops the search for a better complaint. We used to weigh those against whatever the tokenizer found later and usually lose, so a file with an over indented line on line 2 and an unmatched bracket on line 3 reported the bracket. CPython reports the indent, and the reason is worth writing down: it looks at the last token the parser read, and only goes on to tokenize the rest of the file when that token was neither an indent nor a dedent. So an unterminated string or a mismatched bracket further down never gets a word in. This is a real exception to the rule from 0.0.7 that a mismatched bracket wins from wherever it is, and it is the only one.
 
