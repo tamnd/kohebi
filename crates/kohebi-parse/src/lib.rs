@@ -29,6 +29,7 @@ pub mod printable;
 pub mod source;
 pub mod suggest;
 pub mod token;
+mod typo;
 pub mod unicode_name;
 pub mod value;
 pub mod view;

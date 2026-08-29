@@ -276,3 +276,24 @@ SyntaxError	def f():\n    [[await x for x in y] for z in w]\n	  File "<case>", l
 SyntaxError	def f():\n    from os import *\n	  File "<case>", line 2\n    from os import *\n                   ^\nSyntaxError: import * only allowed at module level
 SyntaxError	class C:\n    from os import *\n	  File "<case>", line 2\n    from os import *\n                   ^\nSyntaxError: import * only allowed at module level
 SyntaxError	def f():\n    from os import a, *\n	  File "<case>", line 2\n    from os import a, *\n                      ^\nSyntaxError: invalid syntax
+SyntaxError	fro x in y:\n    pass\n	  File "<case>", line 1\n    fro x in y:\n    ^^^\nSyntaxError: invalid syntax. Did you mean 'for'?
+SyntaxError	whille True:\n    pass\n	  File "<case>", line 1\n    whille True:\n    ^^^^^^\nSyntaxError: invalid syntax. Did you mean 'while'?
+SyntaxError	improt os\n	  File "<case>", line 1\n    improt os\n    ^^^^^^\nSyntaxError: invalid syntax. Did you mean 'import'?
+SyntaxError	form os import path\n	  File "<case>", line 1\n    form os import path\n    ^^^^\nSyntaxError: invalid syntax. Did you mean 'from'?
+SyntaxError	clas C:\n    pass\n	  File "<case>", line 1\n    clas C:\n    ^^^^\nSyntaxError: invalid syntax. Did you mean 'class'?
+SyntaxError	def f():\n    retur 1\n	  File "<case>", line 2\n    retur 1\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'return'?
+SyntaxError	wile True:\n    pass\n	  File "<case>", line 1\n    wile True:\n    ^^^^\nSyntaxError: invalid syntax. Did you mean 'while'?
+SyntaxError	iff x:\n    pass\n	  File "<case>", line 1\n    iff x:\n    ^^^\nSyntaxError: invalid syntax. Did you mean 'if'?
+SyntaxError	asert x\n	  File "<case>", line 1\n    asert x\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'assert'?
+SyntaxError	raies ValueError\n	  File "<case>", line 1\n    raies ValueError\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'raise'?
+SyntaxError	wth open('f') as g:\n    pass\n	  File "<case>", line 1\n    wth open('f') as g:\n    ^^^\nSyntaxError: invalid syntax. Did you mean 'with'?
+SyntaxError	tyr:\n    pass\nexcept:\n    pass\n	  File "<case>", line 1\n    tyr:\n    ^^^\nSyntaxError: invalid syntax. Did you mean 'try'?
+SyntaxError	lamda x: x\n	  File "<case>", line 1\n    lamda x: x\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'lambda'?
+SyntaxError	def f():\n    yeild 1\n	  File "<case>", line 2\n    yeild 1\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'yield'?
+SyntaxError	async def f():\n    awiat g()\n	  File "<case>", line 2\n    awiat g()\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'await'?
+SyntaxError	gobal x\n	  File "<case>", line 1\n    gobal x\n    ^^^^^\nSyntaxError: invalid syntax. Did you mean 'global'?
+SyntaxError	im os\n	  File "<case>", line 1\n    im os\n       ^^\nSyntaxError: invalid syntax
+SyntaxError	elif x:\n    pass\n	  File "<case>", line 1\n    elif x:\n    ^^^^\nSyntaxError: invalid syntax
+SyntaxError	nonlocl x\n	  File "<case>", line 1\n    nonlocl x\n            ^\nSyntaxError: invalid syntax
+SyntaxError	nonlocal x\n	  File "<case>", line 1\n    nonlocal x\n    ^^^^^^^^^^\nSyntaxError: nonlocal declaration not allowed at module level
+SyntaxError	rr'a'\n	  File "<case>", line 1\n    rr'a'\n      ^^^\nSyntaxError: invalid syntax
