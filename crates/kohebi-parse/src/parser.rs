@@ -136,6 +136,41 @@ fn ends_expression(kind: TokenKind) -> bool {
     )
 }
 
+/// Whether a token can begin an expression.
+///
+/// The other side of the coin from `ends_expression`, and not its negation.
+/// Most tokens are in neither set: `def` neither finishes an expression nor
+/// starts one, it just cannot appear where an expression was wanted.
+///
+/// `yield` and `*` are missing on purpose. Both begin something the grammar
+/// calls a `star_expressions` rather than an `expression`, and the places that
+/// take one or the other are different, so a caller that wants those has to say
+/// so itself.
+fn begins_expression(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Name
+            | TokenKind::Number(_)
+            | TokenKind::String(_)
+            | TokenKind::InterpolatedStart(..)
+            | TokenKind::LParen
+            | TokenKind::LBracket
+            | TokenKind::LBrace
+            | TokenKind::Ellipsis
+            | TokenKind::Plus
+            | TokenKind::Minus
+            | TokenKind::Tilde
+            | TokenKind::Keyword(
+                Keyword::False
+                    | Keyword::None
+                    | Keyword::True
+                    | Keyword::Await
+                    | Keyword::Lambda
+                    | Keyword::Not
+            )
+    )
+}
+
 /// Precedence of the left-associative binary operators, loosest first.
 ///
 /// `**` is missing on purpose. It is right-associative and it binds tighter

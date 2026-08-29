@@ -112,6 +112,20 @@ SyntaxError	f(x): =1\n	  File "<case>", line 1\n    f(x): =1\n        ^\nSyntaxE
 SyntaxError	a.b(): \n	  File "<case>", line 1\n    a.b(): \n         ^\nSyntaxError: invalid syntax
 SyntaxError	[a]:\n	  File "<case>", line 1\n    [a]:\n       ^\nSyntaxError: invalid syntax
 SyntaxError	a, b:\n	  File "<case>", line 1\n    a, b:\n        ^\nSyntaxError: invalid syntax
+SyntaxError	f(x): def\n	  File "<case>", line 1\n    f(x): def\n        ^\nSyntaxError: invalid syntax
+SyntaxError	f(x): class\n	  File "<case>", line 1\n    f(x): class\n        ^\nSyntaxError: invalid syntax
+SyntaxError	f(x): with\n	  File "<case>", line 1\n    f(x): with\n        ^\nSyntaxError: invalid syntax
+SyntaxError	x: def\n	  File "<case>", line 1\n    x: def\n       ^^^\nSyntaxError: invalid syntax
+SyntaxError	x: with\n	  File "<case>", line 1\n    x: with\n       ^^^^\nSyntaxError: invalid syntax
+SyntaxError	x: import\n	  File "<case>", line 1\n    x: import\n       ^^^^^^\nSyntaxError: invalid syntax
+SyntaxError	x: pass\n	  File "<case>", line 1\n    x: pass\n       ^^^^\nSyntaxError: invalid syntax
+SyntaxError	a.b: def\n	  File "<case>", line 1\n    a.b: def\n         ^^^\nSyntaxError: invalid syntax
+SyntaxError	[a]: def\n	  File "<case>", line 1\n    [a]: def\n       ^\nSyntaxError: invalid syntax
+SyntaxError	x: *a\n	  File "<case>", line 1\n    x: *a\n       ^\nSyntaxError: invalid syntax
+SyntaxError	x: yield\n	  File "<case>", line 1\n    x: yield\n       ^^^^^\nSyntaxError: invalid syntax
+SyntaxError	x: not\n	  File "<case>", line 1\n    x: not\n          ^\nSyntaxError: invalid syntax
+SyntaxError	x: lambda\n	  File "<case>", line 1\n    x: lambda\n             ^\nSyntaxError: invalid syntax
+SyntaxError	x: await\n	  File "<case>", line 1\n    x: await\n            ^\nSyntaxError: invalid syntax
 SyntaxError	f(x): int\n	  File "<case>", line 1\n    f(x): int\n    ^^^^\nSyntaxError: illegal target for annotation
 SyntaxError	f(x): 1+\n	  File "<case>", line 1\n    f(x): 1+\n    ^^^^\nSyntaxError: illegal target for annotation
 SyntaxError	[a]: int\n	  File "<case>", line 1\n    [a]: int\n    ^^^\nSyntaxError: only single target (not list) can be annotated

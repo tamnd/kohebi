@@ -214,6 +214,26 @@ CASES = [
     "a.b(): \n",
     "[a]:\n",
     "a, b:\n",
+    # A colon followed by something that cannot begin an expression at all,
+    # which is the same story as an empty one and lands in the same place. The
+    # split between what can and cannot start an annotation is not obvious from
+    # the outside: `not`, `lambda` and `await` all can, so those three read the
+    # keyword and fail past it, while `yield` and a starred expression cannot,
+    # because the grammar wants an `expression` here and those are not one.
+    "f(x): def\n",
+    "f(x): class\n",
+    "f(x): with\n",
+    "x: def\n",
+    "x: with\n",
+    "x: import\n",
+    "x: pass\n",
+    "a.b: def\n",
+    "[a]: def\n",
+    "x: *a\n",
+    "x: yield\n",
+    "x: not\n",
+    "x: lambda\n",
+    "x: await\n",
     # And the same targets with an annotation, which do reach those rules.
     "f(x): int\n",
     "f(x): 1+\n",
