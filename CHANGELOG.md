@@ -6,6 +6,18 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+## 0.0.8
+
+Three merged pull requests since 0.0.7, still item 9, and still driven by the corpus of twelve hundred real modules with one line broken in each. On the corpus this release was measured against, agreement goes from 90.08% to 95.83%. What picks the next thing to work on is bucketing those failures by the message CPython prints, since one message is usually worth more than the next eight put together.
+
+`ast.parse` and `compile` do not refuse the same files, and until now we only had the first one. `ast.parse("f(a=1, a=2)")` hands back a perfectly good tree and `compile` throws that tree out, because CPython runs two more passes over what the parser built. `kohebi ast --compile` runs them. Duplicate parameters, duplicate type parameters and repeated keyword arguments are the first three, and the order between them is the interesting part: the symbol table pass runs over the whole file before the code generator sees any of it, so a repeated keyword on line 1 loses to a repeated parameter on line 5. The two passes also walk a function in different orders, and a signature with one of each pins which.
+
+That change moved the corpus by nothing at all, and it is worth saying why rather than quietly leaving it out. Breaking one random token in a file almost always produces something the parser cannot read, not a well formed tree the compiler then rejects. The two modes are byte for byte identical over all twelve hundred files. The corpus is the wrong instrument for this family and a hand written one is the right one, which is where the five new files in the compat corpus come in.
+
+`[1 2]` is a list somebody left a comma out of, and we called it invalid syntax and pointed at the `2`. It now says `invalid syntax. Perhaps you forgot a comma?` with carets under both elements. This was 59 of the 119 refusals we got wrong. The rule only fires inside brackets, because a statement of two expressions is not a shape anybody was reaching for, so the parser carries a bracket level per token. The two sides of the rule are not symmetrical, which is why `[x if y else z w]` blames two tokens and `[a b if c else d]` blames five. Three things are excused: a name in front of a string, the four soft keywords, and `print` and `exec`.
+
+Adding that rule quietly broke twenty one files while the total was going up, and only the bucketing found it. An unclosed bracket is weighed against the last token CPython ever tokenized, and for a first pass failure the parser stopped at that token, so the two coincide. A second pass diagnostic is raised from wherever the rule matched, which is usually a long way back, and the bracket then wins almost every time. The parser now says which of the two raised the error it is carrying.
+
 An argument list has seven refusals of its own and we had none of them. `f(a=)`, `f(True=1)`, `f(a.b=1)`, `f(a=b for c in d)`, `f(**k=1)` and `f(*)` all said `invalid syntax`, which is true and useless, since the same three words covered six different mistakes. They now say what CPython says, with the carets in the same place.
 
 The same `=` reads four ways depending on what is in front of it. Nothing after it is a missing value. A word that stopped being a name in Python 3 gets named in the message. Anything that is not a plain name in front of it was an expression somebody tried to assign to, and that beats the ordering complaint the same line would otherwise earn, so `f(a=1, b.c=2)` is refused for the assignment. A generator expression after it cannot be given a name at all, so the sign was meant to be a comparison or a walrus.
