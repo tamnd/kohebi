@@ -4,6 +4,12 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What exists is the workspace, the CI, the design docs, the experiments the design rests on, and a frontend that reads a file and builds the tree CPython builds for it.
 
+## Unreleased
+
+`f(x) =` with nothing after the `=` says `cannot assign to function call` now, where it used to stop at the end of the line and say `invalid syntax`. The rule CPython uses to explain a bad target asks for the targets and the last `=` and nothing after it, so a statement that runs out there is still the shape it matches. Only the first bad target is named, which is why `f(x) = a =` and `f(x) = 1 =` both blame the call, and it gets the short message even in the places where a value present would have earned the longer one about `==`. A statement whose targets are all fine, `(a) =` or `*a =`, is unaffected and is plain invalid syntax at the end of the line.
+
+Twelve more recorded blocks in the fixture, which is at 424, and four more files in the compat corpus, which is at 100% over 122. Over twelve hundred real modules with one line broken in each this goes from 98.25% to 98.50%, and the standard library is unchanged.
+
 ## 0.0.11
 
 Three merged pull requests since 0.0.10, still item 9, and the corpus of twelve hundred real modules with one line broken in each goes 97.00% to 98.25%. The theme this time is what stops the tokenizer and what does not, which turns out to be the thing that decides which of two errors in a file gets reported. An indent has to stop it, a stray backtick must not, and we had both of those the wrong way round. The third family is a keyword suggestion appearing on files longer than a few dozen lines, which it never did before. The standard library is unchanged and the hand written corpus of files written to be refused is at 100% over 118.

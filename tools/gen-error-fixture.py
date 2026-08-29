@@ -657,6 +657,25 @@ CASES = [
     "x = $\ny = '''abc\n",
     "f(\n    $,\n",
     "x = €\n",
+    # The rule that explains a bad assignment target asks for the targets and
+    # the last `=` and nothing after it, so a statement that stops there still
+    # names the target rather than the end of the line. Only the first bad
+    # target is reported, and it gets the short message even where a value
+    # would have earned the one about `==`.
+    "f(x) =\n",
+    "d.close()=\n",
+    "a = f(x) =\n",
+    "f(x) = a =\n",
+    "f(x) = 1 =\n",
+    "1 = 2 =\n",
+    "[1] =\n",
+    "([1]) =\n",
+    "{1} =\n",
+    "a if b else c =\n",
+    # These two have nothing wrong with the targets, so what is missing is the
+    # value and that is plain invalid syntax at the end of the line.
+    "(a) =\n",
+    "*a =\n",
 ]
 
 

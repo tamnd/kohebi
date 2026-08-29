@@ -35,6 +35,7 @@ use crate::ast::{
     Alias, Expr, ExprContext, ExprKind, Ident, Mod, Operator, Stmt, StmtKind, TypeParam,
     TypeParamKind, UnaryOp,
 };
+use crate::error::SyntaxError;
 use crate::token::{Keyword, Span, TokenKind};
 use crate::value::Value;
 
@@ -292,7 +293,18 @@ impl Parser<'_> {
                 yielded = true;
                 break value;
             }
-            let (next, _) = self.star_expressions()?;
+            let (next, _) = match self.star_expressions() {
+                Ok(parsed) => parsed,
+                // The rule that explains a bad target asks for the targets and
+                // the last `=` and nothing after it, so `f(x) =` alone still
+                // says the call rather than stopping at the end of the line.
+                // The first bad target is the one reported, and it gets the
+                // short message even where a value would have earned the
+                // longer one.
+                Err(stopped) => {
+                    return Err(self.first_bad_target(&mut targets).unwrap_or(stopped));
+                }
+            };
             if !self.at(TokenKind::Equal) {
                 break next;
             }
@@ -324,6 +336,13 @@ impl Parser<'_> {
             start,
             end,
         ))
+    }
+
+    /// The first of these that cannot be assigned to, if any of them cannot.
+    fn first_bad_target(&self, targets: &mut [Expr]) -> Option<SyntaxError> {
+        targets
+            .iter_mut()
+            .find_map(|target| self.set_store_context(target).err())
     }
 
     /// Whether a bad target gets CPython's longer message.
