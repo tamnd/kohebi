@@ -20,7 +20,7 @@
 
 use std::rc::Rc;
 
-use kohebi_hir::hir::{Block, Body, Expr, Local, Place, Slot, Stmt};
+use kohebi_hir::hir::{Block, Body, Expr, Grow, Local, Place, Slot, Stmt};
 use kohebi_parse::Value;
 
 use crate::code::{
@@ -202,6 +202,7 @@ impl Compiler<'_> {
             }
             Stmt::Store { place, value } => self.store(place, value),
             Stmt::Delete(place) => self.delete(place),
+            Stmt::Accumulate { into, what } => self.accumulate(*into, what),
             Stmt::Return(value) => {
                 let src = self.operand(value);
                 self.emit(Instr::Return { src });
@@ -231,6 +232,38 @@ impl Compiler<'_> {
                 body,
                 orelse,
             } => self.compile_loop(setup, test, body, orelse),
+        }
+    }
+
+    /// One element into the container a comprehension is building.
+    ///
+    /// The container comes first, before the element is evaluated, because
+    /// nothing the element does can change which container this is. For a dict
+    /// the key comes before the value, which is the order the source has them.
+    fn accumulate(&mut self, into: Local, what: &Grow) {
+        let into = self.operand(&Expr::Local(into));
+        match what {
+            Grow::Append(value) => {
+                let value = self.operand(value);
+                self.emit(Instr::Append { into, value });
+            }
+            Grow::Insert(value) => {
+                let value = self.operand(value);
+                self.emit(Instr::Insert { into, value });
+            }
+            // A dict entry is an ordinary item store. The container is known
+            // here the same way, but the instruction a program would get from
+            // `d[k] = v` already does exactly this and nothing is gained by
+            // having a second one that does it again.
+            Grow::Entry { key, value } => {
+                let index = self.operand(key);
+                let src = self.operand(value);
+                self.emit(Instr::StoreItem {
+                    object: into,
+                    index,
+                    src,
+                });
+            }
         }
     }
 

@@ -196,6 +196,17 @@ pub enum Stmt {
     },
     /// Remove a binding, which for an attribute or an item is a protocol call.
     Delete(Place),
+    /// Add to the container a comprehension is building.
+    ///
+    /// This is not a protocol call and not a method lookup, which is the whole
+    /// reason it is a node rather than a `Call`. The container was made by
+    /// lowering a few statements up, nothing else can reach it yet, and which
+    /// of the three kinds it is was decided at the same time. A lookup of
+    /// `append` would be a name a program could have shadowed; this cannot be.
+    Accumulate {
+        into: Local,
+        what: Grow,
+    },
     If {
         test: Expr,
         then: Block,
@@ -228,6 +239,24 @@ pub enum Stmt {
     /// A statement with nothing in it, which a `pass` at the end of a block
     /// leaves behind and which lowering never has to special case.
     Nop,
+}
+
+/// What a comprehension adds to what it is building, which is one thing per
+/// kind of comprehension there is.
+///
+/// Naming the kind here rather than working it out from the container at run
+/// time is the point. Lowering knows which of the three it wrote, so saying so
+/// costs nothing and saves the interpreter a test it would have to get right on
+/// every element.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Grow {
+    /// A list comprehension, appending to the end.
+    Append(Expr),
+    /// A set comprehension, which is an append with a `__hash__` in front of it.
+    Insert(Expr),
+    /// A dict comprehension, the one with two halves. The key is written first
+    /// and so is evaluated first.
+    Entry { key: Expr, value: Expr },
 }
 
 /// An expression, which cannot branch. See the module docs for why.

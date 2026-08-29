@@ -267,6 +267,22 @@ pub enum Instr {
         index: Reg,
     },
 
+    /// Put a value on the end of a list a comprehension is building.
+    ///
+    /// The compiler emits this only for a list it made itself, so `into` holds
+    /// a list and nothing else ever will. That is what separates it from
+    /// looking up `append`, which is a name and so could be anything.
+    Append {
+        into: Reg,
+        value: Reg,
+    },
+    /// The same for a set, where the value has to be hashable and so this can
+    /// raise where [`Instr::Append`] cannot.
+    Insert {
+        into: Reg,
+        value: Reg,
+    },
+
     Binary {
         op: Operator,
         dst: Reg,

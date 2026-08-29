@@ -30,7 +30,7 @@ pub mod hir;
 pub mod lower;
 pub mod print;
 
-pub use hir::{Block, Body, Expr, Local, Place, Slot, Stmt};
+pub use hir::{Block, Body, Expr, Grow, Local, Place, Slot, Stmt};
 pub use lower::{Failed, Unsupported, lower_module};
 pub use print::print;
 

@@ -426,6 +426,63 @@ fn a_free_register_is_named_on_the_body_that_takes_it() {
     assert_eq!(inner.local_at(kohebi_bc::code::Reg(0)), "x");
 }
 
+// Comprehensions
+
+#[test]
+fn a_comprehension_appends_to_a_container_it_made_rather_than_calling_a_method() {
+    // `append r2, r1` and not a `getattr` of `append` followed by a call. The
+    // list in r2 was built two instructions earlier by this same body, so there
+    // is no name involved and nothing a program could have shadowed.
+    assert_eq!(
+        bc("r = [x for x in xs]\n"),
+        "   0  makefunc   r1, <listcomp>\n   \
+            1  getglobal  r3, xs\n   \
+            2  iter       r2, r3\n   \
+            3  call       r0, r1(r2)\n   \
+            4  setglobal  r, r0\n   \
+            5  const      r0, None\n   \
+            6  ret        r0\n\
+         code <listcomp>: 6 registers\n   \
+            0  list       r2, []\n   \
+            1  iter       r3, r0\n   \
+            2  next       r4, r3\n   \
+            3  exhausted  r5, r4\n   \
+            4  jumpt      r5, 8\n   \
+            5  move       r1, r4\n   \
+            6  append     r2, r1\n   \
+            7  jump       2\n   \
+            8  ret        r2\n   \
+            9  const      r5, None\n  \
+           10  ret        r5"
+    );
+}
+
+#[test]
+fn a_dict_comprehension_is_the_item_store_a_program_would_have_written() {
+    // A third instruction alongside `append` and `insert` would do exactly what
+    // `setitem` already does, so there is not one. The key is filled before the
+    // value, which is the order the source writes them in.
+    let listing = bc("r = {k: v for k, v in pairs}\n");
+    assert!(
+        listing.contains("   9  getitem    r2, r6[r7]\n"),
+        "{listing}"
+    );
+    assert!(
+        listing.contains("  10  setitem    r3[r1], r2\n"),
+        "{listing}"
+    );
+    assert!(!listing.contains("entry"), "{listing}");
+}
+
+#[test]
+fn a_set_comprehension_is_told_it_is_one_rather_than_working_it_out() {
+    // The instruction differs from a list's, so nothing has to look at what is
+    // in the register on every element to decide which of the two this is.
+    let listing = bc("r = {x for x in xs}\n");
+    assert!(listing.contains("   6  insert     r2, r1\n"), "{listing}");
+    assert!(!listing.contains("append"), "{listing}");
+}
+
 #[test]
 fn a_del_of_a_shared_name_empties_the_cell_rather_than_the_register() {
     let listing = bc("def o():\n    x = 1\n    del x\n    def i():\n        return x\n");

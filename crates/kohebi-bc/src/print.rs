@@ -122,6 +122,8 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
         Instr::DeleteItem { object, index } => {
             ("delitem", format!("{}[{}]", reg(*object), reg(*index)))
         }
+        Instr::Append { into, value } => ("append", format!("{}, {}", reg(*into), reg(*value))),
+        Instr::Insert { into, value } => ("insert", format!("{}, {}", reg(*into), reg(*value))),
         Instr::Binary {
             op,
             dst,

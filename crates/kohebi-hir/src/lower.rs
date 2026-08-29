@@ -26,18 +26,19 @@
 //! lowering statements in order.
 //!
 //! What is not lowered yet answers with [`Unsupported`] rather than a wrong
-//! tree. Classes, comprehensions, generators, closures, `with`, `try`, `match`
-//! and imports are all on that list today. The list is the honest statement of
-//! where this crate is, and it shrinks a milestone item at a time.
+//! tree. Classes, generators, `with`, `try`, `match` and imports are all on
+//! that list today. The list is the honest statement of where this crate is,
+//! and it shrinks a milestone item at a time.
 
 use std::collections::{HashMap, HashSet};
 
 use kohebi_parse::Int;
 use kohebi_parse::ast::{
-    Arguments, BoolOp, CmpOp, Expr as AExpr, ExprKind, Mod, Stmt as AStmt, StmtKind, UnaryOp,
+    Arguments, BoolOp, CmpOp, Comprehension, Expr as AExpr, ExprKind, Mod, Stmt as AStmt, StmtKind,
+    UnaryOp,
 };
 
-use crate::hir::{Block, Body, Expr, FuncId, Local, Name, Params, Place, Slot, Stmt};
+use crate::hir::{Block, Body, Expr, FuncId, Grow, Local, Name, Params, Place, Slot, Stmt};
 
 /// A construct that has no lowering yet.
 ///
@@ -217,7 +218,102 @@ enum Source<'a> {
     Block(&'a [AStmt]),
     /// A `lambda`, whose body is one expression it returns.
     Value(&'a AExpr),
+    /// A comprehension, whose body is built out of its clauses rather than read
+    /// off a block.
+    Comp(&'a Comp<'a>),
 }
+
+/// A comprehension, taken apart into the pieces that are the same for all three
+/// kinds.
+///
+/// They differ in one place each, which is what [`Collect`] holds, so keeping
+/// them apart would be three copies of one algorithm. A generator expression is
+/// not one of these: it shares the syntax and none of the lowering, because it
+/// suspends rather than collects.
+#[derive(Clone, Copy)]
+struct Comp<'a> {
+    collect: Collect,
+    /// What is collected, which for a dict comprehension is the value half.
+    elt: &'a AExpr,
+    /// The key half, and so the thing that makes it a dict comprehension.
+    key: Option<&'a AExpr>,
+    /// At least one, and the first one is the one whose iterable is evaluated
+    /// outside.
+    generators: &'a [Comprehension],
+}
+
+impl<'a> Comp<'a> {
+    /// The three expressions that are one, and nothing else.
+    fn of(kind: &'a ExprKind) -> Option<Self> {
+        let (collect, key, elt, generators) = match kind {
+            ExprKind::ListComp { elt, generators } => (Collect::List, None, elt, generators),
+            ExprKind::SetComp { elt, generators } => (Collect::Set, None, elt, generators),
+            ExprKind::DictComp {
+                key,
+                value,
+                generators,
+            } => (Collect::Dict, Some(&**key), value, generators),
+            _ => return None,
+        };
+        Some(Comp {
+            collect,
+            elt,
+            key,
+            generators,
+        })
+    }
+}
+
+/// Which container a comprehension builds, and so the one thing that separates
+/// the three of them.
+#[derive(Clone, Copy)]
+enum Collect {
+    List,
+    Set,
+    Dict,
+}
+
+impl Collect {
+    /// What the implicit function is called. These are CPython's names for it,
+    /// which is what a traceback will want to say.
+    fn name(self) -> &'static str {
+        match self {
+            Collect::List => "<listcomp>",
+            Collect::Set => "<setcomp>",
+            Collect::Dict => "<dictcomp>",
+        }
+    }
+
+    /// The container to start from, which is always an empty one.
+    fn empty(self) -> Expr {
+        match self {
+            Collect::List => Expr::List(Vec::new()),
+            Collect::Set => Expr::Set(Vec::new()),
+            Collect::Dict => Expr::Dict(Vec::new()),
+        }
+    }
+
+    /// How one element is added to it. `key` is there exactly when this is a
+    /// dict comprehension, which is what the caller already worked out to get
+    /// here.
+    fn grow(self, key: Option<Expr>, value: Expr) -> Grow {
+        match (self, key) {
+            (Collect::List, _) => Grow::Append(value),
+            (Collect::Set, _) => Grow::Insert(value),
+            (Collect::Dict, Some(key)) => Grow::Entry { key, value },
+            (Collect::Dict, None) => {
+                unreachable!("a dict comprehension is the one that has a key")
+            }
+        }
+    }
+}
+
+/// The parameter a comprehension takes, which is the iterator over the first
+/// `for` clause's iterable.
+///
+/// The name is CPython's and is deliberately not an identifier, so that it
+/// cannot collide with anything the program wrote and does not need escaping.
+const OVER: &str = ".0";
 
 /// The names a frame binds, collected before the frame is lowered.
 ///
@@ -447,10 +543,50 @@ impl Binder {
             self.expr(value);
             return;
         }
+        if let Some(comp) = Comp::of(&expr.kind) {
+            self.comprehension(&comp);
+            return;
+        }
         for child in children(&expr.kind) {
             self.expr(child);
         }
     }
+
+    /// A comprehension, which binds in the frame around it despite having one
+    /// of its own.
+    ///
+    /// The loop variables are the comprehension's and are deliberately left
+    /// out. A walrus is not: `[y := f(x) for x in xs]` leaves `y` behind here,
+    /// which is the rule [PEP 572] settled on and the reason this arm exists
+    /// rather than the comprehension being left alone like a `lambda`.
+    ///
+    /// [PEP 572]: https://peps.python.org/pep-0572/
+    fn comprehension(&mut self, comp: &Comp<'_>) {
+        for part in comp.key.into_iter().chain([comp.elt]) {
+            self.expr(part);
+        }
+        for clause in comp.generators {
+            // The iterables cannot hold a walrus at all, which lowering says
+            // so about, so there is nothing to collect out of them.
+            for condition in &clause.ifs {
+                self.expr(condition);
+            }
+        }
+    }
+}
+
+/// Whether a walrus is written anywhere in this expression.
+///
+/// Stops where an expression starts a scope of its own, because a walrus in a
+/// `lambda` is that lambda's business and not this expression's.
+fn walruses(expr: &AExpr) -> bool {
+    let mut found = false;
+    walk(expr, &mut |kind| {
+        if matches!(kind, ExprKind::NamedExpr { .. }) {
+            found = true;
+        }
+    });
+    found
 }
 
 /// A length as the number the IR counts with, saturating rather than wrapping.
@@ -938,20 +1074,39 @@ impl Lower {
             keyword_only: count(args.kwonlyargs.len()),
             double_star: args.kwarg.is_some(),
         };
-
-        self.scopes.push(Scope::new());
-        // The parameters take the first slots, in the order [`Params`] says they
-        // do, so that binding a call's arguments is filling in registers from
-        // zero rather than a lookup per argument.
-        let named = args
+        let named: Vec<Name> = args
             .posonlyargs
             .iter()
             .chain(&args.args)
             .chain(args.vararg.as_deref())
             .chain(&args.kwonlyargs)
-            .chain(args.kwarg.as_deref());
-        for param in named {
-            self.declare(&param.arg);
+            .chain(args.kwarg.as_deref())
+            .map(|param| param.arg.clone())
+            .collect();
+
+        self.frame(name, params, &named, source, defaults, kw_defaults)
+    }
+
+    /// Lower a body in a frame of its own and hand back what makes it.
+    ///
+    /// Everything that has a frame comes through here: a `def`, a `lambda` and
+    /// a comprehension. The defaults are already lowered, because they belong
+    /// to the frame around this one and were evaluated there.
+    fn frame(
+        &mut self,
+        name: &str,
+        params: Params,
+        parameters: &[Name],
+        source: Source<'_>,
+        defaults: Vec<Expr>,
+        kw_defaults: Vec<Option<Expr>>,
+    ) -> Result<Expr> {
+        self.scopes.push(Scope::new());
+        // The parameters take the first slots, in the order [`Params`] says they
+        // do, so that binding a call's arguments is filling in registers from
+        // zero rather than a lookup per argument.
+        for parameter in parameters {
+            self.declare(parameter);
         }
         let block = self.lower_body(source);
         let Some(scope) = self.scopes.pop() else {
@@ -997,7 +1152,207 @@ impl Lower {
                 out.push(Stmt::Return(value));
                 Ok(out)
             }
+            Source::Comp(comp) => self.lower_comp_body(comp),
         }
+    }
+
+    /// A comprehension, which is a function Python does not make you write.
+    ///
+    /// `[f(x) for x in xs if p(x)]` is a `def` that takes one argument, loops
+    /// over it, and returns the list it built. Lowering it that way rather than
+    /// as a loop in the frame around it is not a formality. It is what keeps
+    /// the loop variable from leaking, and it is what makes a name the element
+    /// reads from an enclosing function a capture. Both are the language's
+    /// rules and both come out of the frame for free.
+    ///
+    /// The cost is a call and, where a name is captured, a cell. CPython 3.12
+    /// stopped paying it by inlining the three that collect, keeping the
+    /// scoping and dropping the frame. That is an optimisation over this, not a
+    /// different meaning, and it belongs in a pass over the HIR rather than
+    /// here.
+    ///
+    /// The outermost iterable is the argument, so it is evaluated in the frame
+    /// that wrote the comprehension and exactly once.
+    fn lower_comprehension(&mut self, comp: &Comp<'_>, line: u32, out: &mut Block) -> Result<Expr> {
+        let Some(first) = comp.generators.first() else {
+            unreachable!("a comprehension the parser built has at least one clause")
+        };
+        for clause in comp.generators {
+            if clause.is_async {
+                return Err(Failed::Unsupported(Unsupported {
+                    what: "an async comprehension",
+                    line,
+                }));
+            }
+            if walruses(&clause.iter) {
+                return syntax(
+                    "assignment expression cannot be used in a comprehension iterable \
+                     expression"
+                        .to_owned(),
+                    line,
+                );
+            }
+        }
+        // A walrus in a comprehension binds outside it, so writing one that
+        // names a loop variable would be asking for two meanings of one name in
+        // one place. Python refuses rather than picking.
+        let mut loops = Binder::default();
+        let mut leaks = Binder::default();
+        for clause in comp.generators {
+            loops.target(&clause.target);
+        }
+        leaks.comprehension(comp);
+        for name in &leaks.bound {
+            if loops.bound.contains(name) {
+                return syntax(
+                    format!(
+                        "assignment expression cannot rebind comprehension iteration \
+                         variable '{name}'"
+                    ),
+                    line,
+                );
+            }
+        }
+
+        let over = self.lower_expr(&first.iter, out)?;
+        let params = Params {
+            positional: 1,
+            positional_only: 1,
+            star: false,
+            keyword_only: 0,
+            double_star: false,
+        };
+        let parameters = [Name::from(OVER)];
+        let function = self.frame(
+            comp.collect.name(),
+            params,
+            &parameters,
+            Source::Comp(comp),
+            Vec::new(),
+            Vec::new(),
+        )?;
+        // `iter` is called here rather than inside, so that `[x for x in 4]`
+        // raises where it is written.
+        Ok(Expr::Call {
+            callee: function.boxed(),
+            args: vec![Expr::GetIter(over.boxed())],
+            keywords: Vec::new(),
+        })
+    }
+
+    /// The inside of a comprehension, once its frame is the one being lowered.
+    fn lower_comp_body(&mut self, comp: &Comp<'_>) -> Result<Block> {
+        // The loop variables are locals of this frame and have to be settled
+        // before any clause is lowered, so that the first clause's target is
+        // already a local when the second clause's iterable reads it. The
+        // names a walrus binds are deliberately not in here: leaving them out
+        // is what sends them to the frame around this one.
+        let mut binder = Binder::default();
+        for clause in comp.generators {
+            binder.target(&clause.target);
+        }
+        for name in binder.bound {
+            self.declare(&name);
+        }
+        let Some(over) = self.scope().slot_of(&Name::from(OVER)) else {
+            unreachable!("the parameter was declared before the body was lowered")
+        };
+
+        let mut out = Block::new();
+        let acc = self.temp();
+        out.push(Stmt::Store {
+            place: Place::Local(acc),
+            value: comp.collect.empty(),
+        });
+        self.lower_clause(comp, 0, over, acc, &mut out)?;
+        out.push(Stmt::Return(Expr::Local(acc)));
+        Ok(out)
+    }
+
+    /// One `for` clause of a comprehension, and everything to the right of it.
+    ///
+    /// Past the last clause is where an element is collected, which is why that
+    /// is this function's other half rather than a caller's job: the clauses
+    /// nest, and the collect is simply what the innermost one does.
+    fn lower_clause(
+        &mut self,
+        comp: &Comp<'_>,
+        at: usize,
+        over: Local,
+        acc: Local,
+        out: &mut Block,
+    ) -> Result<()> {
+        let Some(clause) = comp.generators.get(at) else {
+            let key = match comp.key {
+                Some(key) => Some(self.lower_expr(key, out)?),
+                None => None,
+            };
+            let value = self.lower_expr(comp.elt, out)?;
+            out.push(Stmt::Accumulate {
+                into: acc,
+                what: comp.collect.grow(key, value),
+            });
+            return Ok(());
+        };
+
+        // The first clause's iterable came in as the argument and is already an
+        // iterator. Every other one is evaluated here, once per turn of the
+        // clause outside it.
+        let iterable = if at == 0 {
+            Expr::Local(over)
+        } else {
+            self.lower_expr(&clause.iter, out)?
+        };
+        let it = self.temp();
+        out.push(Stmt::Store {
+            place: Place::Local(it),
+            value: Expr::GetIter(iterable.boxed()),
+        });
+        let step = self.temp();
+        let setup = vec![Stmt::Store {
+            place: Place::Local(step),
+            value: Expr::Next(Expr::Local(it).boxed()),
+        }];
+        let test = Expr::Not(Expr::Exhausted(Expr::Local(step).boxed()).boxed());
+
+        let mut body = Block::new();
+        self.lower_target(&clause.target, Expr::Local(step), &mut body)?;
+        self.lower_condition(comp, at, &clause.ifs, over, acc, &mut body)?;
+        out.push(Stmt::Loop {
+            setup,
+            test,
+            body,
+            orelse: Block::new(),
+        });
+        Ok(())
+    }
+
+    /// The `if`s of one clause, which nest rather than sit side by side.
+    ///
+    /// A false one has to skip the clauses further in as well, not just the
+    /// rest of this clause's conditions, which is why the clause after this one
+    /// is lowered at the bottom of the nest.
+    fn lower_condition(
+        &mut self,
+        comp: &Comp<'_>,
+        at: usize,
+        conditions: &[AExpr],
+        over: Local,
+        acc: Local,
+        out: &mut Block,
+    ) -> Result<()> {
+        let Some((first, rest)) = conditions.split_first() else {
+            return self.lower_clause(comp, at + 1, over, acc, out);
+        };
+        let test = self.lower_test(first, out)?;
+        let mut then = Block::new();
+        self.lower_condition(comp, at, rest, over, acc, &mut then)?;
+        out.push(Stmt::If {
+            test,
+            then,
+            orelse: Block::new(),
+        });
+        Ok(())
     }
 
     /// Work out which names this frame keeps in slots, before lowering any of it.
@@ -1173,6 +1528,12 @@ impl Lower {
             ExprKind::Name { id, .. } => Ok(self.read(id)),
             ExprKind::Lambda { args, body } => {
                 self.lower_function("<lambda>", args, Source::Value(body), out)
+            }
+            ExprKind::ListComp { .. } | ExprKind::SetComp { .. } | ExprKind::DictComp { .. } => {
+                let Some(comp) = Comp::of(&expr.kind) else {
+                    unreachable!("the three kinds this arm matches are the three it knows")
+                };
+                self.lower_comprehension(&comp, line, out)
             }
             ExprKind::BinOp { left, op, right } => {
                 let mut parts = self.lower_group(&[left, right], out)?.into_iter();
@@ -1465,9 +1826,6 @@ fn statement_name(kind: &StmtKind) -> &'static str {
 /// What to call an expression that has no lowering yet.
 fn expression_name(kind: &ExprKind) -> &'static str {
     match kind {
-        ExprKind::ListComp { .. } => "a list comprehension",
-        ExprKind::SetComp { .. } => "a set comprehension",
-        ExprKind::DictComp { .. } => "a dict comprehension",
         ExprKind::GeneratorExp { .. } => "a generator expression",
         ExprKind::Await { .. } => "an await expression",
         ExprKind::Yield { .. } | ExprKind::YieldFrom { .. } => "a yield expression",
