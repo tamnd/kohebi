@@ -591,6 +591,39 @@ CASES = [
     "{'a': 1, [b c]: 2}\n",
     "{'a': 1, b: c d}\n",
     "{'a' 50}\n",
+    # An indent or a dedent with nothing in the grammar that takes one is the
+    # end of the matter. CPython only goes looking through the rest of the file
+    # for a better complaint when the parser stopped on something else, so a
+    # bracket or a string further down never gets a word in.
+    "x = 1\n    y = 2\nz = )\n",
+    "x = 1\n    y = 2\nz = (]\n",
+    "x = 1\n    y = 2\nz = (\n",
+    "x = 1\n    y = 2\nz = 'abc\n",
+    "x = 1\n    y = 2\nz = \"\"\"abc\n",
+    "x = 1\n    y = 2\nz = 1 $ 2\n",
+    "x = 1\n\ty = 2\nz = )\n",
+    "def f():\n    @deco\nz = )\n",
+    # A dedent that closes a block is blamed on the line that closed it and
+    # given no column, and one that closes because the file ran out is blamed
+    # on the character just past the end of the last line with anything on it.
+    "def f():\n    @deco\nz = 1\n",
+    "def f():\n    @deco\n",
+    "def f():\n\t@deco\n",
+    "if x:\n    @deco\n\nz = 1\n",
+    # Leading tabs are not stripped from the line a traceback prints, only
+    # spaces are, and the carets underneath keep them so the two rows stay
+    # lined up whatever the terminal does with a tab stop.
+    "x = 1\n\ty = 2\n",
+    "if x:\n\t  pass\n\t\tpass\n",
+    "def f():\n\tif x:\n\t\ty = (1 +\n",
+    "def f():\n\tx = )\n",
+    "def f():\n\t\tx = 1\n\tpass\n",
+    "def f():\n\tx = 1 +\n",
+    "if x:\n\tpass\n\t\tpass\n",
+    "def f():\n\treturn 1 2\n",
+    "def f():\n\t x = ]\n",
+    "def f():\n\tx = 'a\n",
+    "def f():\n\tx = {1: 2, 3}\n",
 ]
 
 

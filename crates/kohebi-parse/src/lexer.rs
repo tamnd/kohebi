@@ -1274,12 +1274,20 @@ impl Iterator for Lexer<'_> {
     }
 }
 
+/// `inconsistent use of tabs and spaces in indentation`, blamed on the front of
+/// the line rather than on the indentation it is about.
+///
+/// CPython gives this one column one and no end position, so a single caret
+/// comes out, and on a space indented line even that is swallowed by the
+/// whitespace the traceback strips. Underlining the whole run of tabs and
+/// spaces would read better and is not what happens, so the span is emptied
+/// here and only its start survives.
 #[must_use]
 fn tab_error(span: Span) -> SyntaxError {
     SyntaxError::new(
         ErrorClass::Tab,
         "inconsistent use of tabs and spaces in indentation",
-        span,
+        Span::new(span.start, span.start),
     )
 }
 

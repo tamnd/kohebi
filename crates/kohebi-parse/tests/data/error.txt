@@ -368,3 +368,26 @@ SyntaxError	{'a': 1, (b c)}\n	  File "<case>", line 1\n    {'a': 1, (b c)}\n    
 SyntaxError	{'a': 1, [b c]: 2}\n	  File "<case>", line 1\n    {'a': 1, [b c]: 2}\n              ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
 SyntaxError	{'a': 1, b: c d}\n	  File "<case>", line 1\n    {'a': 1, b: c d}\n                ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
 SyntaxError	{'a' 50}\n	  File "<case>", line 1\n    {'a' 50}\n     ^^^^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+IndentationError	x = 1\n    y = 2\nz = )\n	  File "<case>", line 2\n    y = 2\nIndentationError: unexpected indent
+IndentationError	x = 1\n    y = 2\nz = (]\n	  File "<case>", line 2\n    y = 2\nIndentationError: unexpected indent
+IndentationError	x = 1\n    y = 2\nz = (\n	  File "<case>", line 2\n    y = 2\nIndentationError: unexpected indent
+IndentationError	x = 1\n    y = 2\nz = 'abc\n	  File "<case>", line 2\n    y = 2\nIndentationError: unexpected indent
+IndentationError	x = 1\n    y = 2\nz = """abc\n	  File "<case>", line 2\n    y = 2\nIndentationError: unexpected indent
+IndentationError	x = 1\n    y = 2\nz = 1 $ 2\n	  File "<case>", line 2\n    y = 2\nIndentationError: unexpected indent
+IndentationError	x = 1\n\ty = 2\nz = )\n	  File "<case>", line 2\n    \ty = 2\n    ^\nIndentationError: unexpected indent
+IndentationError	def f():\n    @deco\nz = )\n	  File "<case>", line 3\n    z = )\nIndentationError: unexpected unindent
+IndentationError	def f():\n    @deco\nz = 1\n	  File "<case>", line 3\n    z = 1\nIndentationError: unexpected unindent
+IndentationError	def f():\n    @deco\n	  File "<case>", line 2\n    @deco\n         ^\nIndentationError: unexpected unindent
+IndentationError	def f():\n\t@deco\n	  File "<case>", line 2\n    \t@deco\n    \t     ^\nIndentationError: unexpected unindent
+IndentationError	if x:\n    @deco\n\nz = 1\n	  File "<case>", line 4\n    z = 1\nIndentationError: unexpected unindent
+IndentationError	x = 1\n\ty = 2\n	  File "<case>", line 2\n    \ty = 2\n    ^\nIndentationError: unexpected indent
+TabError	if x:\n\t  pass\n\t\tpass\n	  File "<case>", line 3\n    \t\tpass\n    ^\nTabError: inconsistent use of tabs and spaces in indentation
+SyntaxError	def f():\n\tif x:\n\t\ty = (1 +\n	  File "<case>", line 3\n    \t\ty = (1 +\n    \t\t    ^\nSyntaxError: '(' was never closed
+SyntaxError	def f():\n\tx = )\n	  File "<case>", line 2\n    \tx = )\n    \t    ^\nSyntaxError: unmatched ')'
+IndentationError	def f():\n\t\tx = 1\n\tpass\n	  File "<case>", line 3\n    \tpass\n    \t    ^\nIndentationError: unindent does not match any outer indentation level
+SyntaxError	def f():\n\tx = 1 +\n	  File "<case>", line 2\n    \tx = 1 +\n    \t       ^\nSyntaxError: invalid syntax
+IndentationError	if x:\n\tpass\n\t\tpass\n	  File "<case>", line 3\n    \t\tpass\n    \t^\nIndentationError: unexpected indent
+SyntaxError	def f():\n\treturn 1 2\n	  File "<case>", line 2\n    \treturn 1 2\n    \t         ^\nSyntaxError: invalid syntax
+SyntaxError	def f():\n\t x = ]\n	  File "<case>", line 2\n    \t x = ]\n    \t     ^\nSyntaxError: unmatched ']'
+SyntaxError	def f():\n\tx = 'a\n	  File "<case>", line 2\n    \tx = 'a\n    \t    ^\nSyntaxError: unterminated string literal (detected at line 2)
+SyntaxError	def f():\n\tx = {1: 2, 3}\n	  File "<case>", line 2\n    \tx = {1: 2, 3}\n    \t           ^\nSyntaxError: ':' expected after dictionary key

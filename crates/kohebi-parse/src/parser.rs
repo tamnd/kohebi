@@ -104,6 +104,13 @@ fn lexed<T>(source: &str, parse: impl FnOnce(&mut Parser<'_>) -> Result<T>) -> R
     let Some(at) = ours.offset().filter(|at| *at < cut) else {
         return Err(error);
     };
+    // Two refusals skip the weighing entirely. CPython works them out by
+    // looking at the last token the parser read, and only tokenizes the rest of
+    // the file when it was neither an indent nor a dedent, so an unterminated
+    // string or an unmatched bracket further down is never even reached.
+    if is_unexpected_indentation(&ours) {
+        return Err(ours);
+    }
     match priority {
         Priority::Raised => Err(error),
         Priority::Deferred => Err(ours),
@@ -124,6 +131,16 @@ fn lexed<T>(source: &str, parse: impl FnOnce(&mut Parser<'_>) -> Result<T>) -> R
             }
         }
     }
+}
+
+/// Whether a refusal is one of the two the parser makes about indentation.
+///
+/// Both come from sitting on an `Indent` or a `Dedent` with nothing in the
+/// grammar that takes one, which is the same test CPython makes, and both are
+/// the reason it stops looking any further.
+fn is_unexpected_indentation(error: &SyntaxError) -> bool {
+    error.class == crate::error::ErrorClass::Indentation
+        && matches!(&*error.message, "unexpected indent" | "unexpected unindent")
 }
 
 /// Whether a token can only follow an expression rather than begin one.
