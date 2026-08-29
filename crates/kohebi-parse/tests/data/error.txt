@@ -360,3 +360,11 @@ SyntaxError	{a, b: 1}\n	  File "<case>", line 1\n    {a, b: 1}\n         ^\nSynt
 SyntaxError	{*a, b: 1}\n	  File "<case>", line 1\n    {*a, b: 1}\n          ^\nSyntaxError: invalid syntax
 SyntaxError	{a: 1, *b}\n	  File "<case>", line 1\n    {a: 1, *b}\n           ^\nSyntaxError: invalid syntax
 SyntaxError	{a: *}\n	  File "<case>", line 1\n    {a: *}\n         ^\nSyntaxError: invalid syntax
+SyntaxError	{'a': 1, 'b' 50}\n	  File "<case>", line 1\n    {'a': 1, 'b' 50}\n               ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{'a': 1, b c d}\n	  File "<case>", line 1\n    {'a': 1, b c d}\n             ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{'a': 1, b if c else d e}\n	  File "<case>", line 1\n    {'a': 1, b if c else d e}\n                         ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{'a': 1, 'b' 50: 2}\n	  File "<case>", line 1\n    {'a': 1, 'b' 50: 2}\n               ^\nSyntaxError: ':' expected after dictionary key
+SyntaxError	{'a': 1, (b c)}\n	  File "<case>", line 1\n    {'a': 1, (b c)}\n              ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	{'a': 1, [b c]: 2}\n	  File "<case>", line 1\n    {'a': 1, [b c]: 2}\n              ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	{'a': 1, b: c d}\n	  File "<case>", line 1\n    {'a': 1, b: c d}\n                ^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?
+SyntaxError	{'a' 50}\n	  File "<case>", line 1\n    {'a' 50}\n     ^^^^^^\nSyntaxError: invalid syntax. Perhaps you forgot a comma?

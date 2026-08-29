@@ -6,6 +6,10 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+`{"a": 1, "b" 50}` has both a colon and a comma missing, and it now says the colon like CPython does rather than the comma. Both rules match it and the comma rule is the one that wins everywhere else inside a bracket, so which one fires is not obvious. What settles it is that the key is already a complete expression on its own, so the rule about what has to follow a key gets there first. A key that is not complete on its own, `{"a": 1, (b c)}` or `{"a": 1, [b c]: 2}`, is a missing comma again.
+
+That is a reading of the two rules and not a special case, so the key is read once with the comma rule turned off and once with it back on if the first attempt failed. One shape is still wrong: `{"a": 1, f(b c)}` says the comma and CPython says the colon, because CPython can drop the call and keep `f` as a key on its own and we cannot. Nothing in the standard library or in twelve hundred broken files looks like that, so it is written down rather than worked around. Over those twelve hundred this takes 96.75% to 97.00%.
+
 `{"a": 1, "b"}` is a dict with a comma where a colon was meant, and it now says `':' expected after dictionary key` instead of `invalid syntax`. Two more come with it: nothing after the colon says `expression expected after dictionary key and ':'`, and a single star in the value says `cannot use a starred expression in a dictionary value`, because a dict takes `**` for a whole mapping and has no use for one star.
 
 None of the three point where you would expect. The missing colon is blamed on the last character of the key rather than on the space after it, and it is raised with no end position at all, so what comes out is one caret under the closing quote. The missing value is blamed on the colon rather than on the space the value would have gone in. Both of those are the shape of the rule rather than a choice about what reads well, and the second one is why the two messages disagree about which side of the colon to blame for what is really the same kind of gap.
