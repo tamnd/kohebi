@@ -1192,9 +1192,19 @@ impl<'src> Lexer<'src> {
         Ok(Token::new(kind, span))
     }
 
+    /// One-based line number of a byte offset.
+    ///
+    /// Counted from the start of the file each time, which is fine because the
+    /// only callers are building an error message and there is at most one of
+    /// those per file.
+    fn line_of(&self, offset: u32) -> usize {
+        let upto = (offset as usize).min(self.bytes.len());
+        memchr::memchr_iter(b'\n', &self.bytes[..upto]).count() + 1
+    }
+
     fn close_bracket(&mut self, kind: TokenKind, span: Span) -> Result<()> {
         let close = kind.as_str().expect("brackets have fixed text");
-        let Some((open_kind, _)) = self.brackets.pop() else {
+        let Some((open_kind, open_span)) = self.brackets.pop() else {
             return Err(SyntaxError::syntax(format!("unmatched '{close}'"), span));
         };
         let expected = match open_kind {
@@ -1204,11 +1214,21 @@ impl<'src> Lexer<'src> {
         };
         if kind != expected {
             let open = open_kind.as_str().expect("brackets have fixed text");
+            // The line the opening bracket is on is named only when it is not
+            // the line the reader is already looking at. `x = (1]` says nothing
+            // about a line because both brackets are right there, and a `(` two
+            // pages up is the whole reason the message is worth reading.
+            let (from, to) = (self.line_of(open_span.start), self.line_of(span.start));
+            let where_it_opened = if from == to {
+                String::new()
+            } else {
+                format!(" on line {from}")
+            };
             // CPython says "parenthesis" whichever bracket it was, which reads
             // oddly for `]` but is what people will have seen before.
             return Err(SyntaxError::syntax(
                 format!(
-                    "closing parenthesis '{close}' does not match opening parenthesis '{open}'"
+                    "closing parenthesis '{close}' does not match opening parenthesis '{open}'{where_it_opened}"
                 ),
                 span,
             ));

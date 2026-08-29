@@ -103,3 +103,20 @@ IndentationError	match x:\n	  File "<case>", line 1\n    match x:\n            ^
 IndentationError	if a:\n    if b:\n	  File "<case>", line 2\n    if b:\n         ^\nIndentationError: expected an indented block after 'if' statement on line 2
 SyntaxError	try:\n    pass	  File "<case>", line 2\n    pass\n        ^\nSyntaxError: expected 'except' or 'finally' block
 SyntaxError	class C:\n    def f():\n        try:\n            pass\n	  File "<case>", line 4\n    pass\n        ^\nSyntaxError: expected 'except' or 'finally' block
+SyntaxError	x:\n	  File "<case>", line 1\n    x:\n      ^\nSyntaxError: invalid syntax
+SyntaxError	x: ;\n	  File "<case>", line 1\n    x: ;\n       ^\nSyntaxError: invalid syntax
+SyntaxError	a.b:\n	  File "<case>", line 1\n    a.b:\n        ^\nSyntaxError: invalid syntax
+SyntaxError	(a):\n	  File "<case>", line 1\n    (a):\n        ^\nSyntaxError: invalid syntax
+SyntaxError	f(x): ;\n	  File "<case>", line 1\n    f(x): ;\n        ^\nSyntaxError: invalid syntax
+SyntaxError	f(x): =1\n	  File "<case>", line 1\n    f(x): =1\n        ^\nSyntaxError: invalid syntax
+SyntaxError	a.b(): \n	  File "<case>", line 1\n    a.b(): \n         ^\nSyntaxError: invalid syntax
+SyntaxError	[a]:\n	  File "<case>", line 1\n    [a]:\n       ^\nSyntaxError: invalid syntax
+SyntaxError	a, b:\n	  File "<case>", line 1\n    a, b:\n        ^\nSyntaxError: invalid syntax
+SyntaxError	f(x): int\n	  File "<case>", line 1\n    f(x): int\n    ^^^^\nSyntaxError: illegal target for annotation
+SyntaxError	f(x): 1+\n	  File "<case>", line 1\n    f(x): 1+\n    ^^^^\nSyntaxError: illegal target for annotation
+SyntaxError	[a]: int\n	  File "<case>", line 1\n    [a]: int\n    ^^^\nSyntaxError: only single target (not list) can be annotated
+SyntaxError	1: int\n	  File "<case>", line 1\n    1: int\n    ^\nSyntaxError: illegal target for annotation
+SyntaxError	x = (1]\n	  File "<case>", line 1\n    x = (1]\n          ^\nSyntaxError: closing parenthesis ']' does not match opening parenthesis '('
+SyntaxError	x = (1,\n2]\n	  File "<case>", line 2\n    2]\n     ^\nSyntaxError: closing parenthesis ']' does not match opening parenthesis '(' on line 1
+SyntaxError	x = [\n\n(1}\n	  File "<case>", line 3\n    (1}\n      ^\nSyntaxError: closing parenthesis '}' does not match opening parenthesis '('
+SyntaxError	x = {\n1)\n	  File "<case>", line 2\n    1)\n     ^\nSyntaxError: closing parenthesis ')' does not match opening parenthesis '{' on line 1

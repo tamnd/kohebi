@@ -196,6 +196,35 @@ CASES = [
     "if a:\n    if b:\n",
     "try:\n    pass",
     "class C:\n    def f():\n        try:\n            pass\n",
+    # A colon with no annotation after it. None of the rules about what may be
+    # annotated apply, because without an annotation there is no annotated
+    # assignment to complain about, so all of these are plain `invalid syntax`.
+    # Where it points is the interesting part and it is not the same for all of
+    # them: a target CPython would have accepted takes it past the colon.
+    "x:\n",
+    "x: ;\n",
+    "a.b:\n",
+    "(a):\n",
+    # `f(x):` on a line of its own is missing: CPython's suggestion pass reads
+    # it as an `if` statement with the keyword left out and says so, which is
+    # the second diagnostic pass and is not implemented yet. The same shape
+    # with anything after the colon does not trigger it.
+    "f(x): ;\n",
+    "f(x): =1\n",
+    "a.b(): \n",
+    "[a]:\n",
+    "a, b:\n",
+    # And the same targets with an annotation, which do reach those rules.
+    "f(x): int\n",
+    "f(x): 1+\n",
+    "[a]: int\n",
+    "1: int\n",
+    # A closing bracket of the wrong kind names the line the opening one is on,
+    # but only when that is not the line already being shown.
+    "x = (1]\n",
+    "x = (1,\n2]\n",
+    "x = [\n\n(1}\n",
+    "x = {\n1)\n",
 ]
 
 

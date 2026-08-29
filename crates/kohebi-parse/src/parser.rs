@@ -118,6 +118,24 @@ fn lexed<T>(source: &str, parse: impl FnOnce(&mut Parser<'_>) -> Result<T>) -> R
     }
 }
 
+/// Whether a token can only follow an expression rather than begin one.
+///
+/// Not the same as being unable to begin one. It is the set that closes off a
+/// list or a statement, which is what callers actually want to know about.
+fn ends_expression(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::RParen
+            | TokenKind::RBracket
+            | TokenKind::RBrace
+            | TokenKind::Newline
+            | TokenKind::EndMarker
+            | TokenKind::Colon
+            | TokenKind::Equal
+            | TokenKind::Semicolon
+    )
+}
+
 /// Precedence of the left-associative binary operators, loosest first.
 ///
 /// `**` is missing on purpose. It is right-associative and it binds tighter
@@ -545,17 +563,7 @@ impl<'a> Parser<'a> {
     /// after eating a comma, anything that closes the construct means the comma
     /// was the last thing in it.
     fn at_expression_end(&self) -> bool {
-        matches!(
-            self.peek(),
-            TokenKind::RParen
-                | TokenKind::RBracket
-                | TokenKind::RBrace
-                | TokenKind::Newline
-                | TokenKind::EndMarker
-                | TokenKind::Colon
-                | TokenKind::Equal
-                | TokenKind::Semicolon
-        )
+        ends_expression(self.peek())
     }
 
     /// `expression`: a conditional expression, or a lambda.
