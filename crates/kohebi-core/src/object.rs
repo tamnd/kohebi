@@ -34,6 +34,7 @@ use crate::float::{DotZero, float_repr};
 use crate::hash::int_eq_float;
 use crate::int::Int;
 use crate::native::Native;
+use crate::slice::Slice;
 use crate::text::{Str, bytes_repr};
 
 /// A Python value.
@@ -65,6 +66,10 @@ pub enum Object {
     Dict(Rc<RefCell<Dict>>),
     /// A `set`, which does not.
     Set(Rc<RefCell<Set>>),
+    /// A `slice`, which is what `a:b:c` inside a subscript builds. It holds
+    /// three objects rather than three integers, because the numbers only have
+    /// to be numbers at the point a sequence uses them.
+    Slice(Rc<Slice>),
     /// A value whose type is defined above this crate, which is how the runtime
     /// gets functions, iterators and exceptions without this crate having to
     /// know what any of those are. See [`Native`].
@@ -143,6 +148,7 @@ impl Object {
             Object::List(_) => "list",
             Object::Dict(_) => "dict",
             Object::Set(_) => "set",
+            Object::Slice(_) => "slice",
             Object::Native(value) => value.type_name(),
         }
     }
@@ -167,9 +173,9 @@ impl Object {
             Object::Dict(entries) => !entries.borrow().is_empty(),
             Object::Set(members) => !members.borrow().is_empty(),
             Object::Native(value) => value.truthy(),
-            // `Ellipsis` and `NotImplemented` are objects with no `__bool__`
-            // and no `__len__`, which makes them true.
-            Object::NotImplemented | Object::Ellipsis => true,
+            // `Ellipsis`, `NotImplemented` and a slice are objects with no
+            // `__bool__` and no `__len__`, which makes them true.
+            Object::NotImplemented | Object::Ellipsis | Object::Slice(_) => true,
         }
     }
 
@@ -203,6 +209,7 @@ impl Object {
             (Object::List(a), Object::List(b)) => Rc::ptr_eq(a, b),
             (Object::Dict(a), Object::Dict(b)) => Rc::ptr_eq(a, b),
             (Object::Set(a), Object::Set(b)) => Rc::ptr_eq(a, b),
+            (Object::Slice(a), Object::Slice(b)) => Rc::ptr_eq(a, b),
             // The address alone, because two `Rc<dyn Native>` to one object can
             // carry two vtable pointers and `Rc::ptr_eq` would compare those too.
             (Object::Native(a), Object::Native(b)) => {
@@ -241,6 +248,16 @@ impl Object {
                 Rc::ptr_eq(a, b) || a.borrow().equals(&b.borrow())
             }
             (Object::Set(a), Object::Set(b)) => Rc::ptr_eq(a, b) || a.borrow().equals(&b.borrow()),
+            // Two slices are equal when their three parts are, which is what
+            // makes `x[1:2] == x[1:2]` true of the subscripts as well as of the
+            // results. A slice is never equal to the tuple that spells it.
+            (Object::Slice(a), Object::Slice(b)) => {
+                Rc::ptr_eq(a, b)
+                    || a.parts()
+                        .iter()
+                        .zip(b.parts())
+                        .all(|(a, b)| a.same_value(b))
+            }
             // A native value has no `__eq__` to run, and an object without one
             // is equal to itself and to nothing else.
             (Object::Native(_), Object::Native(_)) => self.is(other),
@@ -309,6 +326,7 @@ impl Object {
             Object::Float(value) => float_repr(*value, DotZero::Add),
             Object::Str(value) => value.repr(),
             Object::Bytes(value) => bytes_repr(value),
+            Object::Slice(value) => value.repr(),
             Object::Tuple(items) => {
                 let address = Rc::as_ptr(items).cast::<()>();
                 let inner = with_trail(seen, address, |seen| parts(items, seen));

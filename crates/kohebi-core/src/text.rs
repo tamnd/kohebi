@@ -62,6 +62,38 @@ impl Str {
         }
     }
 
+    /// How many code points, which is what `len` answers for a `str`.
+    ///
+    /// Linear for a `Utf8` string, since UTF-8 does not carry a count. CPython
+    /// stores one in the object header and answers in constant time, and the
+    /// representation that will do the same here is the one in the spec rather
+    /// than this one.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        match self {
+            // Nearly every string is ASCII, and for those a byte is a code
+            // point, so the scan `is_ascii` does is the whole cost.
+            Str::Utf8(s) if s.is_ascii() => s.len(),
+            Str::Utf8(s) => s.chars().count(),
+            Str::Wide(w) => w.len(),
+        }
+    }
+
+    /// The code point at an offset, or `None` past the end.
+    ///
+    /// Linear in the offset for a string that is not ASCII, because UTF-8 has
+    /// no way to reach the nth code point except by counting to it. Anything
+    /// walking a whole string wants [`Str::code_points`] instead, which counts
+    /// once.
+    #[must_use]
+    pub fn code_point_at(&self, index: usize) -> Option<u32> {
+        match self {
+            Str::Utf8(s) if s.is_ascii() => s.as_bytes().get(index).copied().map(u32::from),
+            Str::Utf8(s) => s.chars().nth(index).map(u32::from),
+            Str::Wide(w) => w.get(index).copied(),
+        }
+    }
+
     /// Whether this is the empty string, which decides `Str` vs `JoinedStr`.
     #[must_use]
     pub fn is_empty(&self) -> bool {

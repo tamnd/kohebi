@@ -19,6 +19,7 @@ pub mod native;
 pub mod object;
 pub mod ops;
 pub mod printable;
+pub mod slice;
 pub mod text;
 
 pub use dict::{Dict, Set};
@@ -30,6 +31,7 @@ pub use native::Native;
 pub use object::Object;
 pub use ops::Compare;
 pub use printable::is_printable;
+pub use slice::{Indices, Slice};
 pub use text::{Str, StrBuf, bytes_repr, str_repr};
 
 /// The design documents that govern this crate.

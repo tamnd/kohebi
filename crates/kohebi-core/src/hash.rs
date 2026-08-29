@@ -88,6 +88,11 @@ pub fn hash(object: &Object) -> Result<i64, Unhashable> {
         Object::Str(value) => Ok(text(value)),
         Object::Bytes(value) => Ok(blob(value)),
         Object::Tuple(items) => tuple(items),
+        // A slice hashes as its three parts, which is what CPython does and is
+        // what puts `x[1:2]` in a dict and finds it again. The number itself is
+        // not CPython's, for the same reason a string hash is not: what it owes
+        // us is that equal slices hash equally within one run.
+        Object::Slice(value) => lanes(value.parts().into_iter(), 3),
         // A native value has no `__hash__` to run, and the default one in
         // CPython is derived from the address. So is this, and it is worth no
         // more than CPython's is: it differs between runs and nothing may
@@ -217,6 +222,12 @@ fn frexp(value: f64) -> (f64, i32) {
 }
 
 /// A tuple's hash, which is xxHash over its elements' hashes.
+fn tuple(items: &[Object]) -> Result<i64, Unhashable> {
+    lanes(items.iter(), items.len())
+}
+
+/// The same algorithm over anything that can be walked, so that a slice can
+/// hash as its three parts without first being collected into a tuple.
 #[expect(
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss,
@@ -225,7 +236,7 @@ fn frexp(value: f64) -> (f64, i32) {
               constant is written the way CPython writes it so the two can be \
               compared by eye"
 )]
-fn tuple(items: &[Object]) -> Result<i64, Unhashable> {
+fn lanes<'a>(items: impl Iterator<Item = &'a Object>, len: usize) -> Result<i64, Unhashable> {
     let mut acc = XXPRIME_5;
     for item in items {
         let lane = hash(item)? as u64;
@@ -235,7 +246,7 @@ fn tuple(items: &[Object]) -> Result<i64, Unhashable> {
     }
     // The length goes in mangled, which is what keeps `hash(())` at the value
     // it had before this algorithm replaced the previous one.
-    acc = acc.wrapping_add((items.len() as u64) ^ (XXPRIME_5 ^ 3_527_539));
+    acc = acc.wrapping_add((len as u64) ^ (XXPRIME_5 ^ 3_527_539));
     // The one forbidden answer, and CPython's chosen replacement for it.
     if acc == u64::MAX {
         return Ok(1_546_275_796);

@@ -319,27 +319,12 @@ fn a_list_grows_only_from_things_it_can_walk() {
         raises("a = [1]\na += 2\n"),
         "TypeError: 'int' object is not iterable"
     );
-    // The rest of the iterables are a matter of the iteration protocol rather
-    // than of the operator, and it says so rather than guessing.
-    assert_eq!(
-        raises("a = [1]\na += 'bc'\n"),
-        "NotImplementedError: extending a list with a str needs the iteration protocol, \
-         which is not implemented yet"
-    );
 }
 
 /// Everything that is not built yet says which piece it is, so a program that
 /// needs one stops on it instead of getting an answer nobody checked.
 #[test]
 fn what_is_not_implemented_names_itself() {
-    assert_eq!(
-        raises("a = [1]\nprint(a[0])\n"),
-        "NotImplementedError: subscripting is not implemented yet"
-    );
-    assert_eq!(
-        raises("a = [1]\nprint(a[0:1])\n"),
-        "NotImplementedError: slicing is not implemented yet"
-    );
     assert_eq!(
         raises("for x in [1]:\n    pass\n"),
         "NotImplementedError: iteration is not implemented yet"
@@ -447,4 +432,210 @@ fn a_deleted_global_stays_deleted_across_bodies() {
     let body = lower_module(&tree, "<test>").expect("expected this to lower");
     let raised = vm.run(&compile(&body)).expect_err("expected this to raise");
     assert_eq!(raised.to_string(), "NameError: name 'x' is not defined");
+}
+
+#[test]
+fn an_index_reaches_an_element_of_every_sequence() {
+    assert_eq!(
+        out("print([1, 2, 3][1], (1, 2, 3)[1], 'abc'[1], b'abc'[1], {'a': 9}['a'])\n"),
+        "2 2 b 98 9\n"
+    );
+}
+
+#[test]
+fn a_negative_index_counts_from_the_end() {
+    assert_eq!(out("print([1, 2, 3][-1], 'abc'[-3])\n"), "3 a\n");
+}
+
+#[test]
+fn a_bool_is_an_index_because_it_is_an_int() {
+    assert_eq!(out("print([7, 8][True], [7, 8][False])\n"), "8 7\n");
+}
+
+#[test]
+fn a_slice_takes_a_run_of_a_sequence() {
+    assert_eq!(
+        out("print([1, 2, 3, 4][1:3], (1, 2, 3, 4)[1:3], 'abcd'[1:3], b'abcd'[1:3])\n"),
+        "[2, 3] (2, 3) bc b'bc'\n"
+    );
+}
+
+#[test]
+fn a_slice_with_a_step_skips_and_a_negative_one_reverses() {
+    assert_eq!(
+        out("print([1, 2, 3, 4, 5][::2], [1, 2, 3][::-1], 'abcde'[1::2])\n"),
+        "[1, 3, 5] [3, 2, 1] bd\n"
+    );
+}
+
+#[test]
+fn a_slice_bound_past_the_end_is_pulled_back_rather_than_raising() {
+    // The whole reason slicing has its own clamping: `x[5:100]` on three
+    // elements is empty, not an `IndexError`, and `x[2**100:]` is empty too
+    // rather than an `OverflowError`.
+    assert_eq!(
+        out(
+            "print([1, 2, 3][5:100], [1, 2, 3][-100:], [1, 2, 3][2 ** 100:], [1, 2, 3][:2 ** 100])\n"
+        ),
+        "[] [1, 2, 3] [] [1, 2, 3]\n"
+    );
+}
+
+#[test]
+fn an_index_past_the_end_raises_where_a_slice_bound_would_not() {
+    assert_eq!(
+        raises("print([1, 2, 3][3])\n"),
+        "IndexError: list index out of range"
+    );
+    assert_eq!(
+        raises("print([1, 2, 3][2 ** 100])\n"),
+        "IndexError: cannot fit 'int' into an index-sized integer"
+    );
+}
+
+#[test]
+fn a_subscript_of_the_wrong_type_names_the_type() {
+    assert_eq!(
+        raises("print([1, 2, 3]['a'])\n"),
+        "TypeError: list indices must be integers or slices, not str"
+    );
+    // A `str` words this differently, and the difference is CPython's.
+    assert_eq!(
+        raises("print('abc'[None])\n"),
+        "TypeError: string indices must be integers, not 'NoneType'"
+    );
+    assert_eq!(
+        raises("print(1[0])\n"),
+        "TypeError: 'int' object is not subscriptable"
+    );
+}
+
+#[test]
+fn a_missing_key_raises_the_key_itself() {
+    assert_eq!(raises("print({'a': 1}['b'])\n"), "KeyError: 'b'");
+    assert_eq!(raises("print({}[1])\n"), "KeyError: 1");
+}
+
+#[test]
+fn a_step_of_zero_is_a_value_error() {
+    assert_eq!(
+        raises("print([1, 2, 3][::0])\n"),
+        "ValueError: slice step cannot be zero"
+    );
+}
+
+#[test]
+fn an_element_can_be_written_and_deleted() {
+    assert_eq!(
+        out("x = [1, 2, 3]\nx[0] = 9\nx[-1] = 8\ndel x[1]\nprint(x)\n"),
+        "[9, 8]\n"
+    );
+    assert_eq!(
+        out("d = {}\nd['a'] = 1\nd['a'] = 2\nprint(d)\ndel d['a']\nprint(d)\n"),
+        "{'a': 2}\n{}\n"
+    );
+}
+
+#[test]
+fn writing_through_a_list_says_assignment_when_it_is_out_of_range() {
+    assert_eq!(
+        raises("x = [1]\nx[5] = 1\n"),
+        "IndexError: list assignment index out of range"
+    );
+}
+
+#[test]
+fn a_contiguous_slice_assignment_may_change_the_length() {
+    assert_eq!(
+        out("x = [1, 2, 3, 4]\nx[1:3] = [9]\nprint(x)\n"),
+        "[1, 9, 4]\n"
+    );
+    assert_eq!(
+        out("x = [1, 2]\nx[1:1] = [7, 8]\nprint(x)\n"),
+        "[1, 7, 8, 2]\n"
+    );
+}
+
+#[test]
+fn an_extended_slice_assignment_must_match_in_length() {
+    assert_eq!(
+        out("x = [1, 2, 3, 4, 5]\nx[::2] = [7, 7, 7]\nprint(x)\n"),
+        "[7, 2, 7, 4, 7]\n"
+    );
+    assert_eq!(
+        raises("x = [1, 2, 3, 4, 5]\nx[::2] = [7, 7]\n"),
+        "ValueError: attempt to assign sequence of size 2 to extended slice of size 3"
+    );
+}
+
+#[test]
+fn a_slice_assignment_reads_before_it_writes() {
+    // `x[:] = x` borrows the same list twice, which is a panic rather than an
+    // answer if the right hand side is not read out first.
+    assert_eq!(out("x = [1, 2, 3]\nx[:] = x\nprint(x)\n"), "[1, 2, 3]\n");
+}
+
+#[test]
+fn a_slice_assignment_takes_any_container() {
+    assert_eq!(
+        out("x = [1, 2, 3]\nx[0:2] = 'ab'\nprint(x)\n"),
+        "['a', 'b', 3]\n"
+    );
+    assert_eq!(
+        raises("x = [1, 2, 3]\nx[0:2] = 5\n"),
+        "TypeError: must assign iterable to extended slice"
+    );
+}
+
+#[test]
+fn deleting_a_slice_removes_all_of_it() {
+    assert_eq!(
+        out("x = [1, 2, 3, 4, 5]\ndel x[1:3]\nprint(x)\n"),
+        "[1, 4, 5]\n"
+    );
+    assert_eq!(
+        out("x = [1, 2, 3, 4, 5]\ndel x[::2]\nprint(x)\n"),
+        "[2, 4]\n"
+    );
+}
+
+#[test]
+fn a_sequence_that_cannot_be_written_through_says_which_way_it_failed() {
+    assert_eq!(
+        raises("(1, 2)[0] = 1\n"),
+        "TypeError: 'tuple' object does not support item assignment"
+    );
+    assert_eq!(
+        raises("del (1, 2)[0]\n"),
+        "TypeError: 'tuple' object doesn't support item deletion"
+    );
+    // The two wordings are not a typo. CPython gives "doesn't" to a container
+    // and "does not" to something that was never one.
+    assert_eq!(
+        raises("del None[0]\n"),
+        "TypeError: 'NoneType' object does not support item deletion"
+    );
+}
+
+#[test]
+fn a_subscript_works_on_a_string_that_is_not_ascii() {
+    assert_eq!(
+        out("s = 'aé日本'\nprint(s[1], s[3], s[1:3], s[::-1])\n"),
+        "é 本 é日 本日éa\n"
+    );
+}
+
+#[test]
+fn a_list_can_be_extended_with_any_container_now() {
+    // This used to be a `NotImplementedError` for everything but a list and a
+    // tuple, because it was waiting for the iteration protocol it does not
+    // actually need.
+    assert_eq!(
+        out("x = []\nx += 'ab'\nx += b'\\x01'\nx += (1,)\nx += {2: 3}\nprint(x)\n"),
+        "['a', 'b', 1, 1, 2]\n"
+    );
+    assert_eq!(
+        raises("x = []\nx += 1\n"),
+        "TypeError: 'int' object is not iterable"
+    );
 }
