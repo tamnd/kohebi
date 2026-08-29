@@ -396,6 +396,70 @@ CASES = [
     "x = (1,\n2]\n",
     "x = [\n\n(1}\n",
     "x = {\n1)\n",
+    # Statements that are fine except for where they are written. What decides
+    # is the innermost scope rather than the innermost block, and the two are
+    # not the same thing: `while 1:` indents and is not a scope, `class C:`
+    # indents and is.
+    "return 1\n",
+    "class C:\n    return 1\n",
+    "def f():\n    class C:\n        return 1\n",
+    "yield 1\n",
+    "x = yield\n",
+    "yield from y\n",
+    "class C:\n    yield 1\n",
+    "async def f():\n    yield from x\n",
+    # A loop is what a `break` needs, and the `else` of a loop is not inside it.
+    "break\n",
+    "continue\n",
+    "def f():\n    break\n",
+    "while 1:\n    def f():\n        break\n",
+    "while 1:\n    class C:\n        break\n",
+    "for x in y:\n    pass\nelse:\n    break\n",
+    "while 1:\n    pass\nelse:\n    continue\n",
+    "with a:\n    break\n",
+    "def f():\n    break\nbreak\n",
+    # `await` has two refusals, and which one depends on whether there is a
+    # function around it at all.
+    "await x\n",
+    "class C:\n    await x\n",
+    "def f():\n    await x\n",
+    "async def f():\n    class C:\n        await x\n",
+    "async def f():\n    def g():\n        await x\n",
+    "async def f():\n    lambda: await x\n",
+    "async with a: pass\n",
+    "async for x in y: pass\n",
+    "def f():\n    async with await a: pass\n",
+    "def f():\n    async for x in await y: pass\n",
+    # A comprehension is a scope, which is why a `yield` in one has a message
+    # naming the kind and why an `await` in one is about the comprehension
+    # rather than about the `await`.
+    "def f():\n    [(yield) for x in y]\n",
+    "def f():\n    {(yield) for x in y}\n",
+    "def f():\n    {(yield 1): (yield 2) for x in y}\n",
+    "def f():\n    ((yield) for x in y)\n",
+    "def f():\n    [(yield from z) for x in y]\n",
+    "def f():\n    [x for x in y if (yield)]\n",
+    "[(yield) for x in y]\n",
+    "class C:\n    [(yield) for x in y]\n",
+    # The outermost iterable is evaluated where the comprehension is written and
+    # everything else inside it, so these two are refused for different things.
+    "def f():\n    [x for x in await y]\n",
+    "def f():\n    [await x for x in y]\n",
+    "class C:\n    [x for x in await y]\n",
+    "class C:\n    [await x for x in y]\n",
+    "def f():\n    [x for x in y if await z]\n",
+    "def f():\n    [x for x in y for w in await z]\n",
+    "def f():\n    [x async for x in y]\n",
+    "[x async for x in y]\n",
+    "{x async for x in y}\n",
+    # Nested, where the inner one hands the question out to the outer one and
+    # the outer one is the one blamed.
+    "def f():\n    [[await x for x in y] for z in w]\n",
+    # `from x import *` binds names nobody can work out in advance, and every
+    # scope but the module's needs to know its names in advance.
+    "def f():\n    from os import *\n",
+    "class C:\n    from os import *\n",
+    "def f():\n    from os import a, *\n",
 ]
 
 

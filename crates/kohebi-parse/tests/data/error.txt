@@ -228,3 +228,51 @@ SyntaxError	x = (1]\n	  File "<case>", line 1\n    x = (1]\n          ^\nSyntaxE
 SyntaxError	x = (1,\n2]\n	  File "<case>", line 2\n    2]\n     ^\nSyntaxError: closing parenthesis ']' does not match opening parenthesis '(' on line 1
 SyntaxError	x = [\n\n(1}\n	  File "<case>", line 3\n    (1}\n      ^\nSyntaxError: closing parenthesis '}' does not match opening parenthesis '('
 SyntaxError	x = {\n1)\n	  File "<case>", line 2\n    1)\n     ^\nSyntaxError: closing parenthesis ')' does not match opening parenthesis '{' on line 1
+SyntaxError	return 1\n	  File "<case>", line 1\n    return 1\n    ^^^^^^^^\nSyntaxError: 'return' outside function
+SyntaxError	class C:\n    return 1\n	  File "<case>", line 2\n    return 1\n    ^^^^^^^^\nSyntaxError: 'return' outside function
+SyntaxError	def f():\n    class C:\n        return 1\n	  File "<case>", line 3\n    return 1\n    ^^^^^^^^\nSyntaxError: 'return' outside function
+SyntaxError	yield 1\n	  File "<case>", line 1\n    yield 1\n    ^^^^^^^\nSyntaxError: 'yield' outside function
+SyntaxError	x = yield\n	  File "<case>", line 1\n    x = yield\n        ^^^^^\nSyntaxError: 'yield' outside function
+SyntaxError	yield from y\n	  File "<case>", line 1\n    yield from y\n    ^^^^^^^^^^^^\nSyntaxError: 'yield from' outside function
+SyntaxError	class C:\n    yield 1\n	  File "<case>", line 2\n    yield 1\n    ^^^^^^^\nSyntaxError: 'yield' outside function
+SyntaxError	async def f():\n    yield from x\n	  File "<case>", line 2\n    yield from x\n    ^^^^^^^^^^^^\nSyntaxError: 'yield from' inside async function
+SyntaxError	break\n	  File "<case>", line 1\n    break\n    ^^^^^\nSyntaxError: 'break' outside loop
+SyntaxError	continue\n	  File "<case>", line 1\n    continue\n    ^^^^^^^^\nSyntaxError: 'continue' not properly in loop
+SyntaxError	def f():\n    break\n	  File "<case>", line 2\n    break\n    ^^^^^\nSyntaxError: 'break' outside loop
+SyntaxError	while 1:\n    def f():\n        break\n	  File "<case>", line 3\n    break\n    ^^^^^\nSyntaxError: 'break' outside loop
+SyntaxError	while 1:\n    class C:\n        break\n	  File "<case>", line 3\n    break\n    ^^^^^\nSyntaxError: 'break' outside loop
+SyntaxError	for x in y:\n    pass\nelse:\n    break\n	  File "<case>", line 4\n    break\n    ^^^^^\nSyntaxError: 'break' outside loop
+SyntaxError	while 1:\n    pass\nelse:\n    continue\n	  File "<case>", line 4\n    continue\n    ^^^^^^^^\nSyntaxError: 'continue' not properly in loop
+SyntaxError	with a:\n    break\n	  File "<case>", line 2\n    break\n    ^^^^^\nSyntaxError: 'break' outside loop
+SyntaxError	def f():\n    break\nbreak\n	  File "<case>", line 2\n    break\n    ^^^^^\nSyntaxError: 'break' outside loop
+SyntaxError	await x\n	  File "<case>", line 1\n    await x\n    ^^^^^^^\nSyntaxError: 'await' outside function
+SyntaxError	class C:\n    await x\n	  File "<case>", line 2\n    await x\n    ^^^^^^^\nSyntaxError: 'await' outside function
+SyntaxError	def f():\n    await x\n	  File "<case>", line 2\n    await x\n    ^^^^^^^\nSyntaxError: 'await' outside async function
+SyntaxError	async def f():\n    class C:\n        await x\n	  File "<case>", line 3\n    await x\n    ^^^^^^^\nSyntaxError: 'await' outside function
+SyntaxError	async def f():\n    def g():\n        await x\n	  File "<case>", line 3\n    await x\n    ^^^^^^^\nSyntaxError: 'await' outside async function
+SyntaxError	async def f():\n    lambda: await x\n	  File "<case>", line 2\n    lambda: await x\n            ^^^^^^^\nSyntaxError: 'await' outside async function
+SyntaxError	async with a: pass\n	  File "<case>", line 1\n    async with a: pass\n    ^^^^^^^^^^^^^^^^^^\nSyntaxError: 'async with' outside async function
+SyntaxError	async for x in y: pass\n	  File "<case>", line 1\n    async for x in y: pass\n    ^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: 'async for' outside async function
+SyntaxError	def f():\n    async with await a: pass\n	  File "<case>", line 2\n    async with await a: pass\n    ^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: 'async with' outside async function
+SyntaxError	def f():\n    async for x in await y: pass\n	  File "<case>", line 2\n    async for x in await y: pass\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: 'async for' outside async function
+SyntaxError	def f():\n    [(yield) for x in y]\n	  File "<case>", line 2\n    [(yield) for x in y]\n      ^^^^^\nSyntaxError: 'yield' inside list comprehension
+SyntaxError	def f():\n    {(yield) for x in y}\n	  File "<case>", line 2\n    {(yield) for x in y}\n      ^^^^^\nSyntaxError: 'yield' inside set comprehension
+SyntaxError	def f():\n    {(yield 1): (yield 2) for x in y}\n	  File "<case>", line 2\n    {(yield 1): (yield 2) for x in y}\n                 ^^^^^^^\nSyntaxError: 'yield' inside dict comprehension
+SyntaxError	def f():\n    ((yield) for x in y)\n	  File "<case>", line 2\n    ((yield) for x in y)\n      ^^^^^\nSyntaxError: 'yield' inside generator expression
+SyntaxError	def f():\n    [(yield from z) for x in y]\n	  File "<case>", line 2\n    [(yield from z) for x in y]\n      ^^^^^^^^^^^^\nSyntaxError: 'yield' inside list comprehension
+SyntaxError	def f():\n    [x for x in y if (yield)]\n	  File "<case>", line 2\n    [x for x in y if (yield)]\n                      ^^^^^\nSyntaxError: 'yield' inside list comprehension
+SyntaxError	[(yield) for x in y]\n	  File "<case>", line 1\n    [(yield) for x in y]\n      ^^^^^\nSyntaxError: 'yield' inside list comprehension
+SyntaxError	class C:\n    [(yield) for x in y]\n	  File "<case>", line 2\n    [(yield) for x in y]\n      ^^^^^\nSyntaxError: 'yield' inside list comprehension
+SyntaxError	def f():\n    [x for x in await y]\n	  File "<case>", line 2\n    [x for x in await y]\n                ^^^^^^^\nSyntaxError: 'await' outside async function
+SyntaxError	def f():\n    [await x for x in y]\n	  File "<case>", line 2\n    [await x for x in y]\n    ^^^^^^^^^^^^^^^^^^^^\nSyntaxError: asynchronous comprehension outside of an asynchronous function
+SyntaxError	class C:\n    [x for x in await y]\n	  File "<case>", line 2\n    [x for x in await y]\n                ^^^^^^^\nSyntaxError: 'await' outside function
+SyntaxError	class C:\n    [await x for x in y]\n	  File "<case>", line 2\n    [await x for x in y]\n    ^^^^^^^^^^^^^^^^^^^^\nSyntaxError: asynchronous comprehension outside of an asynchronous function
+SyntaxError	def f():\n    [x for x in y if await z]\n	  File "<case>", line 2\n    [x for x in y if await z]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: asynchronous comprehension outside of an asynchronous function
+SyntaxError	def f():\n    [x for x in y for w in await z]\n	  File "<case>", line 2\n    [x for x in y for w in await z]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: asynchronous comprehension outside of an asynchronous function
+SyntaxError	def f():\n    [x async for x in y]\n	  File "<case>", line 2\n    [x async for x in y]\n    ^^^^^^^^^^^^^^^^^^^^\nSyntaxError: asynchronous comprehension outside of an asynchronous function
+SyntaxError	[x async for x in y]\n	  File "<case>", line 1\n    [x async for x in y]\n    ^^^^^^^^^^^^^^^^^^^^\nSyntaxError: asynchronous comprehension outside of an asynchronous function
+SyntaxError	{x async for x in y}\n	  File "<case>", line 1\n    {x async for x in y}\n    ^^^^^^^^^^^^^^^^^^^^\nSyntaxError: asynchronous comprehension outside of an asynchronous function
+SyntaxError	def f():\n    [[await x for x in y] for z in w]\n	  File "<case>", line 2\n    [[await x for x in y] for z in w]\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: asynchronous comprehension outside of an asynchronous function
+SyntaxError	def f():\n    from os import *\n	  File "<case>", line 2\n    from os import *\n                   ^\nSyntaxError: import * only allowed at module level
+SyntaxError	class C:\n    from os import *\n	  File "<case>", line 2\n    from os import *\n                   ^\nSyntaxError: import * only allowed at module level
+SyntaxError	def f():\n    from os import a, *\n	  File "<case>", line 2\n    from os import a, *\n                      ^\nSyntaxError: invalid syntax

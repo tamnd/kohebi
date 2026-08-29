@@ -6,6 +6,14 @@ Nothing here runs Python yet. `kohebi run` and `kohebi build` are stubs. What ex
 
 ## Unreleased
 
+The refusals that are about where a statement is written rather than what it says. `return` outside a function, `break` and `continue` outside a loop, `yield` outside a function and `yield from` inside an async one, `await` outside a function and outside an async function, `async with` and `async for` outside an async function, an async comprehension outside an async function, a `yield` inside each of the four comprehensions, and `from x import *` anywhere but the top of a file. Fourteen messages, all of which we used to accept without comment.
+
+What decides every one of them is the innermost scope, and a scope is not a block. `while 1:` indents without being a scope, `class C:` is a scope without being a function, and a comprehension is a function that does not look like one. So `break` inside a class inside a loop is refused, `lambda: (yield)` is a generator and not a mistake, and `[(yield) for x in y]` gets a message naming the kind of comprehension it is in. A generator expression is exempt from the async rule because it is not run where it is written, which is why `def f(): [(x async for x in y) for z in w]` is legal and the same line with a list comprehension inside is not.
+
+The order things are walked in decides which of two errors you see, and it is not source order. The outermost iterable of a comprehension is evaluated where the comprehension is written and everything else inside it, so `[x for x in await y]` in a plain `def` is refused for the `await` and `[await x for x in y]` in the same `def` is refused for the comprehension. A dict comprehension is walked value first, so `{(yield 1): (yield 2) for x in y}` blames the second one written. Which of the two passes each check belongs to was settled by pairing it against a known symbol table error and a known code generator error, both orders, rather than by reading the C.
+
+Forty eight more recorded blocks in the fixture and eighteen more files in the compat corpus, which is at 100% agreement over all 77. `'return' with value in async generator` is the one member of this family still missing, because it needs to know whether a function body holds a `yield` before it reaches the `return`, and the walk here only goes forwards.
+
 The two measures behind `invalid syntax. Did you mean 'import'?`. CPython works that suggestion out when the traceback is printed, not when the file is parsed, and it uses two measures that disagree with each other. One is a Levenshtein distance where flipping the case of a letter costs half as much as changing it, and the other is the Ratcliff and Obershelp ratio at a cutoff of a half, which is why `len` can suggest `False`. Both are here, checked against CPython over 1955 words: every keyword, every one letter mistake in one, twenty names out of real code, and a few oddities. Nothing prints them yet.
 
 ## 0.0.8
