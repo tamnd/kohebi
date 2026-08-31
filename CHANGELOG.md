@@ -12,6 +12,12 @@ A module is an object with a namespace, and `sys.modules` is the registry itself
 
 Everything else about imports still refuses by name. A relative import has no package to resolve its dots against, a star import binds names the compiler cannot know, and any module that is not `sys` raises `ModuleNotFoundError` with the same words CPython uses. File-based modules are next.
 
+The crates.io publish works now. 0.0.19 did not publish anything, and the reason is worth writing down because both of the mistakes were mine and both were in the retry logic rather than anywhere near cargo.
+
+A 429 from crates.io says when to come back, and the script slept a flat ten minutes instead of reading it. It also gave up after two attempts that published nothing, on the reasoning that once the burst is spent every attempt gets exactly one crate through, so no progress twice means something else is wrong. That reasoning assumes the bucket starts full. This account's did not, so the very first upload was refused, twice in a row, and the check killed a run that was doing exactly what it was supposed to. Two attempts, no crates, forty minutes.
+
+It now sleeps until the time in the 429 and no longer guesses, with a floor so a retry time that has already passed cannot turn into a tight loop against the registry, and a ceiling so two disagreeing clocks cannot park it for a day. A failure that is not a 429 stops immediately rather than being slept through, since a bad token or a taken name says the same thing an hour later. There is no progress heuristic any more, only a fixed number of attempts, because the run is safe to repeat and re-running the job is the answer to hitting that limit.
+
 ## 0.0.19
 
 One merged pull request and the release that puts kohebi on crates.io, so `cargo install kohebi` works. Nothing in the runtime changed.
