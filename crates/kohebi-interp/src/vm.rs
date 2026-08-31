@@ -96,6 +96,7 @@ use crate::class::{Class, Instance, Method};
 use crate::function::Function;
 use crate::generator::Generator;
 use crate::iterate::{self, Iter};
+use crate::lazy::Lazy;
 use crate::ready::Ready;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
@@ -1020,11 +1021,21 @@ impl Vm {
         }
     }
 
-    /// The rest of [`Vm::advance`]: a generator, or something that is not an
-    /// iterator at all.
+    /// The rest of [`Vm::advance`]: a generator, a `map` or a `filter`, or
+    /// something that is not an iterator at all.
+    ///
+    /// All three of the ones that are handled here take their step by running
+    /// Python, which is why they are here rather than in
+    /// [`iterate::step`](crate::iterate::step).
     fn advance_elsewhere(&mut self, value: &Object) -> Result<Step> {
-        match value.downcast::<Generator>() {
-            Some(generator) => self.resume(generator, Object::None),
+        if let Some(generator) = value.downcast::<Generator>() {
+            return self.resume(generator, Object::None);
+        }
+        match value.downcast::<Lazy>() {
+            // Not counted against the recursion limit here. A step calls the
+            // function through `apply` and steps its sources through this, and
+            // both of those count already.
+            Some(lazy) => lazy.step(self),
             None => Err(iterate::not_an_iterator(value)),
         }
     }

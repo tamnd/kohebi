@@ -6,6 +6,14 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+`map` and `filter`, the two builtins that do not do anything when you call them. Both give back an object that holds the function and the walks and runs neither until something asks it for a value, which is the whole reason the type exists: `map(int, lines)` over a file that does not fit in memory is a program, and a version that collected its answers first would be a list comprehension with extra steps. So `map(1, [1])` is not refused at the call, because nothing has been called yet, while `map(abs, 1)` is, because the walk is taken there.
+
+`map` with more than one iterable stops when the shortest one does, and stepping it again pulls another value out of the longer ones. That looks like a bug and it is what CPython does, there being no flag anywhere saying the walk is over, and a generator with a side effect in it can see it happen. It is copied rather than improved on and there is a test that counts the pulls.
+
+`strict=True` is the argument for a caller who meant the lengths to match, and it is the only thing in either builtin that raises on its own behalf. The wording names which argument was the odd one out and which ones agreed with each other, so the check has to know how far round the walks it got when it found out, and it stops at the first walk that still had something rather than asking all of them. All of that is observable and all of it was read off a running 3.14.7.
+
+Three types are now their own iterator, so `iter(x) is x` for a generator, an iterator and one of these. That used to be a list of downcasts in the one function that turns a value into a walk, growing by a line every time a lazy builtin arrived. It is a question the value answers now instead.
+
 ## 0.0.17
 
 Four merged pull requests and the release where the builtins arrive. Thirteen of them, from `abs` to `sorted`, and the piece of the machine that was in the way of the last three. `builtins` had five names in it at 0.0.16 and has eighteen now, which is most of what a program that does not import anything reaches for.

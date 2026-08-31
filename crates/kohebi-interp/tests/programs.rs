@@ -3501,3 +3501,261 @@ fn a_key_that_never_stops_is_caught_by_the_limit_and_not_by_the_stack() {
         "RecursionError: maximum recursion depth exceeded"
     );
 }
+
+#[test]
+fn map_and_filter_are_a_walk_with_a_function_on_the_end_of_it() {
+    let program = "\
+def double(x):
+    return x + x
+
+
+def odd(x):
+    return x % 2 == 1
+
+
+print(list(map(double, [1, 2, 3])), list(map(abs, [-1, 2])))
+print(list(filter(odd, range(6))), list(filter(None, [0, 1, '', 'a', [], [0]])))
+print(sum(map(double, [1, 2])), max(filter(odd, [2, 5, 4, 7])))
+print(tuple(map(double, (1, 2))), sorted(filter(odd, [3, 1, 2])))
+";
+    assert_eq!(
+        out(program),
+        "[2, 4, 6] [1, 2]\n\
+         [1, 3, 5] [1, 'a', [0]]\n\
+         6 7\n\
+         (2, 4) [1, 3]\n"
+    );
+}
+
+#[test]
+fn map_takes_one_value_from_each_of_its_iterables_and_stops_at_the_shortest() {
+    let program = "\
+def pair(a, b):
+    return (a, b)
+
+
+print(list(map(pair, [1, 2, 3], 'ab')))
+print(list(map(pair, 'ab', [1, 2, 3])))
+print(list(map(pair, [], [1])), list(map(pair, [1], [])))
+";
+    assert_eq!(
+        out(program),
+        "[(1, 'a'), (2, 'b')]\n\
+         [('a', 1), ('b', 2)]\n\
+         [] []\n"
+    );
+}
+
+#[test]
+fn neither_of_them_does_anything_until_it_is_stepped() {
+    // The whole reason the type exists. `map(f, xs)` reads no element of `xs`
+    // and does not call `f`, and does not check that `f` can be called either.
+    let program = "\
+seen = [0]
+
+
+def note(value):
+    seen[0] = seen[0] + 1
+    return value
+
+
+m = map(note, [1, 2, 3])
+f = filter(note, [1, 2, 3])
+print(seen[0], next(m), seen[0], next(f), seen[0])
+print(map(1, [1]) is not None, filter(1, [1]) is not None)
+";
+    assert_eq!(out(program), "0 1 1 1 2\nTrue True\n");
+}
+
+#[test]
+fn both_of_them_are_their_own_iterator_so_a_half_consumed_one_carries_on() {
+    let program = "\
+def double(x):
+    return x + x
+
+
+m = map(double, [1, 2, 3])
+print(iter(m) is m, bool(m))
+print(next(m), list(m), list(m))
+f = filter(None, [0, 1, 2])
+print(iter(f) is f, next(f), list(f))
+for value in map(double, [1, 2]):
+    print(value)
+";
+    assert_eq!(
+        out(program),
+        "True True\n\
+         2 [4, 6] []\n\
+         True 1 [2]\n\
+         2\n\
+         4\n"
+    );
+}
+
+#[test]
+fn a_map_past_its_end_keeps_pulling_on_the_iterables_that_were_longer() {
+    // Which looks like a bug and is what CPython does. There is no flag saying
+    // the walk is over, so every `next` after the end steps the long one again,
+    // and a generator with a side effect in it can say so.
+    let program = "\
+def counted(n, upto):
+    for i in range(n):
+        upto[0] = i + 1
+        yield i
+
+
+def pair(a, b):
+    return (a, b)
+
+
+left = [0]
+right = [0]
+m = map(pair, counted(5, left), counted(2, right))
+print(list(m), left[0], right[0])
+print(next(m, 'gone'), left[0], right[0])
+print(next(m, 'gone'), left[0], right[0])
+";
+    assert_eq!(
+        out(program),
+        "[(0, 0), (1, 1)] 3 2\n\
+         gone 4 2\n\
+         gone 5 2\n"
+    );
+}
+
+#[test]
+fn strict_is_for_a_caller_who_meant_the_lengths_to_match() {
+    let program = "\
+def pair(a, b):
+    return (a, b)
+
+
+def three(a, b, c):
+    return a
+
+
+def refused(thunk):
+    try:
+        return thunk()
+    except ValueError as e:
+        return 'ValueError: ' + str(e)
+
+
+print(refused(lambda: list(map(abs, [-1, 2], strict=True))))
+print(refused(lambda: list(map(pair, [1, 2], [3, 4], strict=True))))
+print(refused(lambda: list(map(pair, [1, 2], [3], strict=True))))
+print(refused(lambda: list(map(pair, [1], [3, 4], strict=True))))
+print(refused(lambda: list(map(pair, [], [], strict=True))))
+print(refused(lambda: list(map(three, [1], [2], [3, 4], strict=True))))
+print(refused(lambda: list(map(three, [1], [2, 2], [3, 4], strict=True))))
+print(refused(lambda: list(map(three, [1, 1], [2, 2], [3], strict=True))))
+print(refused(lambda: list(map(pair, [1, 2], [3], strict=False))))
+";
+    // The wording names the odd argument out, counting from one, and the ones
+    // that agreed with each other are a range when there is more than one.
+    assert_eq!(
+        out(program),
+        "[1, 2]\n\
+         [(1, 3), (2, 4)]\n\
+         ValueError: map() argument 2 is shorter than argument 1\n\
+         ValueError: map() argument 2 is longer than argument 1\n\
+         []\n\
+         ValueError: map() argument 3 is longer than arguments 1-2\n\
+         ValueError: map() argument 2 is longer than argument 1\n\
+         ValueError: map() argument 3 is shorter than arguments 1-2\n\
+         [(1, 3)]\n"
+    );
+}
+
+#[test]
+fn the_strict_check_stops_at_the_first_iterable_that_still_had_something() {
+    // Observable, and it is CPython's order: the third walk is never asked,
+    // because the second one answered.
+    let program = "\
+def counted(n, upto):
+    for i in range(n):
+        upto[0] = i + 1
+        yield i
+
+
+def three(a, b, c):
+    return a
+
+
+one = [0]
+two = [0]
+few = [0]
+try:
+    list(map(three, counted(1, one), counted(3, two), counted(3, few), strict=True))
+except ValueError as e:
+    print('ValueError: ' + str(e), one[0], two[0], few[0])
+";
+    assert_eq!(
+        out(program),
+        "ValueError: map() argument 2 is longer than argument 1 1 2 1\n"
+    );
+}
+
+#[test]
+fn what_a_walk_cannot_do_is_the_calls_complaint_and_what_a_call_cannot_is_the_steps() {
+    // An argument that cannot be walked is found out when `map` is called,
+    // because the walk is taken there. One that cannot be called is not found
+    // out until there is an element to call it on.
+    let program = "\
+def refused(thunk):
+    try:
+        return thunk()
+    except TypeError as e:
+        return 'TypeError: ' + str(e)
+
+
+print(refused(lambda: map()))
+print(refused(lambda: map(abs)))
+print(refused(lambda: map(foo=1)))
+print(refused(lambda: map(abs, foo=1)))
+print(refused(lambda: map(abs, 1)))
+print(refused(lambda: list(map(1, [1]))))
+print(refused(lambda: list(map(abs, [-1], [2]))))
+print(refused(lambda: filter()))
+print(refused(lambda: filter(abs)))
+print(refused(lambda: filter(abs, [1], [2])))
+print(refused(lambda: filter(x=1)))
+print(refused(lambda: filter(abs, 1)))
+print(refused(lambda: list(filter(1, [1]))))
+print(refused(lambda: len(map(abs, [1]))))
+";
+    assert_eq!(
+        out(program),
+        "TypeError: map() must have at least two arguments.\n\
+         TypeError: map() must have at least two arguments.\n\
+         TypeError: map() got an unexpected keyword argument 'foo'\n\
+         TypeError: map() got an unexpected keyword argument 'foo'\n\
+         TypeError: 'int' object is not iterable\n\
+         TypeError: 'int' object is not callable\n\
+         TypeError: abs() takes exactly one argument (2 given)\n\
+         TypeError: filter expected 2 arguments, got 0\n\
+         TypeError: filter expected 2 arguments, got 1\n\
+         TypeError: filter expected 2 arguments, got 3\n\
+         TypeError: filter() takes no keyword arguments\n\
+         TypeError: 'int' object is not iterable\n\
+         TypeError: 'int' object is not callable\n\
+         TypeError: object of type 'map' has no len()\n"
+    );
+}
+
+#[test]
+fn a_map_that_never_stops_is_caught_by_the_limit_and_not_by_the_stack() {
+    // The same shape as the keyed sort above and for the same reason: the
+    // function is called from inside a builtin, so a thousand Python calls put
+    // a thousand of the machine's own frames underneath them. [`deep`] because
+    // a test thread's couple of megabytes is not what the limit was measured
+    // against.
+    assert_eq!(
+        deep(|| raises("def nest(x):\n    return list(map(nest, [x]))\nnest(1)\n")),
+        "RecursionError: maximum recursion depth exceeded"
+    );
+    assert_eq!(
+        deep(|| raises("def nest(x):\n    return list(filter(nest, [x]))\nnest(1)\n")),
+        "RecursionError: maximum recursion depth exceeded"
+    );
+}

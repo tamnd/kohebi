@@ -32,13 +32,18 @@
 //! a comparison here can raise and the standard library's sort has nowhere to
 //! put that.
 //!
-//! Three of them call back into Python, through [`Vm::apply`]. `min`, `max`
+//! `map` and `filter` are the ones that do neither. Both are two lines of
+//! argument counting and then a [`Lazy`], which is a walk with a function on
+//! the end of it that has not run yet, and everything either of them actually
+//! does happens when something steps the object they gave back.
+//!
+//! Five of them call back into Python, through [`Vm::apply`]. `min`, `max`
 //! and `sorted` all take a `key=`, and a key is a Python function that a Rust
 //! function has to call and get an answer or an exception back from. The whole
 //! of that is `rank`, four lines, because the machine grew the missing half
 //! of a call rather than this module growing a way around it. `map` and
-//! `filter` want the same thing and want a lazy [`Native`] to hang it on,
-//! which is the next piece.
+//! `filter` make the same call from inside a [`Lazy`]'s step instead, which is
+//! the whole of the difference between the two groups.
 //!
 //! Every builtin exception class is here too, and it comes from
 //! [`kohebi_core::exception`] rather than from this module, because a class is
@@ -73,6 +78,7 @@ use kohebi_core::dict::Set;
 use kohebi_core::{Compare, Error, Int, Kind, Native, Object, Result, exception, ops};
 
 use crate::iterate::{self, Range};
+use crate::lazy::Lazy;
 use crate::vm::{Step, Vm};
 
 /// What a builtin does when it is called.
@@ -263,6 +269,8 @@ pub fn table() -> Vec<(&'static str, Object)> {
         ("tuple", tuple as Body, Flavour::Class),
         ("set", set as Body, Flavour::Class),
         ("sorted", sorted as Body, Flavour::Function),
+        ("map", map as Body, Flavour::Class),
+        ("filter", filter as Body, Flavour::Class),
     ]
     .into_iter()
     .map(|(name, body, flavour)| {
@@ -617,6 +625,53 @@ fn arrange<T: Clone>(
         items.reverse();
     }
     Ok(items)
+}
+
+/// `map(function, *iterables, strict=False)`.
+fn map(_vm: &mut Vm, mut args: Args) -> Result<Object> {
+    // `strict` is keyword only, so it comes out before the positional count is
+    // looked at. That is also the order CPython checks them in: `map(foo=1)`
+    // complains about the keyword and not about there being no arguments.
+    let strict = args.take("strict").is_some_and(|value| value.truthy());
+    args.rest("map")?;
+    if args.positional.len() < 2 {
+        // The full stop is CPython's. No other message in `builtins` has one.
+        return Err(Error::type_error("map() must have at least two arguments."));
+    }
+    let mut given = args.take_positional().into_iter();
+    let Some(function) = given.next() else {
+        unreachable!("the count was checked and it was at least two")
+    };
+    // The walks are taken now rather than at the first step, which is what
+    // makes `map(f, 1)` a refusal here and `map(1, [1])` a refusal later: an
+    // argument that cannot be walked is the call's mistake, and one that
+    // cannot be called is not found out until there is something to call it
+    // on.
+    let over = given
+        .map(|iterable| iterate::over(&iterable))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Object::native(Lazy::map(function, over, strict)))
+}
+
+/// `filter(function, iterable)`.
+fn filter(_vm: &mut Vm, args: Args) -> Result<Object> {
+    args.no_keywords("filter")?;
+    if args.positional.len() != 2 {
+        // `filter` and not `filter()`, which is how CPython writes this one and
+        // is not how it writes the message above.
+        return Err(Error::type_error(format!(
+            "filter expected 2 arguments, got {}",
+            args.positional.len()
+        )));
+    }
+    let walk = iterate::over(&args.positional[1])?;
+    // `None` is not a predicate that says no to everything, it is no predicate
+    // at all, and then an element's own truth is the answer.
+    let keep = match args.positional[0] {
+        Object::None => None,
+        ref function => Some(function.clone()),
+    };
+    Ok(Object::native(Lazy::filter(keep, walk)))
 }
 
 /// The walk `list`, `tuple`, `set` and `sorted` share, empty when there is
