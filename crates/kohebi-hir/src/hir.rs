@@ -344,6 +344,14 @@ pub enum Expr {
     /// A name looked up in globals and then in builtins, the way a module level
     /// read that was never assigned has to be.
     Global(Name),
+    /// The `AssertionError` class, reached without going through a name.
+    ///
+    /// A failing `assert` raises this, and it has to be the real class even in a
+    /// program that has bound the name to something else. So it is not an
+    /// [`Expr::Global`] with `AssertionError` in it, which would find whatever
+    /// the program bound. CPython separates the two the same way and for the
+    /// same reason, with `LOAD_ASSERTION_ERROR` next to `LOAD_GLOBAL`.
+    AssertionError,
     /// `a + b`, and every other binary operator, as the protocol it runs.
     ///
     /// The pair of methods and the rule about which side goes first are the

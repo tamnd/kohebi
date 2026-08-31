@@ -685,6 +685,9 @@ impl Compiler<'_> {
                 let name = self.name(name);
                 self.emit(Instr::LoadGlobal { dst, name });
             }
+            Expr::AssertionError => {
+                self.emit(Instr::LoadAssertionError { dst });
+            }
             Expr::Binary { op, left, right } => {
                 let left = self.operand(left);
                 let right = self.operand(right);

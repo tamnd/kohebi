@@ -6,6 +6,12 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+`assert`, with and without a message, and the message is not evaluated when the test passes. That is the part worth stating, because `assert ok, report()` is written by somebody who expects `report` not to be called when `ok` holds. It is a branch over a raise rather than a branch into one, so everything the message needs is compiled inside the branch and a passing assertion runs a truth test and a jump.
+
+The class it raises cannot be shadowed. A program that binds `AssertionError` to something of its own still gets a real `AssertionError` out of a failed assertion, which means the class is reached by an instruction that carries no name rather than by a global lookup. CPython separates the two the same way, with `LOAD_ASSERTION_ERROR` sitting next to `LOAD_GLOBAL` for exactly this reason. The instance still comes from the same builtin object the name finds in every program that did not shadow it, so nothing here is a second `AssertionError`.
+
+`__debug__` is not consulted, because nothing can make it false yet. CPython throws assertions away at compile time under `-O`, and when there is a flag asking for that it goes in the lowering next to this. The other thing CPython does that this does not is warn about `assert (x, y)`, which is always true and almost always a mistake, and that belongs with the `SyntaxWarning` a `return` in a `finally` should get.
+
 ## 0.0.15
 
 Seven merged pull requests since 0.0.14 and the release where a Python program stops being a script and starts being a program. Functions with every parameter shape the language has, closures with `nonlocal`, all three comprehensions, unpacking assignment, `raise`, `try` with all four of its clauses, and `__context__` so a mistake inside a handler prints under the exception the handler was written for. That is most of milestone one. What is left of it is classes, generators, `with`, `match` and imports.
