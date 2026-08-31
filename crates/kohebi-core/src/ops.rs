@@ -338,6 +338,24 @@ pub fn invert(value: &Object) -> Result<Object> {
     }
 }
 
+/// `abs(value)`.
+///
+/// Here rather than in the builtin that calls it because it is the same
+/// question the unary operators above ask, of the same two number types,
+/// through the same private view of what counts as a number. The only thing
+/// that marks it out is the message, which names the function rather than an
+/// operator because that is what the caller wrote.
+pub fn abs(value: &Object) -> Result<Object> {
+    match number(value) {
+        Some(Num::Int(value)) => Ok(Object::Int(value.abs())),
+        Some(Num::Float(value)) => Ok(Object::Float(value.abs())),
+        None => Err(Error::type_error(format!(
+            "bad operand type for abs(): '{}'",
+            value.type_name()
+        ))),
+    }
+}
+
 /// `not value`, which every object answers because every object has a truth.
 #[must_use]
 pub fn not(value: &Object) -> Object {
@@ -1293,6 +1311,23 @@ mod tests {
         assert_eq!(
             bad(neg(&Object::None)),
             "TypeError: bad operand type for unary -: 'NoneType'"
+        );
+    }
+
+    #[test]
+    fn abs_drops_the_sign_and_the_bool_with_it() {
+        assert_eq!(ok(abs(&i(-3))), "3");
+        assert_eq!(ok(abs(&i(3))), "3");
+        assert_eq!(ok(abs(&Object::Bool(true))), "1");
+        assert_eq!(ok(abs(&f(-1.5))), "1.5");
+        // A negative zero has a sign and no magnitude, so this is the one case
+        // where the answer is not the number back.
+        assert_eq!(ok(abs(&f(-0.0))), "0.0");
+        // The message names the function rather than an operator, which is the
+        // one way it differs from the three above it.
+        assert_eq!(
+            bad(abs(&s("a"))),
+            "TypeError: bad operand type for abs(): 'str'"
         );
     }
 

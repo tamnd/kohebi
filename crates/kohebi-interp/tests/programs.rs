@@ -954,6 +954,139 @@ fn len_works_on_everything_that_has_one_and_refuses_the_rest() {
 }
 
 #[test]
+fn abs_drops_a_sign_from_anything_that_has_one() {
+    assert_eq!(
+        out("print(abs(-3), abs(3), abs(-1.5), abs(True), abs(False), abs(-(2 ** 70)))\n"),
+        "3 3 1.5 1 0 1180591620717411303424\n"
+    );
+    // A bool comes back an int, and a negative zero comes back positive. Those
+    // are the two cases where the answer is not the argument again.
+    assert_eq!(out("print(abs(-0.0))\n"), "0.0\n");
+    assert_eq!(
+        raises("abs('a')\n"),
+        "TypeError: bad operand type for abs(): 'str'"
+    );
+    assert_eq!(
+        raises("abs([1])\n"),
+        "TypeError: bad operand type for abs(): 'list'"
+    );
+    // The same wording `len` uses, which is what CPython gives all three of
+    // the builtins that take exactly one thing.
+    assert_eq!(
+        raises("abs()\n"),
+        "TypeError: abs() takes exactly one argument (0 given)"
+    );
+    assert_eq!(
+        raises("abs(1, 2)\n"),
+        "TypeError: abs() takes exactly one argument (2 given)"
+    );
+    assert_eq!(
+        raises("abs(x=1)\n"),
+        "TypeError: abs() takes no keyword arguments"
+    );
+}
+
+#[test]
+fn repr_and_str_differ_only_on_a_string() {
+    assert_eq!(
+        out("print(repr('a'), repr(1), repr([1, 'a']), repr(None), repr((1,)))\n"),
+        "'a' 1 [1, 'a'] None (1,)\n"
+    );
+    assert_eq!(
+        out("print(repr(b'ab'), repr({1: 'a'}), repr(1.0))\n"),
+        "b'ab' {1: 'a'} 1.0\n"
+    );
+    assert_eq!(
+        out("print(str(), str(1), str('a'), str(None), str([1, 'a']), str(1.5))\n"),
+        " 1 a None [1, 'a'] 1.5\n"
+    );
+    // A container prints its elements with `repr` whichever of the two was
+    // asked for, so the difference between them is one level deep.
+    assert_eq!(out("print(str(['a']), repr(['a']))\n"), "['a'] ['a']\n");
+    assert_eq!(
+        out("print(str(b'ab'), str(True), str(object=1))\n"),
+        "b'ab' True 1\n"
+    );
+    assert_eq!(out("print(str, bool)\n"), "<class 'str'> <class 'bool'>\n");
+    assert_eq!(
+        raises("repr()\n"),
+        "TypeError: repr() takes exactly one argument (0 given)"
+    );
+    assert_eq!(
+        raises("repr(x=1)\n"),
+        "TypeError: repr() takes no keyword arguments"
+    );
+}
+
+#[test]
+fn str_does_the_argument_checks_of_a_decoding_it_cannot_do() {
+    // The encoding is checked for being a string before the object is checked
+    // for being decodable, so this names the 2 and not the 1.
+    assert_eq!(
+        raises("str(1, 2)\n"),
+        "TypeError: str() argument 'encoding' must be str, not int"
+    );
+    assert_eq!(
+        raises("str(1, errors=2)\n"),
+        "TypeError: str() argument 'errors' must be str, not int"
+    );
+    assert_eq!(
+        raises("str('a', 'utf-8')\n"),
+        "TypeError: decoding str is not supported"
+    );
+    assert_eq!(
+        raises("str(1, 'utf-8')\n"),
+        "TypeError: decoding to str: need a bytes-like object, int found"
+    );
+    assert_eq!(
+        raises("str(1, object=2)\n"),
+        "TypeError: argument for str() given by name ('object') and position (1)"
+    );
+    assert_eq!(
+        raises("str(1, 2, 3, 4)\n"),
+        "TypeError: str expected at most 3 arguments, got 4"
+    );
+    assert_eq!(
+        raises("str(x=1)\n"),
+        "TypeError: str() got an unexpected keyword argument 'x'"
+    );
+    // With nothing to convert, CPython does not look at the encoding at all,
+    // and neither does this.
+    assert_eq!(out("print(repr(str(encoding='utf-8')))\n"), "''\n");
+    // The one thing here CPython does and this does not.
+    assert_eq!(
+        raises("str(b'ab', 'utf-8')\n"),
+        "NotImplementedError: str(bytes, encoding) wants a codec and there are no codecs yet"
+    );
+}
+
+#[test]
+fn bool_answers_for_every_object_and_bool_of_nothing_is_false() {
+    assert_eq!(
+        out(
+            "print(bool(), bool(0), bool(1), bool(''), bool('a'), bool([]), bool([0]), bool(None))\n"
+        ),
+        "False False True False True False True False\n"
+    );
+    // Its own wording again, and note that this one has no parentheses after
+    // the name where the keyword complaint below has them.
+    assert_eq!(
+        raises("bool(1, 2)\n"),
+        "TypeError: bool expected at most 1 argument, got 2"
+    );
+    assert_eq!(
+        raises("bool(x=1)\n"),
+        "TypeError: bool() takes no keyword arguments"
+    );
+    // `bool` has no `object` keyword, unlike `str`, so naming it is the same
+    // mistake as naming anything else.
+    assert_eq!(
+        raises("bool(object=1)\n"),
+        "TypeError: bool() takes no keyword arguments"
+    );
+}
+
+#[test]
 fn iter_and_next_are_the_loop_taken_apart() {
     assert_eq!(
         out("it = iter([1, 2])\nprint(next(it), next(it), next(it, 'gone'))\n"),
