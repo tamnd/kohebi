@@ -6,6 +6,16 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+The crates go to crates.io. All fourteen of them, because the binary depends on the other thirteen and a registry will not take a crate whose dependencies are not on it, so publishing `kohebi` means publishing the workspace. The thirteen each get a README saying they are internal, have no stable API and should be pinned exactly if anyone depends on them at all, which is the honest description and is better than a blank page.
+
+The release workflow does it after the six binaries are built and never before, because a GitHub release can be taken down and a crates.io version cannot, only yanked. It reads its token from a `crates-io` environment that only a `v*.*.*` tag may deploy to, so a branch cannot reach it.
+
+`scripts/publish-crates.sh` is what actually publishes, and it exists because of the rate limit. crates.io allows five brand new crates at once and then one every ten minutes, so a workspace of fourteen cannot go out in one command however that command is written, and the first release takes about an hour and a half. Every attempt asks the registry what is already there and excludes it, which means a run that is interrupted anywhere picks up where it stopped, and a release that already went out is a no-op rather than an error. Ordering is cargo's, since it reads the dependency graph; the script only decides what to leave out.
+
+It also tells a rate limit apart from a real failure, by noticing that two attempts in a row published nothing. After the burst is spent every attempt gets exactly one crate through, so no progress twice means waiting longer will not help.
+
+`cargo publish --workspace --dry-run` runs on every change now rather than at release time. A crate that cannot be packaged, usually because it reads a file the package does not carry, is worth finding when the file lands and not an hour into a release that has already tagged and built.
+
 ## 0.0.18
 
 Six merged pull requests and the release where the builtin types get methods. A `list` has all eleven of its own and a `str` has forty two of its forty seven, which is every one that is a table rather than a parser, a codec registry or a translation map. The mechanism underneath is one table per type and one extra field on the builtin object, so `dict` and `set` are a file each from here rather than a design. `map` and `filter` arrived on the way, which takes `builtins` to twenty.

@@ -76,6 +76,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo doc --workspace --no-deps --all-features
 
+  # Packaging is checked on every change rather than at release time, because a
+  # crate that cannot be packaged is found the moment the file that breaks it
+  # lands and not an hour into a release that has already tagged and built.
+  package:
+    name: Package for crates.io
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.2
+      - run: cargo publish --workspace --locked --dry-run
+
   deny:
     name: Licenses and advisories
     runs-on: ubuntu-24.04
@@ -104,7 +116,7 @@ jobs:
   ci-ok:
     name: CI
     if: always()
-    needs: [lint, test, msrv, docs, deny]
+    needs: [lint, test, msrv, docs, deny, package]
     runs-on: ubuntu-24.04
     steps:
       - name: Fail if any dependency failed
