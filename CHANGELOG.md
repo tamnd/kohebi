@@ -6,6 +6,10 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+## 0.0.21
+
+The two hashed containers get their methods. Twenty seven of them between a dictionary and a set, plus the three dictionary views, which are windows onto the dictionary rather than copies of what was in it when they were taken. All five micro benchmarks run and print byte for byte what CPython 3.14.7 prints, which one of them could not do at 0.0.20 and none of them could do at 0.0.18.
+
 Sets have all seventeen of their methods, which makes this the first type in the runtime with nothing left on its list. `add`, `remove`, `discard`, `pop`, `clear`, `copy`, and then the six operations in both a form that gives back a new set and a form that changes the one it was called on: `union` and `update`, `intersection` and `intersection_update`, `difference` and `difference_update`, `symmetric_difference` and `symmetric_difference_update`, plus `issubset`, `issuperset` and `isdisjoint`.
 
 A method is not its operator. `s | t` wants a set on both sides and `s.union(t)` takes any iterable, so `{1} | [2]` raises and `{1}.union([2])` is `{1, 2}`, and that is deliberate in CPython rather than an accident: an operator between two different kinds of container is far more often a mistake than an intention. The methods also take any number of arguments where the operators take one, so `s.union(a, b, c)` is a single pass.
