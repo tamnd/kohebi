@@ -4380,3 +4380,150 @@ fn a_string_method_is_a_value_and_two_lookups_of_it_are_equal() {
          False False\n"
     );
 }
+
+#[test]
+fn center_puts_the_odd_space_on_the_left_when_the_width_is_odd() {
+    // Not a rounding choice: CPython writes it as `marg / 2 + (marg & width &
+    // 1)`, so which side gets the extra one depends on the width as well as on
+    // the margin, and a program can see it.
+    assert_eq!(
+        out(
+            "print('ab'.center(5), 'a'.center(4), 'ab'.center(6), 'abc'.center(6), sep='|')\n\
+             print('a'.center(2), 'a'.center(3), 'abc'.center(2), 'ab'.center(5, '-'), sep='|')\n\
+             print(''.center(3), 'a'.center(-1), 'a'.center(0), 'a'.center(True), sep='|')\n"
+        ),
+        "  ab | a  |  ab  | abc  \n\
+         a | a |abc|--ab-\n\
+         \x20  |a|a|a\n"
+    );
+}
+
+#[test]
+fn ljust_and_rjust_pad_one_end_and_leave_a_string_that_is_long_enough_alone() {
+    assert_eq!(
+        out(
+            "print('ab'.ljust(5), 'ab'.rjust(5, '0'), 'abc'.ljust(2), 'a'.rjust(3, '-'), sep='|')\n\
+             print('ab'.center(5, '\\U0001f600'), 'a'.ljust(1), sep='|')\n"
+        ),
+        "ab   |000ab|abc|--a\n\
+         \u{1f600}\u{1f600}ab\u{1f600}|a\n"
+    );
+}
+
+#[test]
+fn zfill_keeps_a_leading_sign_in_front_of_the_zeros() {
+    // Which is the whole of what makes it different from `rjust(width, '0')`,
+    // and it is only a sign in the first place, so `'a-b'` has not got one.
+    assert_eq!(
+        out(
+            "print('42'.zfill(5), '-42'.zfill(5), '+42'.zfill(5), '-4'.zfill(2), sep='|')\n\
+             print('-'.zfill(3), ''.zfill(3), 'abc'.zfill(2), '-42'.zfill(1), sep='|')\n\
+             print('+'.zfill(1), 'a-b'.zfill(5), '42'.zfill(-1), '\\U0001f600'.zfill(3), sep='|')\n"
+        ),
+        "00042|-0042|+0042|-4\n\
+         -00|000|abc|-42\n\
+         +|00a-b|42|00\u{1f600}\n"
+    );
+}
+
+#[test]
+fn expandtabs_counts_columns_and_only_a_newline_starts_the_count_again() {
+    // A vertical tab is a line break to `splitlines` and is not one here, which
+    // is CPython's inconsistency and not this runtime's. A tab stop of zero
+    // takes the tab out and puts nothing in its place.
+    assert_eq!(
+        out(
+            "print(repr('a\\tb'.expandtabs()), repr('a\\tb'.expandtabs(4)), repr('\\t'.expandtabs(4)))\n\
+             print(repr('ab\\tc'.expandtabs(4)), repr('abcd\\te'.expandtabs(4)), repr('a\\t\\tb'.expandtabs(4)))\n\
+             print(repr('a\\nb\\tc'.expandtabs(4)), repr('a\\rb\\tc'.expandtabs(4)), repr('a\\x0bb\\tc'.expandtabs(4)))\n\
+             print(repr('a\\tb'.expandtabs(0)), repr('a\\tb'.expandtabs(-1)), repr('a\\tb'.expandtabs(tabsize=4)))\n\
+             print(repr('\\U0001f600\\tb'.expandtabs(4)), repr('a b\\tc'.expandtabs(4)))\n"
+        ),
+        "'a       b' 'a   b' '    '\n\
+         'ab  c' 'abcd    e' 'a       b'\n\
+         'a\\nb   c' 'a\\rb   c' 'a\\x0bb c'\n\
+         'ab' 'ab' 'a   b'\n\
+         '\u{1f600}   b' 'a b c'\n"
+    );
+}
+
+#[test]
+fn a_width_is_read_before_a_fill_character_and_both_have_their_own_wording() {
+    let mut lines = Vec::new();
+    for call in [
+        "'a'.center(4, '')",
+        "'a'.center(4, 'xy')",
+        "'a'.center(4, 1)",
+        "'a'.center(3, None)",
+        "'a'.center('x')",
+        "'a'.center('x', 1)",
+        "'a'.center()",
+        "'a'.center(3, x=1)",
+        "'a'.ljust()",
+        "'a'.ljust(3, '-', 1)",
+        "'a'.ljust(3, fillchar='-')",
+        "'a'.rjust(width=3)",
+        "'42'.zfill('x')",
+        "'42'.zfill()",
+        "'a'.zfill(1, 2)",
+        "'a'.zfill(1.0)",
+        "'a'.expandtabs('x')",
+        "'a'.expandtabs(1.0)",
+        "'a'.expandtabs(1, 2)",
+        "'a'.expandtabs(4, tabsize=4)",
+        "'a'.expandtabs(x=1)",
+        "'a'.center(2 ** 70)",
+        "'a'.ljust(2 ** 70)",
+        "'a'.zfill(2 ** 70)",
+        "'a'.expandtabs(2 ** 70)",
+    ] {
+        lines.push(raises(call));
+    }
+    assert_eq!(
+        lines.join("\n"),
+        "TypeError: The fill character must be exactly one character long\n\
+         TypeError: The fill character must be exactly one character long\n\
+         TypeError: The fill character must be a unicode character, not int\n\
+         TypeError: The fill character must be a unicode character, not NoneType\n\
+         TypeError: 'str' object cannot be interpreted as an integer\n\
+         TypeError: 'str' object cannot be interpreted as an integer\n\
+         TypeError: center expected at least 1 argument, got 0\n\
+         TypeError: str.center() takes no keyword arguments\n\
+         TypeError: ljust expected at least 1 argument, got 0\n\
+         TypeError: ljust expected at most 2 arguments, got 3\n\
+         TypeError: str.ljust() takes no keyword arguments\n\
+         TypeError: str.rjust() takes no keyword arguments\n\
+         TypeError: 'str' object cannot be interpreted as an integer\n\
+         TypeError: str.zfill() takes exactly one argument (0 given)\n\
+         TypeError: str.zfill() takes exactly one argument (2 given)\n\
+         TypeError: 'float' object cannot be interpreted as an integer\n\
+         TypeError: 'str' object cannot be interpreted as an integer\n\
+         TypeError: 'float' object cannot be interpreted as an integer\n\
+         TypeError: expandtabs() takes at most 1 argument (2 given)\n\
+         TypeError: expandtabs() takes at most 1 argument (2 given)\n\
+         TypeError: expandtabs() got an unexpected keyword argument 'x'\n\
+         OverflowError: Python int too large to convert to C ssize_t\n\
+         OverflowError: Python int too large to convert to C ssize_t\n\
+         OverflowError: Python int too large to convert to C ssize_t\n\
+         OverflowError: Python int too large to convert to C int"
+    );
+}
+
+#[test]
+fn the_case_methods_are_still_named_rather_than_missing() {
+    // The five padding ones have left `later` and the six case ones have not,
+    // so the table can still tell a name it has not reached from a name that
+    // is not there.
+    assert_eq!(
+        raises("'a'.upper()"),
+        "NotImplementedError: str.upper is not implemented yet"
+    );
+    assert_eq!(
+        raises("'a'.casefold()"),
+        "NotImplementedError: str.casefold is not implemented yet"
+    );
+    assert_eq!(
+        raises("'a'.nope"),
+        "AttributeError: 'str' object has no attribute 'nope'"
+    );
+}

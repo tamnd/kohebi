@@ -32,6 +32,12 @@ The edges are CPython's and there are more of them than a string's methods look 
 
 `str` and `list` now live in their own files under a dispatcher rather than in one growing module, and the shared parts of reading an index sit in the dispatcher with them. `dict` and `set` are next and go in beside them.
 
+The five padding methods as well: `center`, `expandtabs`, `ljust`, `rjust` and `zfill`. They measure in code points like everything else here, so an emoji is one column wide however wide a terminal draws it, which is what CPython means by a width and the only thing anything can mean without knowing the font.
+
+`center` puts the odd space on the left when the width is odd and on the right when it is even, so `'ab'.center(5)` and `'a'.center(4)` lean opposite ways. `zfill` keeps a leading sign in front of the zeros, which is the whole of what makes it not `rjust(width, '0')`, and it is only a sign in the first place, so `'a-b'.zfill(5)` gets all five. `expandtabs` counts columns rather than swapping each tab for a fixed run, and only a newline and a carriage return start the count again, which leaves a vertical tab as a line break to `splitlines` and not one here. A tab stop of zero removes the tab and puts nothing in its place.
+
+The case methods stay named rather than written, because every one of them needs Unicode data Rust's standard library keeps to itself. `title` and `capitalize` need the `Cased` property to find where a word starts, and a titlecase mapping that is not the uppercase one: `'Ǆ'.title()` is `'ǅ'` and its uppercase is itself. `casefold` is not `to_lowercase` for a few hundred code points. `swapcase` has to make the final sigma decision itself, since Rust only makes it inside `to_lowercase`. Those are a generated table away and are the next PR.
+
 ## 0.0.17
 
 Four merged pull requests and the release where the builtins arrive. Thirteen of them, from `abs` to `sorted`, and the piece of the machine that was in the way of the last three. `builtins` had five names in it at 0.0.16 and has eighteen now, which is most of what a program that does not import anything reaches for.

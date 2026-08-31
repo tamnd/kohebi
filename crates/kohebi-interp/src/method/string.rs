@@ -1,6 +1,7 @@
-//! What a `str` knows how to do, as far as searching, splitting and joining go.
+//! What a `str` knows how to do, as far as searching, splitting, joining and
+//! padding go.
 //!
-//! Nineteen of the forty seven. The rest are named in [`LATER`] so that a
+//! Twenty four of the forty seven. The rest are named in [`LATER`] so that a
 //! program asking for one is told this runtime has not written it rather than
 //! told the name does not exist, which would be false.
 //!
@@ -22,6 +23,16 @@
 //! both directions and the start is only pulled up to zero. That is not a
 //! rounding error. It is what makes `'abc'.find('', 3)` answer 3 and
 //! `'abc'.find('', 4)` answer -1, and a program can see the difference.
+//!
+//! ## Widths and columns
+//!
+//! The padding methods measure in code points too, so an emoji is one column
+//! wide here however wide it is on a terminal. That is what CPython means by a
+//! width and it is the only thing a runtime can mean without knowing about the
+//! font. `expandtabs` counts columns rather than replacing each tab with a
+//! fixed run, and only a newline and a carriage return start the count again,
+//! which leaves a vertical tab as a line break to `splitlines` and not one
+//! here.
 
 // The same as in [`builtin`](crate::builtin) and for the same reason: every
 // body has the signature `Body` demands, so one that reads its arguments
@@ -30,7 +41,7 @@
 
 use kohebi_core::{Error, Kind, Object, Result, Str, StrBuf};
 
-use super::{Body, Methods, clamp, one, saturate};
+use super::{Body, Methods, clamp, one, refuse, saturate};
 use crate::builtin::Args;
 use crate::iterate;
 use crate::vm::{Step, Vm};
@@ -41,13 +52,16 @@ pub(super) static METHODS: Methods = Methods {
     later: LATER,
 };
 
-/// The nineteen that are written, in the order `dir(str)` gives.
+/// The twenty four that are written, in the order `dir(str)` gives.
 const READY: &[(&str, Body)] = &[
+    ("center", center),
     ("count", count),
     ("endswith", endswith),
+    ("expandtabs", expandtabs),
     ("find", find),
     ("index", index),
     ("join", join),
+    ("ljust", ljust),
     ("lstrip", lstrip),
     ("partition", partition),
     ("removeprefix", removeprefix),
@@ -55,6 +69,7 @@ const READY: &[(&str, Body)] = &[
     ("replace", replace),
     ("rfind", rfind),
     ("rindex", rindex),
+    ("rjust", rjust),
     ("rpartition", rpartition),
     ("rsplit", rsplit),
     ("rstrip", rstrip),
@@ -62,22 +77,24 @@ const READY: &[(&str, Body)] = &[
     ("splitlines", splitlines),
     ("startswith", startswith),
     ("strip", strip),
+    ("zfill", zfill),
 ];
 
-/// The twenty eight that are not.
+/// The twenty three that are not.
 ///
-/// Two groups. The case and padding ones are a table lookup away and are next.
-/// The classification ones need Unicode data that Rust's standard library does
-/// not expose, because `isdigit`, `isdecimal` and `isnumeric` are three
-/// different properties and only the third is close to `char::is_numeric`.
-/// `format`, `encode` and `translate` each need a piece of machinery of their
-/// own: a mini language, a codec, and a translation table.
+/// Three groups. The case ones all need Unicode data Rust's standard library
+/// keeps to itself: `title` and `capitalize` need the `Cased` property to know
+/// where a word starts and a titlecase mapping that is not the uppercase one,
+/// `casefold` is not `to_lowercase` for three hundred odd code points, and
+/// `swapcase` has to make the final sigma decision itself. The classification
+/// ones need data it does not have either, because `isdigit`, `isdecimal` and
+/// `isnumeric` are three different properties and only the third is close to
+/// `char::is_numeric`. `format`, `encode` and `translate` each need a piece of
+/// machinery of their own: a mini language, a codec, and a translation table.
 const LATER: &[&str] = &[
     "capitalize",
     "casefold",
-    "center",
     "encode",
-    "expandtabs",
     "format",
     "format_map",
     "isalnum",
@@ -92,15 +109,12 @@ const LATER: &[&str] = &[
     "isspace",
     "istitle",
     "isupper",
-    "ljust",
     "lower",
     "maketrans",
-    "rjust",
     "swapcase",
     "title",
     "translate",
     "upper",
-    "zfill",
 ];
 
 /// Which end a search or a split works from.
@@ -110,6 +124,191 @@ enum From {
     Left,
     /// `rfind`, `rsplit`, `rpartition`.
     Right,
+}
+
+/// Which end of the padding the string is pushed to.
+#[derive(Clone, Copy)]
+enum Side {
+    /// `ljust`, so the padding goes after.
+    Left,
+    /// `rjust`, so the padding goes before.
+    Right,
+    /// `center`, which splits it.
+    Both,
+}
+
+/// `str.center(width, fillchar=' ')`.
+fn center(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    pad(receiver, &args, "center", Side::Both)
+}
+
+/// `str.ljust(width, fillchar=' ')`.
+fn ljust(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    pad(receiver, &args, "ljust", Side::Left)
+}
+
+/// `str.rjust(width, fillchar=' ')`.
+fn rjust(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    pad(receiver, &args, "rjust", Side::Right)
+}
+
+/// `str.zfill(width)`, which is `rjust` with a zero except that it knows a
+/// leading sign when it sees one and keeps it in front.
+fn zfill(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    let width = refuse(one(&args, "str", "zfill")?)?;
+    let points = points(receiver);
+    let Some(margin) = short(width, points.len()) else {
+        return Ok(text(&points));
+    };
+    // Only a sign, and only the first code point. `'a-b'.zfill(5)` puts all
+    // five zeros in front, because the `-` is not where a sign would be.
+    let sign = usize::from(matches!(points.first(), Some(0x2b | 0x2d)));
+    let mut out = Vec::with_capacity(points.len() + margin);
+    out.extend_from_slice(&points[..sign]);
+    out.extend(std::iter::repeat_n(u32::from(b'0'), margin));
+    out.extend_from_slice(&points[sign..]);
+    Ok(text(&out))
+}
+
+/// `str.expandtabs(tabsize=8)`.
+///
+/// It counts columns rather than replacing each tab with the same thing, so a
+/// tab is however many spaces reach the next stop. Only a newline and a
+/// carriage return start the count again: a vertical tab and a line separator
+/// are line breaks to `splitlines` and are not line breaks here, which is
+/// CPython's inconsistency rather than this runtime's.
+fn expandtabs(_vm: &mut Vm, receiver: &Object, mut args: Args) -> Result<Object> {
+    // The keyword counts towards the total rather than filling the slot the
+    // positional would have, so `expandtabs(4, tabsize=4)` is two arguments.
+    let named = args.take("tabsize");
+    let given = args.positional().len() + usize::from(named.is_some());
+    if given > 1 {
+        return Err(Error::type_error(format!(
+            "expandtabs() takes at most 1 argument ({given} given)"
+        )));
+    }
+    args.rest("expandtabs")?;
+    let size = match named.as_ref().or_else(|| args.positional().first()) {
+        None => 8,
+        // Not the same overflow wording as everywhere else: CPython reads this
+        // one into an `int` and the rest into an `ssize_t`, and says so.
+        Some(value) => stop(value)?,
+    };
+    // A stop of zero and a negative stop do the same thing, which is take the
+    // tab out and put nothing in its place, so they can be the same number.
+    let size = usize::try_from(size).unwrap_or(0);
+
+    let points = points(receiver);
+    let mut out = Vec::with_capacity(points.len());
+    let mut column: usize = 0;
+    for &cp in &points {
+        match cp {
+            0x09 => {
+                if size > 0 {
+                    let reach = size - column % size;
+                    out.extend(std::iter::repeat_n(0x20, reach));
+                    column += reach;
+                }
+            }
+            0x0a | 0x0d => {
+                out.push(cp);
+                column = 0;
+            }
+            _ => {
+                out.push(cp);
+                column += 1;
+            }
+        }
+    }
+    Ok(text(&out))
+}
+
+/// The three that only differ in where the padding goes.
+fn pad(receiver: &Object, args: &Args, method: &str, side: Side) -> Result<Object> {
+    args.no_keywords(&format!("str.{method}"))?;
+    args.arity(method, 1, 2)?;
+    // The width is read before the fill character, so `'a'.center('x', 1)`
+    // complains about the width and not about the fill.
+    let width = refuse(&args.positional()[0])?;
+    let fill = filler(args.positional().get(1))?;
+
+    let points = points(receiver);
+    let Some(margin) = short(width, points.len()) else {
+        return Ok(text(&points));
+    };
+    let (before, after) = match side {
+        Side::Left => (0, margin),
+        Side::Right => (margin, 0),
+        // The odd one out goes on the left when the width is odd and on the
+        // right when it is even, which is why `'ab'.center(5)` is `'  ab '` and
+        // `'a'.center(4)` is `' a  '`. CPython writes it as
+        // `marg / 2 + (marg & width & 1)` and it is not worth rephrasing.
+        Side::Both => {
+            let odd = margin & usize::try_from(width).unwrap_or(0) & 1;
+            let left = margin / 2 + odd;
+            (left, margin - left)
+        }
+    };
+    let mut out = Vec::with_capacity(points.len() + margin);
+    out.extend(std::iter::repeat_n(fill, before));
+    out.extend_from_slice(&points);
+    out.extend(std::iter::repeat_n(fill, after));
+    Ok(text(&out))
+}
+
+/// How much padding a string of this length needs to reach this width, or
+/// `None` when it is already long enough and is handed back as it is.
+fn short(width: i64, len: usize) -> Option<usize> {
+    let len = i64::try_from(len).unwrap_or(i64::MAX);
+    if width <= len {
+        return None;
+    }
+    usize::try_from(width - len).ok()
+}
+
+/// The character the padding is made of, which has to be exactly one.
+fn filler(value: Option<&Object>) -> Result<u32> {
+    let Some(value) = value else {
+        return Ok(u32::from(b' '));
+    };
+    let Object::Str(text) = value else {
+        return Err(Error::type_error(format!(
+            "The fill character must be a unicode character, not {}",
+            value.type_name()
+        )));
+    };
+    let mut points = text.code_points();
+    match (points.next(), points.next()) {
+        (Some(only), None) => Ok(only),
+        _ => Err(Error::type_error(
+            "The fill character must be exactly one character long",
+        )),
+    }
+}
+
+/// A tab stop, which is the one number here that overflows into a C `int`
+/// rather than a C `ssize_t`.
+fn stop(value: &Object) -> Result<i64> {
+    let number = match value {
+        Object::Int(number) => number,
+        Object::Bool(yes) => return Ok(i64::from(*yes)),
+        other => {
+            return Err(Error::type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                other.type_name()
+            )));
+        }
+    };
+    number
+        .to_i64()
+        .and_then(|at| i32::try_from(at).ok())
+        .map(i64::from)
+        .ok_or_else(|| {
+            Error::new(
+                Kind::OverflowError,
+                "Python int too large to convert to C int",
+            )
+        })
 }
 
 /// `str.count(sub)`, and with a start and a stop.
