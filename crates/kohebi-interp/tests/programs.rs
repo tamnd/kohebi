@@ -3759,3 +3759,298 @@ fn a_map_that_never_stops_is_caught_by_the_limit_and_not_by_the_stack() {
         "RecursionError: maximum recursion depth exceeded"
     );
 }
+
+#[test]
+fn a_list_has_methods_and_looking_one_up_builds_it() {
+    assert_eq!(
+        out("xs = [1]\n\
+             xs.append(2)\n\
+             print(xs)\n\
+             xs.extend([3, 4])\n\
+             xs.insert(0, 0)\n\
+             print(xs)\n\
+             print(xs.pop(), xs.pop(0), xs)\n\
+             print(xs.count(2), xs.index(3), xs.copy(), xs.copy() is xs)\n\
+             xs.remove(2)\n\
+             xs.reverse()\n\
+             print(xs)\n\
+             xs.clear()\n\
+             print(xs, len(xs))\n"),
+        "[1, 2]\n\
+         [0, 1, 2, 3, 4]\n\
+         4 0 [1, 2, 3]\n\
+         1 2 [1, 2, 3] False\n\
+         [3, 1]\n\
+         [] 0\n"
+    );
+}
+
+#[test]
+fn a_method_is_a_value_and_two_lookups_are_equal_without_being_the_same_one() {
+    // Both halves are CPython's answer. Every lookup builds one, so `is` is
+    // false, and two of them wrapping the same function and the same object
+    // are equal, so `==` is true. The same rule holds for a method a `class`
+    // defined, which is the other thing a lookup builds.
+    assert_eq!(
+        out("xs = [1]\n\
+             print(xs.append is xs.append, xs.append == xs.append)\n\
+             print(xs.append == xs.remove, xs.append == [1].append)\n\
+             found = xs.pop\n\
+             print(found is found, found(), xs)\n\
+             class C:\n    \
+                 def f(self):\n        \
+                     return 1\n\
+             a = C()\n\
+             b = C()\n\
+             print(a.f is a.f, a.f == a.f, a.f == b.f, a.f() + b.f())\n"),
+        "False True\n\
+         False False\n\
+         True 1 []\n\
+         False True False 2\n"
+    );
+}
+
+#[test]
+fn extend_takes_a_sequence_by_its_length_and_a_generator_one_at_a_time() {
+    // Which is what makes extending a list with itself twice as long rather
+    // than endless, and what lets a generator see what it put there. CPython
+    // draws the line in the same place.
+    assert_eq!(
+        out("xs = [1, 2]\n\
+             xs.extend(xs)\n\
+             print(xs)\n\
+             def counted(n, into):\n    \
+                 for i in range(n):\n        \
+                     into.append(9)\n        \
+                     yield i\n\
+             ys = [1]\n\
+             ys.extend(counted(2, ys))\n\
+             print(ys)\n\
+             zs = []\n\
+             zs.extend('ab')\n\
+             zs.extend(range(2))\n\
+             zs.extend(map(abs, [-1]))\n\
+             print(zs)\n"),
+        "[1, 2, 1, 2]\n\
+         [1, 9, 0, 9, 1]\n\
+         ['a', 'b', 0, 1, 1]\n"
+    );
+}
+
+#[test]
+fn insert_clamps_an_index_that_is_off_the_end_and_pop_refuses_one() {
+    // The whole of the difference between the two, and not this runtime's
+    // choice. A negative index counts from the end in both.
+    assert_eq!(
+        out("xs = [1, 2]\n\
+             xs.insert(99, 3)\n\
+             xs.insert(-99, 0)\n\
+             xs.insert(-1, 9)\n\
+             print(xs)\n\
+             print(xs.pop(-2), xs.pop(0), xs)\n"),
+        "[0, 1, 2, 9, 3]\n\
+         9 0 [1, 2, 3]\n"
+    );
+    assert_eq!(raises("[1].pop(1)"), "IndexError: pop index out of range");
+    // Before the index is looked at, so this is about the list and not about
+    // the 99.
+    assert_eq!(raises("[].pop(99)"), "IndexError: pop from empty list");
+    assert_eq!(
+        raises("[1].pop(2 ** 70)"),
+        "OverflowError: Python int too large to convert to C ssize_t"
+    );
+}
+
+#[test]
+fn index_clamps_its_bounds_instead_of_refusing_them() {
+    // A start or a stop is read the way a slice reads one, which is why a
+    // number too big for a machine word is off the end here and an
+    // `OverflowError` in `pop`.
+    assert_eq!(
+        out("xs = [1, 2, 3, 2]\n\
+             print(xs.index(2), xs.index(2, 2), xs.index(2, -3), xs.index(1, -99))\n\
+             print(xs.index(2, 0, 99), xs.index(3, 0, -1))\n"),
+        "1 3 1 0\n\
+         1 2\n"
+    );
+    assert_eq!(
+        raises("[1].index(1, 2 ** 70)"),
+        "ValueError: list.index(x): x not in list"
+    );
+    assert_eq!(
+        raises("[1].index(1, 1.0)"),
+        "TypeError: slice indices must be integers or have an __index__ method"
+    );
+}
+
+#[test]
+fn count_index_and_remove_ask_for_the_same_value_rather_than_for_equality() {
+    // Identity first, which is the only way a NaN in a list is ever found
+    // again. CPython does the same and for the same reason.
+    assert_eq!(
+        out("nan = 1e400 - 1e400\n\
+             xs = [nan, 1, nan]\n\
+             print(nan == nan, xs.count(nan), xs.index(nan))\n\
+             xs.remove(nan)\n\
+             print(len(xs), xs.count(1), [True, 1, 1.0].count(1))\n"),
+        "False 2 0\n\
+         2 1 3\n"
+    );
+    assert_eq!(
+        raises("[1].remove(2)"),
+        "ValueError: list.remove(x): x not in list"
+    );
+    assert_eq!(
+        raises("[1].index(2)"),
+        "ValueError: list.index(x): x not in list"
+    );
+}
+
+#[test]
+fn sort_sorts_in_place_and_gives_back_none() {
+    // Which is the whole of the difference between it and `sorted`, and the
+    // rest of it is the same code underneath.
+    assert_eq!(
+        out("xs = [3, 1, 2]\n\
+             print(xs.sort(), xs)\n\
+             xs.sort(reverse=True)\n\
+             print(xs)\n\
+             ys = ['bb', 'a', 'ccc']\n\
+             ys.sort(key=len)\n\
+             print(ys, sorted(ys, reverse=True))\n\
+             zs = [(1, 'a'), (0, 'b'), (1, 'c'), (0, 'd')]\n\
+             def first(pair):\n    \
+                 return pair[0]\n\
+             zs.sort(key=first, reverse=True)\n\
+             print(zs)\n"),
+        "None [1, 2, 3]\n\
+         [3, 2, 1]\n\
+         ['a', 'bb', 'ccc'] ['ccc', 'bb', 'a']\n\
+         [(1, 'a'), (1, 'c'), (0, 'b'), (0, 'd')]\n"
+    );
+}
+
+#[test]
+fn the_list_is_empty_while_it_is_being_sorted_and_meddling_with_it_is_refused() {
+    // Behaviour rather than a way round a borrow: a key can see the list and
+    // what it sees is nothing. Anything it puts there is thrown away, and then
+    // the sort is refused for having been interfered with.
+    assert_eq!(
+        out("seen = []\n\
+             xs = [2, 1]\n\
+             def looking(value):\n    \
+                 seen.append(list(xs))\n    \
+                 return value\n\
+             print(xs.sort(key=looking), xs, seen)\n"),
+        "None [1, 2] [[], []]\n"
+    );
+    assert_eq!(
+        out("xs = [2, 1]\n\
+             def meddling(value):\n    \
+                 xs.append(value)\n    \
+                 return value\n\
+             try:\n    \
+                 xs.sort(key=meddling)\n\
+             except ValueError as e:\n    \
+                 print(str(e), xs)\n"),
+        "list modified during sort [1, 2]\n"
+    );
+}
+
+#[test]
+fn a_sort_that_raises_leaves_the_list_exactly_as_it_found_it() {
+    assert_eq!(
+        out("xs = [2, 1, 3]\n\
+             def raising(value):\n    \
+                 if value == 3:\n        \
+                     raise ValueError('no')\n    \
+                 return value\n\
+             try:\n    \
+                 xs.sort(key=raising)\n\
+             except ValueError as e:\n    \
+                 print(str(e), xs)\n\
+             ys = [1, 'a']\n\
+             try:\n    \
+                 ys.sort()\n\
+             except TypeError as e:\n    \
+                 print(str(e), ys)\n"),
+        "no [2, 1, 3]\n\
+         '<' not supported between instances of 'str' and 'int' [1, 'a']\n"
+    );
+}
+
+#[test]
+fn the_wording_is_cpythons_and_cpythons_is_not_uniform() {
+    // The ones written one way name the type they belong to and the ones
+    // written the other do not, and a keyword argument is always complained
+    // about before the count is looked at. All of it is visible to a program.
+    let mut lines = Vec::new();
+    for call in [
+        "[1].append()",
+        "[1].append(1, 2)",
+        "[1].append(x=1)",
+        "[1].extend()",
+        "[1].count(1, 2)",
+        "[1].remove(1, x=2)",
+        "[1].clear(1)",
+        "[1].reverse(1, 2)",
+        "[1].copy(1)",
+        "[1].insert(1)",
+        "[1].insert(1, 2, 3)",
+        "[1].insert(1, 2, x=3)",
+        "[1].pop(1, 2)",
+        "[1].pop(x=1)",
+        "[1].index()",
+        "[1].index(1, 2, 3, 4)",
+        "[1].index(1, x=2)",
+        "[1].sort(1)",
+        "[1].sort(foo=1)",
+        "[1].pop('a')",
+        "[1].insert(None, 1)",
+    ] {
+        lines.push(raises(call));
+    }
+    assert_eq!(
+        lines.join("\n"),
+        "TypeError: list.append() takes exactly one argument (0 given)\n\
+         TypeError: list.append() takes exactly one argument (2 given)\n\
+         TypeError: list.append() takes no keyword arguments\n\
+         TypeError: list.extend() takes exactly one argument (0 given)\n\
+         TypeError: list.count() takes exactly one argument (2 given)\n\
+         TypeError: list.remove() takes no keyword arguments\n\
+         TypeError: list.clear() takes no arguments (1 given)\n\
+         TypeError: list.reverse() takes no arguments (2 given)\n\
+         TypeError: list.copy() takes no arguments (1 given)\n\
+         TypeError: insert expected 2 arguments, got 1\n\
+         TypeError: insert expected 2 arguments, got 3\n\
+         TypeError: list.insert() takes no keyword arguments\n\
+         TypeError: pop expected at most 1 argument, got 2\n\
+         TypeError: list.pop() takes no keyword arguments\n\
+         TypeError: index expected at least 1 argument, got 0\n\
+         TypeError: index expected at most 3 arguments, got 4\n\
+         TypeError: list.index() takes no keyword arguments\n\
+         TypeError: sort() takes no positional arguments\n\
+         TypeError: sort() got an unexpected keyword argument 'foo'\n\
+         TypeError: 'str' object cannot be interpreted as an integer\n\
+         TypeError: 'NoneType' object cannot be interpreted as an integer"
+    );
+}
+
+#[test]
+fn a_name_a_list_has_not_got_is_an_attribute_error_and_a_types_table_is_why() {
+    // A type whose methods are all written down can say the name is wrong. A
+    // type with no table yet cannot tell that apart from this runtime not
+    // having got there, and says the second thing rather than guessing.
+    assert_eq!(
+        raises("[].nope"),
+        "AttributeError: 'list' object has no attribute 'nope'"
+    );
+    assert_eq!(
+        raises("[].push(1)"),
+        "AttributeError: 'list' object has no attribute 'push'"
+    );
+    assert_eq!(
+        raises("'a'.upper()"),
+        "NotImplementedError: attribute access is not implemented yet"
+    );
+}

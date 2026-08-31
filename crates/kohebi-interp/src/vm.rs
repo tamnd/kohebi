@@ -97,6 +97,7 @@ use crate::function::Function;
 use crate::generator::Generator;
 use crate::iterate::{self, Iter};
 use crate::lazy::Lazy;
+use crate::method;
 use crate::ready::Ready;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
@@ -1719,6 +1720,18 @@ fn attribute(object: &Object, name: &str) -> Result<Object> {
         return class
             .lookup(name)
             .ok_or_else(|| no_attribute(&format!("type object '{}'", class.name()), name));
+    }
+    if let Some(found) = method::lookup(object, name) {
+        return Ok(found);
+    }
+    // Only a type whose methods are all written down can say the name is wrong
+    // rather than that this runtime has not got there yet. A list can. A string
+    // cannot, until it has a table of its own.
+    if method::known(object) {
+        return Err(no_attribute(
+            &format!("'{}' object", object.type_name()),
+            name,
+        ));
     }
     Err(later("attribute access"))
 }

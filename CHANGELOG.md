@@ -14,6 +14,16 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 Three types are now their own iterator, so `iter(x) is x` for a generator, an iterator and one of these. That used to be a list of downcasts in the one function that turns a value into a walk, growing by a line every time a lazy builtin arrived. It is a question the value answers now instead.
 
+A list has methods. All eleven of them, from `append` to `sort`, and `xs.append` is a value you can hold on to and call later rather than a shape the machine recognises at the call site. The mechanism underneath is a table per type and one extra field on the builtin object, which is the receiver it was looked up on, so the call path is exactly what it was: the instruction asks whether the callee is a builtin and never learns a second question. `str`, `dict` and `set` get their tables next, on the same mechanism.
+
+It is half a type object rather than a whole one. What is missing is the namespace: `type(x)`, subclassing, adding to it. What is there is the part all three of those need first, which is one place where the answer to what a list knows how to do is written down. It also means a list can now say a name is wrong. Every other type still says this runtime has not got there yet, because until a type has a table those two are the same sentence and only one of them is honest.
+
+The wording is CPython's and CPython's is not uniform. `list.append()` names its type in a complaint and `insert` does not. `insert` clamps an index that is off the end and `pop` refuses one. `pop` refuses an index too big for a machine word and `index` takes the same number as far as it goes, because CPython reads those two with the code that reads a slice's bounds and the complaint comes from there. A keyword argument is always objected to before the count is looked at. None of that is a choice this runtime made and all of it is in the tests.
+
+`list.sort` is the same sort as `sorted` and now literally so, one function with two callers. It empties the list for the duration, which is behaviour and not a way round a borrow: a key that reads the list sees an empty one, a key that appends to it has the appends discarded and the sort refused for having been meddled with, and a key that raises leaves the list exactly as it was found. `extend` takes a list or a tuple by its length up front, so extending a list with itself doubles it, and takes a generator one value at a time, so a generator that appends to the list being extended sees what it put there.
+
+`a.f == a.f` is true and `a.f is a.f` is false, for a method on a list and for a method a `class` defined. Every lookup builds the bound object afresh, so the second one was already right and the first one was quietly wrong. Native values get one optional question now, which is whether they are equal to another one that is not the same object, and the two kinds of bound method are the only things that answer it. Both compare their receiver by identity, so `[].append == [].append` is false.
+
 ## 0.0.17
 
 Four merged pull requests and the release where the builtins arrive. Thirteen of them, from `abs` to `sorted`, and the piece of the machine that was in the way of the last three. `builtins` had five names in it at 0.0.16 and has eighteen now, which is most of what a program that does not import anything reaches for.

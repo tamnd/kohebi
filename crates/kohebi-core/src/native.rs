@@ -76,6 +76,18 @@ pub trait Native: fmt::Debug {
         false
     }
 
+    /// Whether this is equal to another native value that is not the same
+    /// object as it.
+    ///
+    /// Identity is answered before this is asked, so the default is no, which
+    /// is what an object with no `__eq__` gets. The types that override it are
+    /// the ones a lookup builds afresh every time: `a.f == a.f` is true in
+    /// Python even though `a.f is a.f` is false, because a bound method is
+    /// equal to another one wrapping the same function and the same receiver.
+    fn equals(&self, _other: &dyn Native) -> bool {
+        false
+    }
+
     /// The concrete value, for the runtime to downcast back to.
     fn as_any(&self) -> &dyn Any;
 }

@@ -271,6 +271,21 @@ impl Native for Method {
         format!("<bound method {named} of {}>", self.receiver.repr())
     }
 
+    /// The same function bound to the same object.
+    ///
+    /// Both halves by identity, so `a.f == a.f` is true and `a.f == b.f` is
+    /// false for two instances of one class, which is what CPython answers.
+    /// Every lookup builds one of these, which is why the question comes up at
+    /// all: `a.f is a.f` is false.
+    fn equals(&self, other: &dyn Native) -> bool {
+        other
+            .as_any()
+            .downcast_ref::<Method>()
+            .is_some_and(|other| {
+                self.receiver.is(&other.receiver) && self.function.is(&other.function)
+            })
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
