@@ -82,7 +82,19 @@ use crate::lazy::Lazy;
 use crate::vm::{Step, Vm};
 
 /// What a builtin does when it is called.
-type Body = fn(&mut Vm, Args) -> Result<Object>;
+///
+/// Two shapes, because a method of a builtin type is a builtin that was looked
+/// up on a value and has to be given it back. Making it a second kind of body
+/// rather than a second kind of object keeps the call path exactly as it was:
+/// [`Vm::invoke`] asks whether the callee is a [`Builtin`] and does not have to
+/// learn a new question.
+#[derive(Clone, Copy)]
+enum Body {
+    /// A function, called with what the call site wrote.
+    Free(fn(&mut Vm, Args) -> Result<Object>),
+    /// A method, called with the value it was found on as well.
+    Bound(fn(&mut Vm, &Object, Args) -> Result<Object>),
+}
 
 /// The arguments one call passes.
 ///
@@ -124,7 +136,7 @@ impl Args {
 
     /// Take a keyword argument out, so that whatever is left over at the end is
     /// exactly the set of names nobody wanted.
-    fn take(&mut self, name: &str) -> Option<Object> {
+    pub(crate) fn take(&mut self, name: &str) -> Option<Object> {
         let at = self.named.iter().position(|(key, _)| &**key == name)?;
         Some(self.named.remove(at).1)
     }
@@ -134,7 +146,7 @@ impl Args {
     /// The wording is CPython's for a builtin that takes a range of them, which
     /// is most of them and is not all: `len` says something else entirely and
     /// says it itself.
-    fn arity(&self, function: &str, least: usize, most: usize) -> Result<()> {
+    pub(crate) fn arity(&self, function: &str, least: usize, most: usize) -> Result<()> {
         let given = self.positional.len();
         let plural = |count: usize| if count == 1 { "" } else { "s" };
         if given < least {
@@ -167,7 +179,7 @@ impl Args {
     }
 
     /// Refuse whatever keyword arguments are left.
-    fn rest(&self, function: &str) -> Result<()> {
+    pub(crate) fn rest(&self, function: &str) -> Result<()> {
         match self.named.first() {
             None => Ok(()),
             Some((name, _)) => Err(Error::type_error(format!(
@@ -197,6 +209,12 @@ pub struct Builtin {
     name: &'static str,
     body: Body,
     flavour: Flavour,
+    /// The value this was looked up on, when it was looked up on one.
+    ///
+    /// `[].append` is this type with a list in here, and `len` is this type
+    /// with nothing. CPython keeps the two apart as well and prints them
+    /// differently, and calls them both `builtin_function_or_method`.
+    receiver: Option<Object>,
 }
 
 impl Builtin {
@@ -206,13 +224,34 @@ impl Builtin {
         self.name
     }
 
+    /// A method of a builtin type, bound to the value it was found on.
+    #[must_use]
+    pub fn method(
+        name: &'static str,
+        body: fn(&mut Vm, &Object, Args) -> Result<Object>,
+        receiver: Object,
+    ) -> Self {
+        Builtin {
+            name,
+            body: Body::Bound(body),
+            flavour: Flavour::Function,
+            receiver: Some(receiver),
+        }
+    }
+
     /// Call it.
     ///
     /// # Errors
     ///
     /// Whatever the function raises.
     pub fn call(&self, vm: &mut Vm, args: Args) -> Result<Object> {
-        (self.body)(vm, args)
+        match (self.body, &self.receiver) {
+            (Body::Free(body), _) => body(vm, args),
+            (Body::Bound(body), Some(receiver)) => body(vm, &receiver.clone(), args),
+            (Body::Bound(_), None) => {
+                unreachable!("a bound body is only ever built with a receiver")
+            }
+        }
     }
 }
 
@@ -233,10 +272,35 @@ impl Native for Builtin {
     }
 
     fn repr(&self) -> String {
-        match self.flavour {
-            Flavour::Function => format!("<built-in function {}>", self.name),
-            Flavour::Class => format!("<class '{}'>", self.name),
+        match (self.flavour, &self.receiver) {
+            // CPython puts the receiver's address on the end of this one, which
+            // nothing may depend on and which is left off here.
+            (_, Some(receiver)) => format!(
+                "<built-in method {} of {} object>",
+                self.name,
+                receiver.type_name()
+            ),
+            (Flavour::Function, None) => format!("<built-in function {}>", self.name),
+            (Flavour::Class, None) => format!("<class '{}'>", self.name),
         }
+    }
+
+    /// The same builtin looked up on the same value.
+    ///
+    /// The receiver is compared by identity rather than by value, so
+    /// `[].append == [].append` is false while `xs.append == xs.append` is
+    /// true, which is what CPython answers for both. The name stands in for
+    /// the body: the table is built once and no two entries in it share one.
+    fn equals(&self, other: &dyn Native) -> bool {
+        let Some(other) = other.as_any().downcast_ref::<Builtin>() else {
+            return false;
+        };
+        self.name == other.name
+            && match (&self.receiver, &other.receiver) {
+                (None, None) => true,
+                (Some(ours), Some(theirs)) => ours.is(theirs),
+                _ => false,
+            }
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -250,27 +314,29 @@ impl Native for Builtin {
 /// the way it is in CPython.
 #[must_use]
 pub fn table() -> Vec<(&'static str, Object)> {
+    /// The plain half of [`Body`], so the table below can name one type.
+    type Free = fn(&mut Vm, Args) -> Result<Object>;
     let functions = [
-        ("print", print as Body, Flavour::Function),
-        ("len", len as Body, Flavour::Function),
-        ("iter", iter as Body, Flavour::Function),
-        ("next", next as Body, Flavour::Function),
-        ("range", range as Body, Flavour::Class),
-        ("abs", abs as Body, Flavour::Function),
-        ("repr", repr as Body, Flavour::Function),
-        ("bool", bool as Body, Flavour::Class),
-        ("str", str as Body, Flavour::Class),
-        ("any", any as Body, Flavour::Function),
-        ("all", all as Body, Flavour::Function),
-        ("sum", sum as Body, Flavour::Function),
-        ("min", min as Body, Flavour::Function),
-        ("max", max as Body, Flavour::Function),
-        ("list", list as Body, Flavour::Class),
-        ("tuple", tuple as Body, Flavour::Class),
-        ("set", set as Body, Flavour::Class),
-        ("sorted", sorted as Body, Flavour::Function),
-        ("map", map as Body, Flavour::Class),
-        ("filter", filter as Body, Flavour::Class),
+        ("print", print as Free, Flavour::Function),
+        ("len", len as Free, Flavour::Function),
+        ("iter", iter as Free, Flavour::Function),
+        ("next", next as Free, Flavour::Function),
+        ("range", range as Free, Flavour::Class),
+        ("abs", abs as Free, Flavour::Function),
+        ("repr", repr as Free, Flavour::Function),
+        ("bool", bool as Free, Flavour::Class),
+        ("str", str as Free, Flavour::Class),
+        ("any", any as Free, Flavour::Function),
+        ("all", all as Free, Flavour::Function),
+        ("sum", sum as Free, Flavour::Function),
+        ("min", min as Free, Flavour::Function),
+        ("max", max as Free, Flavour::Function),
+        ("list", list as Free, Flavour::Class),
+        ("tuple", tuple as Free, Flavour::Class),
+        ("set", set as Free, Flavour::Class),
+        ("sorted", sorted as Free, Flavour::Function),
+        ("map", map as Free, Flavour::Class),
+        ("filter", filter as Free, Flavour::Class),
     ]
     .into_iter()
     .map(|(name, body, flavour)| {
@@ -278,8 +344,9 @@ pub fn table() -> Vec<(&'static str, Object)> {
             name,
             Object::native(Builtin {
                 name,
-                body,
+                body: Body::Free(body),
                 flavour,
+                receiver: None,
             }),
         )
     });
@@ -588,10 +655,24 @@ fn sorted(vm: &mut Vm, mut args: Args) -> Result<Object> {
     args.rest("sort")?;
 
     let items = gather(vm, &args, "sorted")?;
+    Ok(Object::list(sort(vm, items, key, reverse)?))
+}
+
+/// The sort `sorted` and `list.sort` share.
+///
+/// It is the whole of what both of them do once the arguments are read, which
+/// is why it is worth having twice rather than writing again: the order equal
+/// elements come out in, the order the keys are taken in, and the way
+/// `reverse` is done are all decisions a program can see, and they would drift
+/// apart if the two were kept separately.
+pub(crate) fn sort(
+    vm: &mut Vm,
+    items: Vec<Object>,
+    key: Option<Object>,
+    reverse: bool,
+) -> Result<Vec<Object>> {
     let Some(key) = keyed(key) else {
-        return Ok(Object::list(arrange(items, reverse, &|item: &Object| {
-            item
-        })?));
+        return arrange(items, reverse, &|item: &Object| item);
     };
     // Every key up front, in the order the elements arrived, which is what
     // CPython does and is visible to a key that has a side effect. Note that
@@ -602,9 +683,7 @@ fn sorted(vm: &mut Vm, mut args: Args) -> Result<Object> {
         ranked.push((rank(vm, &key, &item)?, item));
     }
     let ranked = arrange(ranked, reverse, &|pair: &(Object, Object)| &pair.0)?;
-    Ok(Object::list(
-        ranked.into_iter().map(|(_, item)| item).collect(),
-    ))
+    Ok(ranked.into_iter().map(|(_, item)| item).collect())
 }
 
 /// The sort proper: reversed, sorted, reversed again.

@@ -272,9 +272,10 @@ impl Object {
                         .zip(b.parts())
                         .all(|(a, b)| a.same_value(b))
             }
-            // A native value has no `__eq__` to run, and an object without one
-            // is equal to itself and to nothing else.
-            (Object::Native(_), Object::Native(_)) => self.is(other),
+            // A native value has no `__eq__` to run, so it is equal to itself,
+            // and then to whatever it says it is equal to. Almost all of them
+            // say nothing else.
+            (Object::Native(a), Object::Native(b)) => self.is(other) || a.equals(&**b),
             _ => match (self.as_number(), other.as_number()) {
                 (Some(a), Some(b)) => a.equals(&b),
                 _ => false,
