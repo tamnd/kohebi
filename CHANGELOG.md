@@ -24,6 +24,14 @@ The wording is CPython's and CPython's is not uniform. `list.append()` names its
 
 `a.f == a.f` is true and `a.f is a.f` is false, for a method on a list and for a method a `class` defined. Every lookup builds the bound object afresh, so the second one was already right and the first one was quietly wrong. Native values get one optional question now, which is whether they are equal to another one that is not the same object, and the two kinds of bound method are the only things that answer it. Both compare their receiver by identity, so `[].append == [].append` is false.
 
+A string has methods too, the nineteen for searching, splitting and joining: `count`, `endswith`, `find`, `index`, `join`, `lstrip`, `partition`, `removeprefix`, `removesuffix`, `replace`, `rfind`, `rindex`, `rpartition`, `rsplit`, `rstrip`, `split`, `splitlines`, `startswith` and `strip`. They answer in code points rather than in bytes, so `'\U0001f600ab'.find('a')` is 1 and not 4, which is the only answer a program can use for anything.
+
+The other twenty eight are named rather than left out, and this is what makes it safe to ship a type in pieces. A table that only held what was finished would make `'a'.upper()` an `AttributeError`, and that is a lie: `str` does have `upper`. So a type carries the names it has not been given yet alongside the ones it has, and a lookup now has three answers instead of two. A method, or a `NotImplementedError` that names the method, or the `AttributeError` a name that does not exist deserves.
+
+The edges are CPython's and there are more of them than a string's methods look like they would have. A start is pulled up to zero and a stop is pulled to both ends, which is not symmetric, which is why `'abc'.find('', 3)` is 3 and `'abc'.find('', 4)` is -1. `find` takes `None` for a bound and `split` will not take it for a limit, because one reads its arguments with the slice code and the other does not. `splitlines` breaks on eleven things rather than on a newline. `strip` takes a set of characters and not a prefix. Python counts four separators as whitespace that Unicode does not, so `'a\x1cb'.split()` is two pieces. Every one of those was read off a running 3.14.7 and every one is in the tests.
+
+`str` and `list` now live in their own files under a dispatcher rather than in one growing module, and the shared parts of reading an index sit in the dispatcher with them. `dict` and `set` are next and go in beside them.
+
 ## 0.0.17
 
 Four merged pull requests and the release where the builtins arrive. Thirteen of them, from `abs` to `sorted`, and the piece of the machine that was in the way of the last three. `builtins` had five names in it at 0.0.16 and has eighteen now, which is most of what a program that does not import anything reaches for.
