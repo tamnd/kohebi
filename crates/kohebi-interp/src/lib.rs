@@ -27,11 +27,18 @@
 //! as attributes of the generator object and so are waiting on the same thing
 //! everything else is.
 //!
-//! Attributes work on a class and on an instance of one, and nowhere else. Every
-//! builtin type is still without them, because none of them has a type object to
-//! hang one on, so `''.upper()` raises a `NotImplementedError` naming attribute
-//! access rather than doing something almost right. `with`, `match` and imports
-//! are the same: named, not guessed at.
+//! Attributes work on a class, on an instance of one, on a module, and on the
+//! builtin types that have a table in [`method`]. What none of them has yet is
+//! a type object, so `type(x)` cannot find the same methods a lookup can, and a
+//! builtin type cannot be subclassed. A type with no table at all raises a
+//! `NotImplementedError` naming attribute access rather than doing something
+//! almost right, and `with` and `match` are the same: named, not guessed at.
+//!
+//! Imports read a `.py` file off `sys.path` and run it, and each module's
+//! globals are its own. `sys` and [`path`], which is `pathlib`, are written in
+//! Rust instead. Packages are not there: a directory with an `__init__.py` in
+//! it needs a `__path__` for its submodules to resolve against, so `import a.b`
+//! refuses rather than doing half of it.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-interp/0.0.0")]
 
@@ -44,6 +51,7 @@ pub mod iterate;
 pub mod lazy;
 pub mod method;
 pub mod module;
+pub mod path;
 pub mod ready;
 pub mod vm;
 
@@ -54,6 +62,7 @@ pub use function::Function;
 pub use generator::Generator;
 pub use iterate::{Iter, Range};
 pub use lazy::Lazy;
+pub use path::Path;
 pub use ready::Ready;
 pub use vm::{Step, Vm};
 
