@@ -6,6 +6,12 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+## 0.0.17
+
+Four merged pull requests and the release where the builtins arrive. Thirteen of them, from `abs` to `sorted`, and the piece of the machine that was in the way of the last three. `builtins` had five names in it at 0.0.16 and has eighteen now, which is most of what a program that does not import anything reaches for.
+
+The thing worth reading is the argument checking rather than the builtins. CPython is at its least uniform there and a program can see all of it: `len` and `bool` word the same complaint two different ways, `sum` has three messages for one signature, and `sorted` reports an unknown keyword as coming from `sort()` because that is where it comes from. Every expectation in this release was read off a running 3.14.7 rather than recalled, and `kohebi-compat` grew three files that hold the whole lot byte for byte.
+
 A builtin can call a Python function. That is one public method, `Vm::apply`, and it is the half of a call that does not care where the arguments came from. The call instruction reads its arguments out of registers and arrives there; anything written in Rust builds them itself and arrives at the same place. Until now the two halves were one function and only the instruction could reach it, which is why every builtin that wanted to run Python code was refused rather than written.
 
 `key=` on `min`, `max` and `sorted` is the first thing through it. A key is called exactly once per element and in the order the elements arrived, which a key with a side effect can see, so it is behaviour rather than an implementation detail and there is a test that counts. `min` and `max` hold the element and its key side by side so the winner is never asked twice, and give back the element rather than the key. `sorted` takes every key up front and sorts pairs, and `reverse=True` still turns the list round after the keys are taken rather than before. A key that is not callable is complained about by the call rather than by the builtin, and on an empty iterable it is never called at all, so `sorted([], key=1)` is `[]` in the same way it is in CPython. Whatever the key raises comes straight back out with nothing about sorting wrapped round it.
