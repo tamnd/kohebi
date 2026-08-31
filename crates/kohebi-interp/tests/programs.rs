@@ -4049,8 +4049,334 @@ fn a_name_a_list_has_not_got_is_an_attribute_error_and_a_types_table_is_why() {
         raises("[].push(1)"),
         "AttributeError: 'list' object has no attribute 'push'"
     );
+    // A name the type really has, that this runtime has not written yet, is
+    // neither of those. Calling it an `AttributeError` would be a lie, because
+    // `str` does have `upper`.
     assert_eq!(
         raises("'a'.upper()"),
+        "NotImplementedError: str.upper is not implemented yet"
+    );
+    assert_eq!(
+        raises("'a'.nope"),
+        "AttributeError: 'str' object has no attribute 'nope'"
+    );
+    // And a type with no table at all cannot tell the two apart, so it says the
+    // vaguer thing rather than guessing.
+    assert_eq!(
+        raises("(1).bit_length()"),
         "NotImplementedError: attribute access is not implemented yet"
+    );
+}
+
+#[test]
+fn find_answers_a_miss_with_minus_one_and_index_complains_about_it() {
+    assert_eq!(
+        out(
+            "print('abcabc'.find('b'), 'abcabc'.find('b', 2), 'abc'.find('z'))\n\
+             print('abcabc'.rfind('b'), 'abc'.rfind('z'), 'abc'.find('b', 0, 1))\n\
+             print('abc'.index('b'), 'abc'.rindex('b'), 'abcabc'.index('b', 2))\n"
+        ),
+        "1 4 -1\n\
+         4 -1 -1\n\
+         1 1 4\n"
+    );
+    assert_eq!(
+        raises("'abc'.index('z')"),
+        "ValueError: substring not found"
+    );
+    assert_eq!(
+        raises("'abc'.rindex('z')"),
+        "ValueError: substring not found"
+    );
+    assert_eq!(
+        raises("'abc'.index('z', 0, 1)"),
+        "ValueError: substring not found"
+    );
+}
+
+#[test]
+fn the_start_is_pulled_up_to_zero_and_the_stop_is_pulled_to_both_ends() {
+    // Not symmetric, and a program can see it: a start past the end stays past
+    // the end, so the window comes out backwards and everything misses. That is
+    // why `find('', 3)` is 3 and `find('', 4)` is -1 on a string of three.
+    assert_eq!(
+        out(
+            "print('abc'.find(''), 'abc'.find('', 3), 'abc'.find('', 4))\n\
+             print('abc'.find('', 2, 1), 'abc'.rfind(''), 'abc'.rfind('', 0, 1))\n\
+             print('abc'.find('c', 0, -1), 'abcabc'.find('b', -2), 'abc'.rfind('a', 1))\n\
+             print('abc'.find('a', None, None), 'abc'.index('a', None), 'abc'.find('a', 5, 9))\n"
+        ),
+        "0 3 -1\n\
+         -1 3 1\n\
+         -1 4 -1\n\
+         0 0 -1\n"
+    );
+}
+
+#[test]
+fn count_does_not_let_matches_overlap_and_an_empty_needle_fits_between_each() {
+    assert_eq!(
+        out(
+            "print('aaa'.count('a'), 'aaa'.count('aa'), 'abc'.count(''))\n\
+             print('abc'.count('', 1, 2), 'abc'.count('', 5), 'abc'.count('', 2, 1))\n\
+             print('abcabc'.count('b', -3), 'abc'.count('a', None, 2))\n"
+        ),
+        "3 1 4\n\
+         2 0 0\n\
+         1 1\n"
+    );
+}
+
+#[test]
+fn startswith_takes_a_tuple_and_stops_at_the_first_one_that_matches() {
+    // So a wrong type after a match is never looked at, and an empty tuple is
+    // false rather than an error.
+    assert_eq!(
+        out(
+            "print('abc'.startswith(('z', 'a')), 'abc'.startswith(()), 'abc'.startswith(('a', 1)))\n\
+             print('abc'.endswith(('c',)), 'abc'.endswith('b', 0, 2), 'abc'.endswith('a', 0, -2))\n\
+             print('abc'.startswith('', 9), 'abc'.startswith('', 3), 'abc'.startswith('abc', 0, 2))\n"
+        ),
+        "True False True\n\
+         True True True\n\
+         False True False\n"
+    );
+    assert_eq!(
+        raises("'abc'.startswith(['a'])"),
+        "TypeError: startswith first arg must be str or a tuple of str, not list"
+    );
+}
+
+#[test]
+fn join_walks_whatever_it_is_given_and_wants_a_string_out_of_every_step() {
+    assert_eq!(
+        out(
+            "print(','.join(['a', 'b']), repr(','.join([])), ','.join('ab'))\n\
+             print(','.join(('a', 'b')), ','.join(map(str, [1, 2])), 'abc'.join('ab'))\n"
+        ),
+        "a,b '' a,b\n\
+         a,b 1,2 aabcb\n"
+    );
+    assert_eq!(
+        raises("','.join([1])"),
+        "TypeError: sequence item 0: expected str instance, int found"
+    );
+    assert_eq!(
+        raises("'a'.join(['a', 1])"),
+        "TypeError: sequence item 1: expected str instance, int found"
+    );
+}
+
+#[test]
+fn split_with_no_separator_means_runs_of_whitespace_and_with_one_means_every_gap() {
+    // The first throws away what is at either end and the second keeps every
+    // empty piece it makes, which is the whole of the difference.
+    assert_eq!(
+        out(
+            "print('a b  c'.split(), ' a '.split(), ''.split(), 'a\\f b'.split())\n\
+             print('a b  c'.split(' '), ''.split(','), 'a\\n\\nb'.split('\\n'))\n\
+             print('aaa'.split('a'), 'aXXb'.split('XX'), 'XXaXX'.split('XX'))\n\
+             print('a,b,c'.split(',', 1), 'a b'.split(' ', 0), 'a,b'.split(sep=','))\n"
+        ),
+        "['a', 'b', 'c'] ['a'] [] ['a', 'b']\n\
+         ['a', 'b', '', 'c'] [''] ['a', '', 'b']\n\
+         ['', '', '', ''] ['a', 'b'] ['', 'a', '']\n\
+         ['a', 'b,c'] ['a b'] ['a', 'b']\n"
+    );
+}
+
+#[test]
+fn rsplit_counts_its_splits_from_the_other_end_and_hands_them_back_in_order() {
+    // A whitespace split only throws away the ends it actually got to, so
+    // `' a b '.rsplit(None, 1)` keeps the space in front of the `a`: it stopped
+    // before it reached that end.
+    assert_eq!(
+        out(
+            "print('a,b,c'.rsplit(',', 1), 'aaa'.rsplit('a', 1), 'aaa'.rsplit('a'))\n\
+             print('a b c'.rsplit(), 'a b c'.rsplit(maxsplit=1), ' a b '.rsplit(None, 1))\n\
+             print('abc'.rsplit(sep=None, maxsplit=1), 'a  b'.rsplit(None, 1))\n"
+        ),
+        "['a,b', 'c'] ['aa', ''] ['', '', '', '']\n\
+         ['a', 'b', 'c'] ['a b', 'c'] [' a', 'b']\n\
+         ['abc'] ['a', 'b']\n"
+    );
+}
+
+#[test]
+fn strip_takes_a_set_of_code_points_off_the_ends_rather_than_a_prefix() {
+    assert_eq!(
+        out(
+            "print(repr('  a b '.strip()), 'xxaxx'.strip('x'), 'abcba'.strip('ab'))\n\
+             print('abc'.lstrip('ab'), 'abc'.rstrip('cb'), 'abc'.strip(None))\n\
+             print(repr('abc'.strip('')), repr('  '.strip()))\n"
+        ),
+        "'a b' a c\n\
+         c a abc\n\
+         'abc' ''\n"
+    );
+}
+
+#[test]
+fn partition_is_always_three_pieces_and_a_miss_puts_the_whole_at_a_different_end() {
+    assert_eq!(
+        out("print('a=b=c'.partition('='), 'a=b=c'.rpartition('='))\n\
+             print('abc'.partition('z'), 'abc'.rpartition('z'))\n\
+             print('abc'.partition('bc'), ''.partition('a'))\n"),
+        "('a', '=', 'b=c') ('a=b', '=', 'c')\n\
+         ('abc', '', '') ('', '', 'abc')\n\
+         ('a', 'bc', '') ('', '', '')\n"
+    );
+    assert_eq!(raises("'abc'.partition('')"), "ValueError: empty separator");
+}
+
+#[test]
+fn replace_with_an_empty_old_lands_in_front_of_every_code_point_and_once_at_the_end() {
+    assert_eq!(
+        out(
+            "print('aaa'.replace('a', 'b'), 'aaa'.replace('a', 'b', 2), 'aaa'.replace('aa', 'b'))\n\
+             print('abc'.replace('', '-'), 'abc'.replace('', '-', 2), repr(''.replace('', 'x')))\n\
+             print('abc'.replace('a', 'b', -1), 'abc'.replace('a', 'b', 0), 'abc'.replace('a', 'b', count=1))\n"
+        ),
+        "bbb bba ba\n\
+         -a-b-c- -a-bc 'x'\n\
+         bbc abc bbc\n"
+    );
+}
+
+#[test]
+fn splitlines_breaks_on_eleven_things_and_never_ends_with_an_empty_piece() {
+    // The carriage return and newline together count once, and the argument is
+    // read for its truth rather than as a number.
+    assert_eq!(
+        out(
+            "print('a\\nb\\n'.splitlines(), 'a\\r\\nb'.splitlines(), 'a\\r\\n\\nb'.splitlines())\n\
+             print('a\\rb'.splitlines(), 'a\\x0bb'.splitlines(), 'a\\x1cb'.splitlines())\n\
+             print('a\\x85b'.splitlines(), ''.splitlines(), '\\n'.splitlines(True))\n\
+             print('a\\nb'.splitlines(True), 'a\\nb'.splitlines('x'), 'a\\nb'.splitlines(None))\n"
+        ),
+        "['a', 'b'] ['a', 'b'] ['a', '', 'b']\n\
+         ['a', 'b'] ['a', 'b'] ['a', 'b']\n\
+         ['a', 'b'] [] ['\\n']\n\
+         ['a\\n', 'b'] ['a\\n', 'b'] ['a', 'b']\n"
+    );
+}
+
+#[test]
+fn removeprefix_takes_the_whole_thing_off_or_nothing_at_all() {
+    assert_eq!(
+        out(
+            "print('abc'.removeprefix('ab'), 'abc'.removeprefix('z'), 'abc'.removesuffix('bc'))\n\
+             print('abc'.removesuffix('z'), repr('abc'.removeprefix('abc')), 'abc'.removesuffix(''))\n"
+        ),
+        "c abc a\n\
+         abc '' abc\n"
+    );
+}
+
+#[test]
+fn the_methods_answer_in_code_points_and_not_in_bytes() {
+    // The emoji is one of the former and four of the latter, so a runtime that
+    // counted the wrong one is three out on every answer after it.
+    assert_eq!(
+        out("s = '\\U0001f600ab'\n\
+             print(len(s), s.find('a'), s.find('b'), s.split('a'))\n\
+             print('abc'.replace('b', '\\U0001f600'), 'ab'.join(['\\U0001f600']))\n\
+             print(s.startswith('\\U0001f600'), s[1:].strip('ab') == '')\n"),
+        "3 1 2 ['\u{1f600}', 'b']\n\
+         a\u{1f600}c \u{1f600}\n\
+         True True\n"
+    );
+}
+
+#[test]
+fn a_bound_may_be_none_and_a_count_may_not() {
+    // The one place in these methods where `None` is not the same as absent.
+    // `find` reads its bounds with the slice code, which takes `None`, and
+    // `split` reads its limit as a plain number, which does not.
+    assert_eq!(out("print('abc'.find('a', None, None))\n"), "0\n");
+    assert_eq!(
+        raises("'abc'.split(',', None)"),
+        "TypeError: 'NoneType' object cannot be interpreted as an integer"
+    );
+    assert_eq!(
+        raises("'abc'.replace('a', 'b', None)"),
+        "TypeError: 'NoneType' object cannot be interpreted as an integer"
+    );
+    assert_eq!(
+        raises("'abc'.rsplit(',', None)"),
+        "TypeError: 'NoneType' object cannot be interpreted as an integer"
+    );
+}
+
+#[test]
+fn the_wording_a_string_uses_is_cpythons_and_is_not_uniform_either() {
+    // A bound got wrong two different ways says two different things, and
+    // `find` names the type it was given for a keyword and not for a count.
+    let mut lines = Vec::new();
+    for call in [
+        "'abc'.find(1)",
+        "'abc'.find()",
+        "'abc'.find('a', 0, 1, 2)",
+        "'abc'.find('a', x=1)",
+        "'abc'.find('a', 'b')",
+        "'abc'.count(1)",
+        "'abc'.count('b', 1.0)",
+        "'abc'.startswith(1)",
+        "'abc'.startswith('a', 1.0)",
+        "','.join()",
+        "','.join(1)",
+        "'abc'.split('')",
+        "'abc'.split(1)",
+        "'abc'.split(',', 'x')",
+        "'abc'.split(x=1)",
+        "'abc'.strip(1)",
+        "'abc'.strip('a', 'b')",
+        "'abc'.strip(chars='a')",
+        "'abc'.partition(1)",
+        "'abc'.replace('a')",
+        "'abc'.replace('a', 'b', 1, 2)",
+        "'abc'.splitlines(1, 2)",
+        "'abc'.removeprefix(1)",
+        "'abc'.removeprefix(x=1)",
+    ] {
+        lines.push(raises(call));
+    }
+    assert_eq!(
+        lines.join("\n"),
+        "TypeError: find() argument 1 must be str, not int\n\
+         TypeError: find expected at least 1 argument, got 0\n\
+         TypeError: find expected at most 3 arguments, got 4\n\
+         TypeError: str.find() takes no keyword arguments\n\
+         TypeError: slice indices must be integers or None or have an __index__ method\n\
+         TypeError: count() argument 1 must be str, not int\n\
+         TypeError: slice indices must be integers or None or have an __index__ method\n\
+         TypeError: startswith first arg must be str or a tuple of str, not int\n\
+         TypeError: slice indices must be integers or None or have an __index__ method\n\
+         TypeError: str.join() takes exactly one argument (0 given)\n\
+         TypeError: can only join an iterable\n\
+         ValueError: empty separator\n\
+         TypeError: must be str or None, not int\n\
+         TypeError: 'str' object cannot be interpreted as an integer\n\
+         TypeError: split() got an unexpected keyword argument 'x'\n\
+         TypeError: strip arg must be None or str\n\
+         TypeError: strip expected at most 1 argument, got 2\n\
+         TypeError: str.strip() takes no keyword arguments\n\
+         TypeError: must be str, not int\n\
+         TypeError: replace() takes at least 2 positional arguments (1 given)\n\
+         TypeError: replace() takes at most 3 arguments (4 given)\n\
+         TypeError: splitlines() takes at most 1 argument (2 given)\n\
+         TypeError: removeprefix() argument must be str, not int\n\
+         TypeError: str.removeprefix() takes no keyword arguments"
+    );
+}
+
+#[test]
+fn a_string_method_is_a_value_and_two_lookups_of_it_are_equal() {
+    assert_eq!(
+        out("found = 'a,b,c'.split\n\
+             print(found(','), found is found, 'abc'.find == 'abc'.find)\n\
+             print('abc'.find == 'abc'.count, 'abc'.find == 'abd'.find)\n"),
+        "['a', 'b', 'c'] True True\n\
+         False False\n"
     );
 }

@@ -1724,16 +1724,13 @@ fn attribute(object: &Object, name: &str) -> Result<Object> {
     if let Some(found) = method::lookup(object, name) {
         return Ok(found);
     }
-    // Only a type whose methods are all written down can say the name is wrong
-    // rather than that this runtime has not got there yet. A list can. A string
-    // cannot, until it has a table of its own.
-    if method::known(object) {
-        return Err(no_attribute(
-            &format!("'{}' object", object.type_name()),
-            name,
-        ));
+    // Only a type with a table can say anything honest about a name it does not
+    // have, and what it says depends on whether the real type has one. A type
+    // with no table at all cannot tell the two apart.
+    match method::missing(object, name) {
+        Some(complaint) => Err(complaint),
+        None => Err(later("attribute access")),
     }
-    Err(later("attribute access"))
 }
 
 /// What an attribute lookup gives back, which for a function is a method.
