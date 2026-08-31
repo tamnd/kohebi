@@ -19,10 +19,18 @@
 //!
 //! `abs`, `repr`, `bool` and `str` came next, and they are here together
 //! because they are the same shape. Each takes one value and answers one
-//! question about it, none of them walks anything, and none of them calls back
-//! into Python. That last part is why they could be written now: a builtin
-//! cannot call a Python function yet, so `sorted(key=...)`, `map` and `filter`
-//! are waiting on the machine rather than on anyone's opinion about them.
+//! question about it, and none of them walks anything.
+//!
+//! `any`, `all`, `sum`, `min` and `max` are the ones that reduce a walk to one
+//! value. All five step through [`Vm::advance`] rather than through
+//! [`crate::iterate`], so a generator is as good an argument as a list, and all
+//! five stop as early as they are allowed to.
+//!
+//! What none of them does is call back into Python. A builtin is handed the
+//! machine and still cannot call a Python function through it, which is why
+//! `min(key=...)` is refused by name and why `sorted`, `map` and `filter` are
+//! not here at all. That is one piece of work in the machine rather than five
+//! opinions about builtins.
 //!
 //! Every builtin exception class is here too, and it comes from
 //! [`kohebi_core::exception`] rather than from this module, because a class is
@@ -53,7 +61,7 @@
 use std::any::Any;
 use std::fmt;
 
-use kohebi_core::{Error, Int, Kind, Native, Object, Result, exception, ops};
+use kohebi_core::{Compare, Error, Int, Kind, Native, Object, Result, exception, ops};
 
 use crate::iterate::{self, Range};
 use crate::vm::{Step, Vm};
@@ -230,6 +238,11 @@ pub fn table() -> Vec<(&'static str, Object)> {
         ("repr", repr as Body, Flavour::Function),
         ("bool", bool as Body, Flavour::Class),
         ("str", str as Body, Flavour::Class),
+        ("any", any as Body, Flavour::Function),
+        ("all", all as Body, Flavour::Function),
+        ("sum", sum as Body, Flavour::Function),
+        ("min", min as Body, Flavour::Function),
+        ("max", max as Body, Flavour::Function),
     ]
     .into_iter()
     .map(|(name, body, flavour)| {
@@ -373,6 +386,159 @@ fn str(_vm: &mut Vm, mut args: Args) -> Result<Object> {
             "decoding to str: need a bytes-like object, {} found",
             other.type_name()
         ))),
+    }
+}
+
+/// `any(iterable)`.
+fn any(vm: &mut Vm, args: Args) -> Result<Object> {
+    Ok(Object::Bool(scan(vm, only(&args, "any")?, true)?))
+}
+
+/// `all(iterable)`.
+fn all(vm: &mut Vm, args: Args) -> Result<Object> {
+    Ok(Object::Bool(!scan(vm, only(&args, "all")?, false)?))
+}
+
+/// The half `any` and `all` share: walk until an element's truth is the one
+/// being looked for, and say whether there was one.
+///
+/// `any` looks for a true element and answers with what it found. `all` looks
+/// for a false one and answers with the opposite, which is why `all([])` is
+/// `True`. Both stop at the first one, and that is observable rather than an
+/// optimisation: a generator with a side effect in it can say how far it got.
+fn scan(vm: &mut Vm, iterable: &Object, looking_for: bool) -> Result<bool> {
+    let walk = iterate::over(iterable)?;
+    while let Step::Value(item) = vm.advance(&walk)? {
+        if item.truthy() == looking_for {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// `sum(iterable, start=0)`.
+fn sum(vm: &mut Vm, mut args: Args) -> Result<Object> {
+    // CPython counts the keyword arguments towards the upper limit and not
+    // towards the lower one, and words the upper complaint differently when
+    // there is nothing positional to count. Three messages for one signature,
+    // and a program that prints one can tell which it got.
+    let given = args.positional.len() + args.named.len();
+    if given > 2 {
+        let what = if args.positional.is_empty() {
+            "keyword arguments"
+        } else {
+            "arguments"
+        };
+        return Err(Error::type_error(format!(
+            "sum() takes at most 2 {what} ({given} given)"
+        )));
+    }
+    if args.positional.is_empty() {
+        return Err(Error::type_error(
+            "sum() takes at least 1 positional argument (0 given)",
+        ));
+    }
+    let named_start = args.take("start");
+    args.rest("sum")?;
+    // Both at once would have been three arguments and refused above, so this
+    // never has to choose between them.
+    let start = args.positional.get(1).cloned().or(named_start);
+
+    let mut total = match start {
+        None => Object::int(0),
+        // Joining strings one `+` at a time is quadratic, so CPython refuses
+        // to be the thing that does it and names the thing that does not. The
+        // check is on the start rather than on the elements, which is why
+        // `sum([], '')` is refused too.
+        Some(Object::Str(_)) => {
+            return Err(Error::type_error(
+                "sum() can't sum strings [use ''.join(seq) instead]",
+            ));
+        }
+        Some(Object::Bytes(_)) => {
+            return Err(Error::type_error(
+                "sum() can't sum bytes [use b''.join(seq) instead]",
+            ));
+        }
+        Some(value) => value,
+    };
+    let walk = iterate::over(&args.positional[0])?;
+    while let Step::Value(item) = vm.advance(&walk)? {
+        total = ops::add(&total, &item)?;
+    }
+    Ok(total)
+}
+
+/// `min(iterable)`, `min(a, b, ...)`, and the same two for `max`.
+fn min(vm: &mut Vm, args: Args) -> Result<Object> {
+    extremum(vm, args, Compare::Lt, "min")
+}
+
+/// See [`min`].
+fn max(vm: &mut Vm, args: Args) -> Result<Object> {
+    extremum(vm, args, Compare::Gt, "max")
+}
+
+/// The whole of `min` and `max`, which differ by one comparison operator.
+///
+/// One positional argument is a container to walk. Two or more are the
+/// candidates themselves, which is the only reason `min([2, 1], [3])` is
+/// `[2, 1]` and not `1`.
+fn extremum(vm: &mut Vm, mut args: Args, op: Compare, function: &str) -> Result<Object> {
+    // No upper bound, because this takes as many candidates as it is handed.
+    args.arity(function, 1, usize::MAX)?;
+    let default = args.take("default");
+    let key = args.take("key");
+    // Before the complaint about a default below it, which is the order
+    // CPython checks them in.
+    args.rest(function)?;
+    if default.is_some() && args.positional.len() > 1 {
+        return Err(Error::type_error(format!(
+            "Cannot specify a default for {function}() with multiple positional arguments"
+        )));
+    }
+    // `key=None` means no key, which is why this asks what it is rather than
+    // whether it is there.
+    if key.is_some_and(|key| !matches!(key, Object::None)) {
+        return Err(Error::new(
+            Kind::NotImplementedError,
+            format!("{function}(key=...) has to call a Python function and a builtin cannot yet"),
+        ));
+    }
+
+    let mut best = None;
+    if args.positional.len() == 1 {
+        let walk = iterate::over(&args.positional[0])?;
+        while let Step::Value(item) = vm.advance(&walk)? {
+            best = Some(keep(op, best, item)?);
+        }
+    } else {
+        for item in args.positional() {
+            best = Some(keep(op, best, item.clone())?);
+        }
+    }
+    match (best, default) {
+        (Some(best), _) => Ok(best),
+        (None, Some(default)) => Ok(default),
+        (None, None) => Err(Error::new(
+            Kind::ValueError,
+            format!("{function}() iterable argument is empty"),
+        )),
+    }
+}
+
+/// Whichever of the two the operator prefers, with the new one on the left.
+///
+/// Strictly better wins, so a tie keeps the one that came first, and that is
+/// visible: `min([1], [1])` gives back the first list rather than an equal
+/// one. The new candidate goes on the left of the comparison because that is
+/// the side CPython names first when the two cannot be compared at all.
+fn keep(op: Compare, best: Option<Object>, item: Object) -> Result<Object> {
+    let Some(best) = best else { return Ok(item) };
+    if ops::compare(op, &item, &best)?.truthy() {
+        Ok(item)
+    } else {
+        Ok(best)
     }
 }
 

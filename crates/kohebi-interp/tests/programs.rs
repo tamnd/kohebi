@@ -1087,6 +1087,263 @@ fn bool_answers_for_every_object_and_bool_of_nothing_is_false() {
 }
 
 #[test]
+fn any_and_all_are_each_other_upside_down() {
+    assert_eq!(
+        out("print(any([]), any([0, 1]), any([0, 0]), any({}), any(''), any('a'))\n"),
+        "False True False False False True\n"
+    );
+    // `all([])` is True because there is no false element in it, which is the
+    // half of this that surprises people.
+    assert_eq!(
+        out("print(all([]), all([1, 0]), all([1, 2]), all(''), all([[1], 1]))\n"),
+        "True False True True True\n"
+    );
+    // An empty list is a false element even though a list of a false element
+    // is a true one.
+    assert_eq!(out("print(any([[], [0]]))\n"), "True\n");
+    assert_eq!(
+        raises("any()\n"),
+        "TypeError: any() takes exactly one argument (0 given)"
+    );
+    assert_eq!(
+        raises("any(1, 2)\n"),
+        "TypeError: any() takes exactly one argument (2 given)"
+    );
+    assert_eq!(
+        raises("any(x=1)\n"),
+        "TypeError: any() takes no keyword arguments"
+    );
+    assert_eq!(
+        raises("any(1)\n"),
+        "TypeError: 'int' object is not iterable"
+    );
+    assert_eq!(
+        raises("all(None)\n"),
+        "TypeError: 'NoneType' object is not iterable"
+    );
+}
+
+#[test]
+fn both_stop_at_the_first_element_that_settles_it() {
+    // The early stop is observable rather than an optimisation, and this is
+    // how: the generator records how far it was walked.
+    // The counter is a list written through rather than a name rebound,
+    // because rebinding it inside the generator would make it a local of the
+    // generator and count nothing.
+    let program = "\
+pulled = [0]
+
+
+def watched(values):
+    for value in values:
+        pulled[0] = pulled[0] + 1
+        yield value
+
+
+print(any(watched([0, 1, 2])), pulled[0])
+pulled[0] = 0
+print(all(watched([1, 0, 2])), pulled[0])
+pulled[0] = 0
+print(any(watched([0, 0])), pulled[0])
+";
+    assert_eq!(out(program), "True 2\nFalse 2\nFalse 2\n");
+}
+
+#[test]
+fn sum_starts_at_zero_and_says_so_when_that_is_wrong() {
+    assert_eq!(
+        out("print(sum([]), sum([1, 2]), sum([1, 2], 10), sum([1], start=10))\n"),
+        "0 3 13 11\n"
+    );
+    assert_eq!(
+        out("print(sum([1.5, 2]), sum([1.0, 2]), sum([True, True]), sum(range(101)))\n"),
+        "3.5 3.0 2 5050\n"
+    );
+    // Anything that adds can be summed, given something of its own kind to
+    // start from, because the start is what the first `+` happens against.
+    assert_eq!(
+        out("print(sum([[1], [2]], []), sum([(1,)], ()))\n"),
+        "[1, 2] (1,)\n"
+    );
+    // Which is also why leaving the start out says `int` and `str` rather than
+    // anything about `sum`.
+    assert_eq!(
+        raises("sum(['a', 'b'])\n"),
+        "TypeError: unsupported operand type(s) for +: 'int' and 'str'"
+    );
+    // Joining strings one `+` at a time is quadratic, so CPython refuses to be
+    // the thing that does it and names the thing that does not.
+    assert_eq!(
+        raises("sum(['a', 'b'], '')\n"),
+        "TypeError: sum() can't sum strings [use ''.join(seq) instead]"
+    );
+    // The check is on the start rather than on the elements, so an empty walk
+    // is refused for the same reason a full one is.
+    assert_eq!(
+        raises("sum([], '')\n"),
+        "TypeError: sum() can't sum strings [use ''.join(seq) instead]"
+    );
+    assert_eq!(
+        raises("sum([b'a'], b'')\n"),
+        "TypeError: sum() can't sum bytes [use b''.join(seq) instead]"
+    );
+    assert_eq!(
+        raises("sum(1)\n"),
+        "TypeError: 'int' object is not iterable"
+    );
+}
+
+#[test]
+fn sum_counts_its_arguments_in_two_different_ways() {
+    // CPython counts the keyword arguments towards the upper limit and not
+    // towards the lower one, and words the upper complaint differently when
+    // there is nothing positional to count. Three messages for one signature.
+    assert_eq!(
+        raises("sum()\n"),
+        "TypeError: sum() takes at least 1 positional argument (0 given)"
+    );
+    assert_eq!(
+        raises("sum(x=1)\n"),
+        "TypeError: sum() takes at least 1 positional argument (0 given)"
+    );
+    assert_eq!(
+        raises("sum(start=1)\n"),
+        "TypeError: sum() takes at least 1 positional argument (0 given)"
+    );
+    assert_eq!(
+        raises("sum(a=1, b=2, c=3)\n"),
+        "TypeError: sum() takes at most 2 keyword arguments (3 given)"
+    );
+    assert_eq!(
+        raises("sum([1], 2, start=3)\n"),
+        "TypeError: sum() takes at most 2 arguments (3 given)"
+    );
+    assert_eq!(
+        raises("sum([1], 1, 2, 3)\n"),
+        "TypeError: sum() takes at most 2 arguments (4 given)"
+    );
+    assert_eq!(
+        raises("sum([1], foo=2)\n"),
+        "TypeError: sum() got an unexpected keyword argument 'foo'"
+    );
+    // `start=None` is a start of `None` rather than no start at all, which is
+    // the difference between this and leaving it out.
+    assert_eq!(
+        raises("sum([1], start=None)\n"),
+        "TypeError: unsupported operand type(s) for +: 'NoneType' and 'int'"
+    );
+}
+
+#[test]
+fn min_and_max_read_one_argument_and_several_differently() {
+    assert_eq!(
+        out("print(min(3, 1, 2), max(3, 1, 2), min([3, 1, 2]), max([1, 2], default=9))\n"),
+        "1 3 1 2\n"
+    );
+    assert_eq!(
+        out("print(min('cab'), max({1: 'a', 2: 'b'}), min(range(5, 0, -1)), max(range(3)))\n"),
+        "a 2 1 2\n"
+    );
+    // One argument is a container to walk and two are the candidates
+    // themselves, which is the whole of the difference between these.
+    assert_eq!(
+        out("print(min([2, 1], [3]), min([3, 1, 2]))\n"),
+        "[2, 1] 1\n"
+    );
+    // Strictly better wins, so a tie keeps the one that came first, and the
+    // two lists here are equal and not the same object.
+    assert_eq!(out("print(min([1], [1]), max([1], [2]))\n"), "[1] [2]\n");
+    assert_eq!(out("print(min([0.0, -0.0]), max([1, 1.0]))\n"), "0.0 1\n");
+    // A default is what an empty walk gives back and nothing else, so it is
+    // not the answer when there is one.
+    assert_eq!(
+        out("print(min([], default=9), max([], default=9), min([1], default=None))\n"),
+        "9 9 1\n"
+    );
+    // And `key=None` is no key rather than a key of `None`.
+    assert_eq!(out("print(min([1], key=None))\n"), "1\n");
+}
+
+#[test]
+fn min_and_max_refuse_in_four_different_ways() {
+    // The count is checked before anything is taken by name, so a call with
+    // only keywords is a call with no arguments.
+    for call in ["min()", "min(x=1)", "min(default=1)", "min(key=None)"] {
+        assert_eq!(
+            raises(&format!("{call}\n")),
+            "TypeError: min expected at least 1 argument, got 0"
+        );
+    }
+    assert_eq!(
+        raises("max()\n"),
+        "TypeError: max expected at least 1 argument, got 0"
+    );
+    assert_eq!(
+        raises("min([])\n"),
+        "ValueError: min() iterable argument is empty"
+    );
+    assert_eq!(
+        raises("max([])\n"),
+        "ValueError: max() iterable argument is empty"
+    );
+    assert_eq!(
+        raises("min('')\n"),
+        "ValueError: min() iterable argument is empty"
+    );
+    assert_eq!(
+        raises("min(1)\n"),
+        "TypeError: 'int' object is not iterable"
+    );
+    // The candidate being compared is on the left, which is the side named
+    // first when the two cannot be compared at all.
+    assert_eq!(
+        raises("min([1, 'a'])\n"),
+        "TypeError: '<' not supported between instances of 'str' and 'int'"
+    );
+    // A default only means anything for a single walk, so asking for one
+    // alongside several candidates is a question with no answer.
+    assert_eq!(
+        raises("min(3, 1, default=9)\n"),
+        "TypeError: Cannot specify a default for min() with multiple positional arguments"
+    );
+    assert_eq!(
+        raises("min([1], 2, default=3)\n"),
+        "TypeError: Cannot specify a default for min() with multiple positional arguments"
+    );
+    // An unknown keyword is reported before that, even when both are wrong.
+    assert_eq!(
+        raises("min([1], 2, foo=3)\n"),
+        "TypeError: min() got an unexpected keyword argument 'foo'"
+    );
+    assert_eq!(
+        raises("min([1], default=2, foo=3)\n"),
+        "TypeError: min() got an unexpected keyword argument 'foo'"
+    );
+    // The one thing here CPython does and this does not.
+    assert_eq!(
+        raises("min([3, 1], key=abs)\n"),
+        "NotImplementedError: min(key=...) has to call a Python function and a builtin cannot yet"
+    );
+}
+
+#[test]
+fn a_generator_is_as_good_an_argument_as_a_list() {
+    // Every one of these steps Python rather than a container, which is the
+    // reason they all go through the machine rather than through `iterate`.
+    let program = "\
+def squares(n):
+    for i in range(n):
+        yield i * i
+
+
+print(sum(squares(5)), min(squares(4)), max(squares(4)))
+print(any(squares(3)), all(squares(3)), all(squares(1)))
+print(sum([x for x in range(5) if x % 2]))
+";
+    assert_eq!(out(program), "30 0 9\nTrue False False\n4\n");
+}
+
+#[test]
 fn iter_and_next_are_the_loop_taken_apart() {
     assert_eq!(
         out("it = iter([1, 2])\nprint(next(it), next(it), next(it, 'gone'))\n"),
