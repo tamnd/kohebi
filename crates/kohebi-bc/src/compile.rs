@@ -35,7 +35,7 @@ pub fn compile(body: &Body) -> Module {
     let mut names = Vec::new();
     let code = compile_body(body, &mut names);
     Module {
-        names,
+        names: names.into(),
         body: Rc::new(code),
     }
 }

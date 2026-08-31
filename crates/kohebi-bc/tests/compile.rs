@@ -276,8 +276,8 @@ fn a_constant_used_twice_is_stored_once() {
 #[test]
 fn a_name_used_twice_is_stored_once() {
     assert_eq!(
-        module("x = a\ny = a\n").names,
-        vec!["a".into(), "x".into(), "y".into()]
+        *module("x = a\ny = a\n").names,
+        ["a".into(), "x".into(), "y".into()]
     );
 }
 
@@ -383,7 +383,7 @@ fn every_body_in_a_module_shares_one_name_table() {
     // The `total` a function reads and the `total` the module writes have to be
     // the same index, or reading a global would be back to hashing a string.
     let module = module("total = 0\ndef f():\n    global total\n    total = 1\n");
-    assert_eq!(module.names, vec!["total".into(), "f".into()]);
+    assert_eq!(*module.names, ["total".into(), "f".into()]);
 }
 
 #[test]
@@ -660,11 +660,11 @@ fn a_failing_assertion_raises_a_class_that_is_not_a_name() {
 #[test]
 fn an_assert_puts_no_name_in_the_table_to_be_shadowed() {
     // An assert on its own puts nothing in the table but the name it tests.
-    assert_eq!(module("assert ok\n").names, ["ok".into()]);
+    assert_eq!(*module("assert ok\n").names, ["ok".into()]);
     // And a program that does write the name gets one entry, which is its own
     // global. The assert did not add a use of it.
     assert_eq!(
-        module("AssertionError = 1\nassert ok\n").names,
+        *module("AssertionError = 1\nassert ok\n").names,
         ["AssertionError".into(), "ok".into()]
     );
 }
