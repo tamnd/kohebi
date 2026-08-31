@@ -34,7 +34,7 @@ use std::collections::{HashMap, HashSet};
 
 use kohebi_parse::Int;
 use kohebi_parse::ast::{
-    Arguments, BoolOp, CmpOp, Comprehension, ExceptHandler, Expr as AExpr, ExprKind, Mod,
+    Alias, Arguments, BoolOp, CmpOp, Comprehension, ExceptHandler, Expr as AExpr, ExprKind, Mod,
     Stmt as AStmt, StmtKind, UnaryOp,
 };
 
@@ -996,6 +996,12 @@ impl Lower {
                     out.push(Stmt::Delete(place));
                 }
             }
+            StmtKind::Import { names } => self.lower_import(names, out),
+            StmtKind::ImportFrom {
+                module,
+                names,
+                level,
+            } => self.lower_import_from(module.as_deref(), names, level.unwrap_or(0), stmt, out)?,
             StmtKind::If { test, body, orelse } => {
                 let test = self.lower_test(test, out)?;
                 out.push(Stmt::If {
@@ -1138,6 +1144,96 @@ impl Lower {
                     line,
                 }));
             }
+        }
+        Ok(())
+    }
+
+    /// `import a`, `import a.b` and `import a as c`.
+    ///
+    /// What is bound depends on whether there is an `as`. Without one the name
+    /// bound is the head of the dotted name and the value is the package, so
+    /// `import a.b` binds `a` and reaches `b` through it. With one the name
+    /// bound is the alias and the value is the module the whole dotted name
+    /// names, which is why `import a.b as c` gives `c` the submodule.
+    ///
+    /// Both forms import the whole name first, since importing `a.b` is what
+    /// puts `b` on `a` in the first place.
+    fn lower_import(&mut self, names: &[Alias], out: &mut Block) {
+        for alias in names {
+            let whole = Expr::Import {
+                name: alias.name.clone(),
+            };
+            let (bound, value) = if let Some(asname) = &alias.asname {
+                (asname.clone(), whole)
+            } else {
+                // The dotted name is still imported, because that is what
+                // builds the submodule, and then the head is what gets bound.
+                // For an undotted name the two are the same import and the
+                // second one is a lookup in `sys.modules`.
+                if alias.name.contains('.') {
+                    out.push(Stmt::Eval(whole));
+                }
+                let head = alias.name.split('.').next().unwrap_or(&alias.name);
+                (Name::from(head), Expr::Import { name: head.into() })
+            };
+            let place = self.write(&bound);
+            out.push(Stmt::Store { place, value });
+        }
+    }
+
+    /// `from a import b, c` and `from a import b as d`.
+    ///
+    /// The module is found once and every name comes out of the one object, so
+    /// a module with a side effect in it runs that side effect once however
+    /// many names are taken from it.
+    fn lower_import_from(
+        &mut self,
+        module: Option<&str>,
+        names: &[Alias],
+        level: u32,
+        stmt: &AStmt,
+        out: &mut Block,
+    ) -> Result<()> {
+        // A relative import needs to know what package the importing module is
+        // in, and there are no packages yet, so there is nothing honest to
+        // resolve the dots against.
+        if level > 0 {
+            return Err(Failed::Unsupported(Unsupported {
+                what: "a relative import",
+                line: stmt.attrs.lineno,
+            }));
+        }
+        // `from a import *` binds names the compiler cannot know, so every read
+        // in the frame would have to become a lookup. That is a change to how
+        // names work rather than a case to add here.
+        if names.iter().any(|alias| &*alias.name == "*") {
+            return Err(Failed::Unsupported(Unsupported {
+                what: "a star import",
+                line: stmt.attrs.lineno,
+            }));
+        }
+        let Some(module) = module else {
+            return Err(Failed::Unsupported(Unsupported {
+                what: "a relative import",
+                line: stmt.attrs.lineno,
+            }));
+        };
+        let found = self.pin(
+            out,
+            Expr::Import {
+                name: module.into(),
+            },
+        );
+        for alias in names {
+            let bound = alias.asname.clone().unwrap_or_else(|| alias.name.clone());
+            let place = self.write(&bound);
+            out.push(Stmt::Store {
+                place,
+                value: Expr::ImportFrom {
+                    module: found.clone().boxed(),
+                    name: alias.name.clone(),
+                },
+            });
         }
         Ok(())
     }

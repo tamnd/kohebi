@@ -98,6 +98,9 @@ use crate::generator::Generator;
 use crate::iterate::{self, Iter};
 use crate::lazy::Lazy;
 use crate::method;
+// `Module` in this file is the compiled one that came out of the bytecode, so
+// the one a program imports is reached through its own module name.
+use crate::module::{self, Modules};
 use crate::ready::Ready;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
@@ -142,6 +145,8 @@ pub struct Vm {
     /// raises records what the clause caught as its `__context__`. Almost every
     /// program leaves this empty, so it is a vector that never allocates.
     handled: Vec<Object>,
+    /// Every module the program has imported, which is `sys.modules`.
+    modules: Modules,
 }
 
 impl fmt::Debug for Vm {
@@ -173,6 +178,7 @@ impl Vm {
             output,
             depth: 0,
             handled: Vec::new(),
+            modules: Modules::new(),
         }
     }
 
@@ -546,6 +552,15 @@ impl Vm {
 
             Instr::LoadAttr { dst, object, name } => {
                 let value = attribute(frame.get(object)?, self.open.name(name))?;
+                frame.set(dst, value);
+            }
+            Instr::Import { dst, name } => {
+                let found = self.modules.import(self.open.name(name))?;
+                frame.set(dst, found);
+            }
+            Instr::ImportFrom { dst, module, name } => {
+                let name = self.open.name(name);
+                let value = from_module(frame.get(module)?, name)?;
                 frame.set(dst, value);
             }
             Instr::StoreAttr { object, name, src } => {
@@ -1721,6 +1736,11 @@ fn attribute(object: &Object, name: &str) -> Result<Object> {
             .lookup(name)
             .ok_or_else(|| no_attribute(&format!("type object '{}'", class.name()), name));
     }
+    if let Some(imported) = object.downcast::<module::Module>() {
+        return imported
+            .get(name)
+            .ok_or_else(|| no_attribute(&format!("module '{}'", imported.name()), name));
+    }
     if let Some(found) = method::lookup(object, name) {
         return Ok(found);
     }
@@ -1739,6 +1759,28 @@ fn bind(receiver: &Object, value: Object) -> Object {
         return value;
     }
     Object::native(Method::new(receiver.clone(), value))
+}
+
+/// A name taken out of a module by `from x import y`.
+///
+/// The complaint is an `ImportError` and not the `AttributeError` the same
+/// lookup written as `x.y` would give, because the two are asked in different
+/// places and CPython words them differently. `(unknown location)` is where the
+/// file would be named, and there is no file yet because every module here is
+/// written in Rust.
+fn from_module(object: &Object, name: &str) -> Result<Object> {
+    let Some(imported) = object.downcast::<module::Module>() else {
+        return attribute(object, name);
+    };
+    imported.get(name).ok_or_else(|| {
+        Error::new(
+            Kind::ImportError,
+            format!(
+                "cannot import name '{name}' from '{}' (unknown location)",
+                imported.name()
+            ),
+        )
+    })
 }
 
 /// `'C' object has no attribute 'x'`, with the description in front already

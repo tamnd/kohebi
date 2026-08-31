@@ -6,6 +6,12 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+`import` and `from ... import` work, and there is one module to point them at. `sys` is built in, meaning the runtime hands it over rather than reading a file, and it carries `argv`, `modules`, `path`, `platform`, `byteorder`, `maxsize`, `maxunicode`, `version`, `version_info`, `executable` and `builtin_module_names`. `sys.version_info` says 3.14 because that is the language being implemented, and `sys.version` names kohebi and its version, because saying CPython there would be a lie a program could act on.
+
+A module is an object with a namespace, and `sys.modules` is the registry itself rather than a copy of it, so a program that looks in there sees what the runtime sees. An import of something already imported is a lookup in that dictionary, which is what makes the second import cheap and what will make cycles terminate once modules can come from files.
+
+Everything else about imports still refuses by name. A relative import has no package to resolve its dots against, a star import binds names the compiler cannot know, and any module that is not `sys` raises `ModuleNotFoundError` with the same words CPython uses. File-based modules are next.
+
 ## 0.0.19
 
 One merged pull request and the release that puts kohebi on crates.io, so `cargo install kohebi` works. Nothing in the runtime changed.

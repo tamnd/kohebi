@@ -307,6 +307,29 @@ pub enum Instr {
         object: Reg,
         name: NameId,
     },
+    /// Find a module and put it in a register.
+    ///
+    /// `name` is the whole dotted name, because the search is for the whole
+    /// thing and a package that fails halfway wants to say which half. What
+    /// lands in `dst` is the module that name names, and the statement that
+    /// asked for it is the one that decides whether to bind that module or the
+    /// top of it, since `import a.b` binds `a`.
+    Import {
+        dst: Reg,
+        name: NameId,
+    },
+
+    /// Take a name out of a module, for the `from x import y` form.
+    ///
+    /// Separate from [`Instr::LoadAttr`] because a name a module has not got is
+    /// an `ImportError` here and an `AttributeError` there, and the wording is
+    /// different enough that a caller cannot repair one into the other.
+    ImportFrom {
+        dst: Reg,
+        module: Reg,
+        name: NameId,
+    },
+
     LoadItem {
         dst: Reg,
         object: Reg,
