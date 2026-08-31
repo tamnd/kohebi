@@ -12,6 +12,10 @@ The inheritance the two questions know about is the exception tree, `bool` under
 
 `int`, `float`, `dict`, `bytes` and `object` are names now. The constructors behind them are not written and calling one says so, rather than the name not resolving at all: `type(1)` gives back `int`, and once a program has that it will write `int` next.
 
+`int` and `float` are constructors as well now, and both of them read a string. That is a wider grammar than a literal in source: whitespace on either end is stripped, a leading sign is allowed, `int` takes a base and the `0x`, `0o` and `0b` prefixes that go with one, and both take decimal digits from any script, so `int('١٢')` is 12 and `int('١٢', 16)` is 18. Underscores follow the literal rule of a digit on each side, with the one exception CPython makes for a single underscore after a base prefix, so `0x_1f` is 31 and `0x__1f` is an error. `int` of a float truncates toward zero and refuses an infinity and a NaN with two different exceptions, and `float` of an integer too large to be a double raises rather than handing back an infinity.
+
+Both were checked against a running CPython 3.14.7 rather than reasoned about, on ten thousand generated strings as well as on the corners: the same values, the same exception types, and the same wording, including the fact that `int('1', 2, 3)` and `int('1', 2, base=3)` are two different complaints about the same number of arguments.
+
 `bool`, `str`, `list`, `tuple`, `set`, `range`, `map` and `filter` were already constructors and are now the type objects themselves, so the same object answers to the name and to `type(x)`. A builtin function no longer has a flavour that makes it print as a class, because the classes are real.
 
 ## 0.0.21

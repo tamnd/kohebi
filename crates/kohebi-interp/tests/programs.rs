@@ -5378,8 +5378,8 @@ fn a_type_object_has_a_name_and_nothing_else_yet() {
 #[test]
 fn a_constructor_that_is_not_written_says_which_one() {
     let (out, raised) = execute(
-        "for work in (lambda: int('5'), lambda: float(1), lambda: dict(),\n\
-         \x20            lambda: bytes(), lambda: object(), lambda: type(1, 2, 3)):\n\
+        "for work in (lambda: dict(), lambda: bytes(), lambda: object(),\n\
+         \x20            lambda: type(1, 2, 3)):\n\
          \x20   try:\n\
          \x20       work()\n\
          \x20   except NotImplementedError as e:\n\
@@ -5388,11 +5388,71 @@ fn a_constructor_that_is_not_written_says_which_one() {
     assert_eq!(raised, None);
     assert_eq!(
         out,
-        "NotImplementedError: int() is not implemented yet\n\
-         NotImplementedError: float() is not implemented yet\n\
-         NotImplementedError: dict() is not implemented yet\n\
+        "NotImplementedError: dict() is not implemented yet\n\
          NotImplementedError: bytes() is not implemented yet\n\
          NotImplementedError: object() is not implemented yet\n\
          NotImplementedError: type() with three arguments is not implemented yet\n"
+    );
+}
+
+/// The shapes `int` and `float` come in, which are not the same shape: a base
+/// may be given by name and nothing about `float` may be.
+#[test]
+fn the_two_number_constructors_take_different_arguments() {
+    let (out, raised) = execute(
+        "print(int(), int(7), int('12'), int(-1.9), int(True), int(b'12'))\n\
+         print(int('ff', 16), int('0x_ff', 16), int('0b101', 0), int('1', base=2))\n\
+         print(float(), float(7), float('1.5'), float('.5'), float('-iNf'))\n\
+         print(int('\\u0661\\u0662'), int('1_0'), float('1e1_0'), float(2 ** 62))\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "0 7 12 -1 1 12\n\
+         255 255 5 1\n\
+         0.0 7.0 1.5 0.5 -inf\n\
+         12 10 10000000000.0 4.611686018427388e+18\n"
+    );
+}
+
+/// What the two refuse, in the order they refuse it. The base is looked at
+/// before the value, so `int(None, 99)` complains about the 99.
+#[test]
+fn the_number_constructors_refuse_in_cpythons_order() {
+    let (out, raised) = execute(
+        "for work in (lambda: int('abc'), lambda: int(b'abc'), lambda: int(None),\n\
+         \x20            lambda: int('1', 1), lambda: int(None, 99), lambda: int(None, 'x'),\n\
+         \x20            lambda: int(1, 10), lambda: int(base=16), lambda: int(x='1'),\n\
+         \x20            lambda: int('1', 2, base=3), lambda: int('1', 2, 3),\n\
+         \x20            lambda: int(float('nan')), lambda: int(float('inf')),\n\
+         \x20            lambda: float('abc'), lambda: float(None), lambda: float(2 ** 1024),\n\
+         \x20            lambda: float(x=1), lambda: float(1, 2)):\n\
+         \x20   try:\n\
+         \x20       work()\n\
+         \x20   except (TypeError, ValueError, OverflowError) as e:\n\
+         \x20       print(e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "invalid literal for int() with base 10: 'abc'\n\
+         invalid literal for int() with base 10: b'abc'\n\
+         int() argument must be a string, a bytes-like object or a real number, \
+         not 'NoneType'\n\
+         int() base must be >= 2 and <= 36, or 0\n\
+         int() base must be >= 2 and <= 36, or 0\n\
+         'str' object cannot be interpreted as an integer\n\
+         int() can't convert non-string with explicit base\n\
+         int() missing string argument\n\
+         int() got an unexpected keyword argument 'x'\n\
+         int() takes at most 2 arguments (3 given)\n\
+         int expected at most 2 arguments, got 3\n\
+         cannot convert float NaN to integer\n\
+         cannot convert float infinity to integer\n\
+         could not convert string to float: 'abc'\n\
+         float() argument must be a string or a real number, not 'NoneType'\n\
+         int too large to convert to float\n\
+         float() takes no keyword arguments\n\
+         float expected at most 1 argument, got 2\n"
     );
 }

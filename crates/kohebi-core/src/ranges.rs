@@ -6,7 +6,17 @@
 
 /// Whether `cp` falls in one of the ranges.
 pub(crate) fn among(table: &[(u32, u32)], cp: u32) -> bool {
-    table
+    holding(table, cp).is_some()
+}
+
+/// The range `cp` falls in, for a caller that wants where in it the point sits
+/// rather than only whether it is there.
+///
+/// [`crate::classify::decimal_value`] is the one such caller: a run of ten
+/// decimal digits starts at its own zero, so the distance from the low end is
+/// the digit.
+pub(crate) fn holding(table: &[(u32, u32)], cp: u32) -> Option<(u32, u32)> {
+    let at = table
         .binary_search_by(|&(lo, hi)| {
             if cp < lo {
                 std::cmp::Ordering::Greater
@@ -16,5 +26,6 @@ pub(crate) fn among(table: &[(u32, u32)], cp: u32) -> bool {
                 std::cmp::Ordering::Equal
             }
         })
-        .is_ok()
+        .ok()?;
+    table.get(at).copied()
 }

@@ -33,6 +33,10 @@
 //! something almost right, and `with` and `match` are the same: named, not
 //! guessed at.
 //!
+//! `int(x)` and `float(x)` read a string the way CPython does rather than the
+//! way the lexer does, which is the `number` module: stripped of whitespace, signed,
+//! based, and written in whatever script's digits the program had to hand.
+//!
 //! `type(x)` gives back a type object, which is [`types`], and `isinstance` and
 //! `issubclass` ask about the small inheritance graph those make up. A type
 //! object is a name and a constructor and not a namespace yet, so it does not
@@ -66,6 +70,7 @@ pub mod iterate;
 pub mod lazy;
 pub mod method;
 pub mod module;
+mod number;
 pub mod path;
 pub mod ready;
 pub mod stream;

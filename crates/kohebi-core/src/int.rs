@@ -29,7 +29,7 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use num_bigint::BigInt;
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
 
 /// A Python integer.
 ///
@@ -128,6 +128,18 @@ impl Int {
             Int::Small(n) => Some(*n as f64),
             Int::Big(big) => big.to_f64().filter(|f| f.is_finite()),
         }
+    }
+
+    /// A double with its fraction dropped, which is what `int(1.9)` and
+    /// `int(-1.9)` both do: toward zero rather than downward, so the second is
+    /// `-1` and not `-2`.
+    ///
+    /// `None` for an infinity or a NaN, which have no integer to become.
+    /// Everything else does, however large, because the exponent of a finite
+    /// double is bounded and this type is not.
+    #[must_use]
+    pub fn truncate(value: f64) -> Option<Self> {
+        BigInt::from_f64(value.trunc()).map(Self::from_big)
     }
 
     /// Whether this is zero, which is also whether it is falsey.
