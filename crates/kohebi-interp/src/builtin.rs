@@ -32,11 +32,13 @@
 //! a comparison here can raise and the standard library's sort has nowhere to
 //! put that.
 //!
-//! What none of them does is call back into Python. A builtin is handed the
-//! machine and still cannot call a Python function through it, which is why
-//! `key=` is refused by name on all three that take one, and why `map` and
-//! `filter` are not here at all. That is one piece of work in the machine
-//! rather than several opinions about builtins.
+//! Three of them call back into Python, through [`Vm::apply`]. `min`, `max`
+//! and `sorted` all take a `key=`, and a key is a Python function that a Rust
+//! function has to call and get an answer or an exception back from. The whole
+//! of that is `rank`, four lines, because the machine grew the missing half
+//! of a call rather than this module growing a way around it. `map` and
+//! `filter` want the same thing and want a lazy [`Native`] to hang it on,
+//! which is the next piece.
 //!
 //! Every builtin exception class is here too, and it comes from
 //! [`kohebi_core::exception`] rather than from this module, because a class is
@@ -105,6 +107,13 @@ impl Args {
     #[must_use]
     pub fn take_positional(self) -> Vec<Object> {
         self.positional
+    }
+
+    /// The two halves, for a caller that is about to make a call out of them.
+    /// [`Vm::apply`] is the only one.
+    #[must_use]
+    pub fn split(self) -> (Vec<Object>, Vec<(Box<str>, Object)>) {
+        (self.positional, self.named)
     }
 
     /// Take a keyword argument out, so that whatever is left over at the end is
@@ -508,28 +517,25 @@ fn extremum(vm: &mut Vm, mut args: Args, op: Compare, function: &str) -> Result<
             "Cannot specify a default for {function}() with multiple positional arguments"
         )));
     }
-    // `key=None` means no key, which is why this asks what it is rather than
-    // whether it is there.
-    if key.is_some_and(|key| !matches!(key, Object::None)) {
-        return Err(Error::new(
-            Kind::NotImplementedError,
-            format!("{function}(key=...) has to call a Python function and a builtin cannot yet"),
-        ));
-    }
+    let key = keyed(key);
 
-    let mut best = None;
+    // The best so far, and next to it the thing the comparison actually looked
+    // at. They are the same object unless there is a key, and holding both is
+    // what keeps the key from being called a second time on whatever is
+    // currently winning.
+    let mut best: Option<(Object, Object)> = None;
     if args.positional.len() == 1 {
         let walk = iterate::over(&args.positional[0])?;
         while let Step::Value(item) = vm.advance(&walk)? {
-            best = Some(keep(op, best, item)?);
+            offer(vm, op, key.as_ref(), &mut best, item)?;
         }
     } else {
         for item in args.positional() {
-            best = Some(keep(op, best, item.clone())?);
+            offer(vm, op, key.as_ref(), &mut best, item.clone())?;
         }
     }
     match (best, default) {
-        (Some(best), _) => Ok(best),
+        (Some((_, best)), _) => Ok(best),
         (None, Some(default)) => Ok(default),
         (None, None) => Err(Error::new(
             Kind::ValueError,
@@ -572,27 +578,45 @@ fn sorted(vm: &mut Vm, mut args: Args) -> Result<Object> {
     // `sort()` and not `sorted()`, because in CPython this is `list.sort`
     // under another name and the complaint comes from there.
     args.rest("sort")?;
-    // `key=None` is no key, the same as it is for `min` and `max`.
-    if key.is_some_and(|key| !matches!(key, Object::None)) {
-        return Err(Error::new(
-            Kind::NotImplementedError,
-            "sorted(key=...) has to call a Python function and a builtin cannot yet",
-        ));
-    }
 
-    let mut items = gather(vm, &args, "sorted")?;
-    // Reversed, sorted, reversed again, which is how CPython does it and is
-    // not the same as sorting and then reversing. Equal elements come out in
-    // the order they went in either way round, and reversing the result would
-    // put them back to front.
+    let items = gather(vm, &args, "sorted")?;
+    let Some(key) = keyed(key) else {
+        return Ok(Object::list(arrange(items, reverse, &|item: &Object| {
+            item
+        })?));
+    };
+    // Every key up front, in the order the elements arrived, which is what
+    // CPython does and is visible to a key that has a side effect. Note that
+    // `reverse=True` does not reverse this part: the list is turned round
+    // after the keys are taken, not before.
+    let mut ranked = Vec::with_capacity(items.len());
+    for item in items {
+        ranked.push((rank(vm, &key, &item)?, item));
+    }
+    let ranked = arrange(ranked, reverse, &|pair: &(Object, Object)| &pair.0)?;
+    Ok(Object::list(
+        ranked.into_iter().map(|(_, item)| item).collect(),
+    ))
+}
+
+/// The sort proper: reversed, sorted, reversed again.
+///
+/// Which is how CPython does it and is not the same as sorting and then
+/// reversing. Equal elements come out in the order they went in either way
+/// round, and reversing the result would put them back to front.
+fn arrange<T: Clone>(
+    mut items: Vec<T>,
+    reverse: bool,
+    rank: &impl Fn(&T) -> &Object,
+) -> Result<Vec<T>> {
     if reverse {
         items.reverse();
     }
-    let mut items = merge_sort(items)?;
+    let mut items = merge_sort(items, rank)?;
     if reverse {
         items.reverse();
     }
-    Ok(Object::list(items))
+    Ok(items)
 }
 
 /// The walk `list`, `tuple`, `set` and `sorted` share, empty when there is
@@ -625,7 +649,11 @@ fn gather(vm: &mut Vm, args: &Args, function: &str) -> Result<Vec<Object>> {
 /// the one shape where the comparison order is obvious enough to match
 /// CPython's: the later of the two elements goes on the left, which is the
 /// side named first when the two cannot be compared at all.
-fn merge_sort(items: Vec<Object>) -> Result<Vec<Object>> {
+///
+/// Generic over what is being sorted so that a keyed sort can move pairs
+/// around and compare only the first half of each. `rank` says what to
+/// compare; without a key it is the element itself.
+fn merge_sort<T: Clone>(items: Vec<T>, rank: &impl Fn(&T) -> &Object) -> Result<Vec<T>> {
     let mut source = items;
     let mut target = Vec::with_capacity(source.len());
     let mut width = 1;
@@ -635,7 +663,7 @@ fn merge_sort(items: Vec<Object>) -> Result<Vec<Object>> {
         while at < source.len() {
             let middle = (at + width).min(source.len());
             let end = (at + 2 * width).min(source.len());
-            merge(&source[at..middle], &source[middle..end], &mut target)?;
+            merge(&source[at..middle], &source[middle..end], &mut target, rank)?;
             at = end;
         }
         std::mem::swap(&mut source, &mut target);
@@ -646,10 +674,15 @@ fn merge_sort(items: Vec<Object>) -> Result<Vec<Object>> {
 
 /// Two sorted runs into one, taking from the left one unless the right one is
 /// strictly smaller, which is the whole of what makes the sort stable.
-fn merge(left: &[Object], right: &[Object], out: &mut Vec<Object>) -> Result<()> {
+fn merge<T: Clone>(
+    left: &[T],
+    right: &[T],
+    out: &mut Vec<T>,
+    rank: &impl Fn(&T) -> &Object,
+) -> Result<()> {
     let (mut i, mut j) = (0, 0);
     while i < left.len() && j < right.len() {
-        if ops::compare(Compare::Lt, &right[j], &left[i])?.truthy() {
+        if ops::compare(Compare::Lt, rank(&right[j]), rank(&left[i]))?.truthy() {
             out.push(right[j].clone());
             j += 1;
         } else {
@@ -662,19 +695,54 @@ fn merge(left: &[Object], right: &[Object], out: &mut Vec<Object>) -> Result<()>
     Ok(())
 }
 
-/// Whichever of the two the operator prefers, with the new one on the left.
+/// One more candidate against the best so far.
 ///
 /// Strictly better wins, so a tie keeps the one that came first, and that is
 /// visible: `min([1], [1])` gives back the first list rather than an equal
-/// one. The new candidate goes on the left of the comparison because that is
-/// the side CPython names first when the two cannot be compared at all.
-fn keep(op: Compare, best: Option<Object>, item: Object) -> Result<Object> {
-    let Some(best) = best else { return Ok(item) };
-    if ops::compare(op, &item, &best)?.truthy() {
-        Ok(item)
-    } else {
-        Ok(best)
+/// one, and `max([1, 2], key=lambda x: 'a')` is 1. The new candidate goes on
+/// the left of the comparison because that is the side CPython names first
+/// when the two cannot be compared at all.
+///
+/// In place rather than returning the new best, because the caller has two
+/// loops that do this and nothing else to say between them.
+fn offer(
+    vm: &mut Vm,
+    op: Compare,
+    key: Option<&Object>,
+    best: &mut Option<(Object, Object)>,
+    item: Object,
+) -> Result<()> {
+    let seen = match key {
+        None => item.clone(),
+        Some(key) => rank(vm, key, &item)?,
+    };
+    let better = match best.as_ref() {
+        None => true,
+        Some((against, _)) => ops::compare(op, &seen, against)?.truthy(),
+    };
+    if better {
+        *best = Some((seen, item));
     }
+    Ok(())
+}
+
+/// The `key=` a call gave, with `key=None` counting as no key at all.
+///
+/// `min`, `max` and `sorted` all take one and all read it the same way, which
+/// is why `min([1], key=None)` is 1 rather than a complaint about None not
+/// being callable.
+fn keyed(key: Option<Object>) -> Option<Object> {
+    key.filter(|key| !matches!(key, Object::None))
+}
+
+/// `key(item)`, which is a builtin calling back into Python.
+///
+/// The one thing here that could not be written before [`Vm::apply`] existed.
+/// Whatever the key raises comes straight back out, so `sorted(xs, key=f)`
+/// where `f` divides by zero raises `ZeroDivisionError` and not something
+/// about sorting.
+fn rank(vm: &mut Vm, key: &Object, item: &Object) -> Result<Object> {
+    vm.apply(key, Args::new(vec![item.clone()], Vec::new()))
 }
 
 /// An argument that can be given either way, refusing a call that gave both.

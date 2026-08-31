@@ -1319,11 +1319,13 @@ fn min_and_max_refuse_in_four_different_ways() {
         raises("min([1], default=2, foo=3)\n"),
         "TypeError: min() got an unexpected keyword argument 'foo'"
     );
-    // The one thing here CPython does and this does not.
+    // A key that is not callable is not this function's complaint to make, and
+    // it is not made until there is an element to call it on.
     assert_eq!(
-        raises("min([3, 1], key=abs)\n"),
-        "NotImplementedError: min(key=...) has to call a Python function and a builtin cannot yet"
+        raises("min([1], key=1)\n"),
+        "TypeError: 'int' object is not callable"
     );
+    assert_eq!(out("print(min([], key=1, default=9))\n"), "9\n");
 }
 
 #[test]
@@ -3333,11 +3335,13 @@ fn sorted_counts_and_compares_in_its_own_words() {
         raises("sorted([1, 'a'], reverse=True)\n"),
         "TypeError: '<' not supported between instances of 'int' and 'str'"
     );
-    // The one thing here CPython does and this does not.
+    // A key that cannot be called is complained about by the call, not by
+    // `sorted`, and not at all when there is nothing to call it on.
     assert_eq!(
-        raises("sorted([3, 1], key=abs)\n"),
-        "NotImplementedError: sorted(key=...) has to call a Python function and a builtin cannot yet"
+        raises("sorted([1], key=1)\n"),
+        "TypeError: 'int' object is not callable"
     );
+    assert_eq!(out("print(sorted([], key=1))\n"), "[]\n");
 }
 
 #[test]
@@ -3360,5 +3364,140 @@ print(sorted(sorted(values)) == sorted(values))
          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n\
          [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]\n\
          True\n"
+    );
+}
+
+#[test]
+fn a_key_decides_the_order_and_the_element_is_what_comes_back() {
+    // The whole point of a key is that the thing compared and the thing
+    // returned are different, which every line here relies on. `min` by
+    // length gives back the string and not its length, and sorting `[1, 'a']`
+    // by `str` works where sorting it plainly cannot.
+    let program = "\
+def neg(x):
+    return -x
+
+
+def first(pair):
+    return pair[0]
+
+
+print(sorted([3, 1, 2], key=neg))
+print(sorted(['bb', 'a', 'ccc'], key=len))
+print(sorted('cab', key=str))
+print(sorted([1, 'a'], key=str))
+print(min(['aa', 'b'], key=len), max(['aa', 'b'], key=len))
+print(min('aa', 'b', key=len))
+print(min([(1, 'b'), (1, 'a')], key=first), max([(1, 'b'), (1, 'a')], key=first))
+print(sorted([1, 2], key=None), min([1, 2], key=None))
+";
+    // The last line of the three functions is the tie rule, and it is the same
+    // rule for both: the first element with the best key wins, so `min` and
+    // `max` give back the same pair when the key cannot tell them apart.
+    assert_eq!(
+        out(program),
+        "[3, 2, 1]\n\
+         ['a', 'bb', 'ccc']\n\
+         ['a', 'b', 'c']\n\
+         [1, 'a']\n\
+         b aa\n\
+         b\n\
+         (1, 'b') (1, 'b')\n\
+         [1, 2] 1\n"
+    );
+}
+
+#[test]
+fn a_keyed_sort_is_as_stable_as_a_plain_one() {
+    // Nine elements in three groups of three, where the key is blind to
+    // everything that tells the members of a group apart. Anything but a
+    // stable sort would shuffle them.
+    let program = "\
+def rank(pair):
+    return pair[0]
+
+
+pairs = []
+for i in range(9):
+    pairs = pairs + [(i % 3, i)]
+print(sorted(pairs, key=rank))
+print(sorted(pairs, key=rank, reverse=True))
+";
+    // Reversed, the groups come out back to front and the members of each
+    // stay in the order they went in, which is what reversing twice around
+    // the sort buys and what reversing the result would lose.
+    assert_eq!(
+        out(program),
+        "[(0, 0), (0, 3), (0, 6), (1, 1), (1, 4), (1, 7), (2, 2), (2, 5), (2, 8)]\n\
+         [(2, 2), (2, 5), (2, 8), (1, 1), (1, 4), (1, 7), (0, 0), (0, 3), (0, 6)]\n"
+    );
+}
+
+#[test]
+fn a_key_is_called_once_per_element_and_in_order() {
+    // A key with a side effect can see how often it was called and on what,
+    // so this is not an implementation detail. `seen` accumulates the
+    // arguments as digits, which is the order as well as the count.
+    let program = "\
+seen = [0]
+
+
+def watch(x):
+    seen[0] = seen[0] * 10 + x
+    return -x
+
+
+print(sorted([3, 1, 2], key=watch), seen[0])
+seen[0] = 0
+print(sorted([3, 1, 2], key=watch, reverse=True), seen[0])
+seen[0] = 0
+print(min([3, 1, 2], key=watch), max([3, 1, 2], key=watch), seen[0])
+";
+    // 312 rather than 213 on the second line: `reverse=True` turns the list
+    // round after the keys have been taken, not before. And 312312 on the
+    // third, because neither `min` nor `max` asks the key twice about the
+    // element that is winning.
+    assert_eq!(
+        out(program),
+        "[3, 2, 1] 312\n\
+         [1, 2, 3] 312\n\
+         3 1 312312\n"
+    );
+}
+
+#[test]
+fn what_the_key_raises_is_what_the_call_raises() {
+    // Not wrapped in anything about sorting, because the key is an ordinary
+    // call and this is an ordinary exception coming back out of one.
+    let program = "\
+def boom(x):
+    return 1 / 0
+
+
+";
+    assert_eq!(
+        raises(&format!("{program}sorted([1, 2], key=boom)\n")),
+        "ZeroDivisionError: division by zero"
+    );
+    assert_eq!(
+        raises(&format!("{program}min([1, 2], key=boom)\n")),
+        "ZeroDivisionError: division by zero"
+    );
+    assert_eq!(
+        raises(&format!("{program}max([1, 2], key=boom)\n")),
+        "ZeroDivisionError: division by zero"
+    );
+}
+
+#[test]
+fn a_key_that_never_stops_is_caught_by_the_limit_and_not_by_the_stack() {
+    // Worth its own test because a key puts a builtin's Rust frames between
+    // two Python ones, so this is the deepest a thousand Python calls can get
+    // in Rust and the most stack the limit has to be worth. Hence [`deep`]:
+    // the stack has to be the one the driver asks for rather than the couple
+    // of megabytes a test thread comes with.
+    assert_eq!(
+        deep(|| raises("def nest(x):\n    return sorted([x], key=nest)\nnest(1)\n")),
+        "RecursionError: maximum recursion depth exceeded"
     );
 }

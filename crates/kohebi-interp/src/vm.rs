@@ -55,9 +55,11 @@
 //!
 //! Dunder methods, for the same reason from the other side. A class can define
 //! `__init__` and it runs, because construction has to put the arguments
-//! somewhere. `__repr__`, `__eq__`, `__len__` and `__bool__` do not, because
-//! each of them is user code called from inside an operation that has no way to
-//! call anything yet.
+//! somewhere. `__repr__`, `__eq__`, `__len__` and `__bool__` do not. Each of
+//! them is user code called from inside an operation, and [`Vm::apply`] is how
+//! an operation calls user code, so what is left is the lookup rather than the
+//! call: finding `__repr__` on the type of an arbitrary object needs the type
+//! object that is missing above.
 //!
 //! ## Exceptions
 //!
@@ -743,7 +745,24 @@ impl Vm {
         self.output.flush().map_err(|error| os_error(&error))
     }
 
-    /// Evaluate a call.
+    /// Call something with its arguments already in hand.
+    ///
+    /// This is the half of a call that does not care where the arguments came
+    /// from. `Instr::Call` reads them out of registers and arrives here.
+    /// Anything written in Rust that has to call Python code builds them
+    /// itself and arrives here the same way, which is what `sorted(key=...)`
+    /// does, and `map`, `filter` and every dunder there will ever be.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the call raises, plus a `TypeError` if the value is not
+    /// callable at all and a `RecursionError` if it is too deep.
+    pub fn apply(&mut self, callee: &Object, args: Args) -> Result<Object> {
+        let (positional, named) = args.split();
+        self.invoke(callee, positional.into_iter().map(Ok), named)
+    }
+
+    /// Evaluate a call instruction.
     fn call(
         &mut self,
         code: &Code,
@@ -755,6 +774,35 @@ impl Vm {
         // Cloned out of the register before the call, so that a builtin taking
         // the machine mutably is not also holding a borrow of the frame.
         let callee = frame.get(callee)?.clone();
+        self.invoke(
+            &callee,
+            code.operands(args)
+                .iter()
+                .map(|reg| frame.get(*reg).cloned()),
+            Written {
+                entries: &code.keywords[keywords.range()],
+                frame,
+            },
+        )
+    }
+
+    /// Call a value with the arguments from wherever the caller keeps them.
+    ///
+    /// The positional arguments arrive as an iterator rather than a list
+    /// because the common case is a Python function, and that binds them
+    /// straight into a frame's registers. Collecting them first would put an
+    /// allocation on every call in the program to serve the callees that do
+    /// want a list, and there are two of those.
+    ///
+    /// The keyword arguments arrive as something that knows how to fold itself
+    /// for the same reason from the other side. They cannot be folded before
+    /// this, because folding needs the name of the thing being called in order
+    /// to complain about a duplicate, and that is settled here.
+    fn invoke<I, K>(&mut self, callee: &Object, positional: I, keywords: K) -> Result<Object>
+    where
+        I: ExactSizeIterator<Item = Result<Object>>,
+        K: Keywords,
+    {
         // Whether it is callable is settled before a single argument is
         // gathered, because that is the order the messages come out in: a
         // number called with a bad keyword complains about being a number.
@@ -796,19 +844,12 @@ impl Vm {
             }
         };
 
-        let mut named: Vec<(Box<str>, Object)> = Vec::new();
-        for (name, reg) in &code.keywords[keywords.range()] {
-            let value = frame.get(*reg)?;
-            match name {
-                Some(name) => {
-                    let name = Box::from(self.open.name(*name));
-                    push_keyword(&mut named, name, value, function)?;
-                }
-                None => spread(&mut named, value, function)?,
-            }
-        }
+        // The name table is lent for the fold and no longer, so the machine is
+        // free to be borrowed mutably again by the time the call happens.
+        let named = keywords.fold(function, &self.open)?;
+        let count = positional.len();
         if let Some(builtin) = builtin {
-            let positional = operands(code, frame, args)?;
+            let positional = positional.collect::<Result<Vec<_>>>()?;
             return builtin.call(self, Args::new(positional, named));
         }
         if let Some(class) = class {
@@ -816,7 +857,7 @@ impl Vm {
             // positionally. None of them take a keyword, and the refusal is
             // worded the same way it is for a builtin because in CPython that
             // is what these are.
-            let positional = operands(code, frame, args)?;
+            let positional = positional.collect::<Result<Vec<_>>>()?;
             let taken = Args::new(positional, named);
             taken.no_keywords(function)?;
             return Ok(class.instance(taken.take_positional()));
@@ -827,7 +868,7 @@ impl Vm {
             let Some(instance) = instance else {
                 unreachable!("the callee was one of the kinds a moment ago")
             };
-            if args.len > 0 || !named.is_empty() {
+            if count > 0 || !named.is_empty() {
                 return Err(Error::type_error(format!(
                     "{function}() takes no arguments"
                 )));
@@ -843,13 +884,7 @@ impl Vm {
         // seen from two sides: an argument the call site did not write, in front
         // of the ones it did.
         let bound = receiver.or_else(|| instance.clone());
-        let registers = function.bind(
-            bound,
-            code.operands(args)
-                .iter()
-                .map(|reg| frame.get(*reg).cloned()),
-            named,
-        )?;
+        let registers = function.bind(bound, positional, named)?;
         if body.code().generator {
             // A generator function runs none of its body when it is called.
             // The arguments are bound anyway, because binding is where a call
@@ -1401,6 +1436,57 @@ fn build_dict(code: &Code, frame: &Frame, entries: Span) -> Result<Object> {
         }
     }
     Ok(Object::dict(dict))
+}
+
+/// Where a call's keyword arguments are, since the two callers keep them in
+/// different places.
+///
+/// [`Vm::call`] has a slice of the code and a frame to read them out of, and
+/// [`Vm::apply`] has them already. Folding them is what needs the difference
+/// hidden: it happens inside [`Vm::invoke`], after the name of the thing being
+/// called is known, because a duplicate keyword is complained about in that
+/// name. Everything else about a call is the same either way.
+trait Keywords {
+    /// The keyword arguments this call passes, one entry per name.
+    ///
+    /// `open` is the machine's name table, for a caller whose keywords are
+    /// still interned. `function` is what to call the callee in a complaint.
+    fn fold(self, function: &str, open: &Globals) -> Result<Vec<(Box<str>, Object)>>;
+}
+
+/// The keyword arguments a call site wrote out, in registers.
+struct Written<'a> {
+    entries: &'a [(Option<NameId>, Reg)],
+    frame: &'a Frame,
+}
+
+impl Keywords for Written<'_> {
+    /// A name is `None` when it was written `**something`, and that is the only
+    /// way the same keyword can arrive twice, since writing it twice is a
+    /// `SyntaxError`. A call with no keywords does not allocate.
+    fn fold(self, function: &str, open: &Globals) -> Result<Vec<(Box<str>, Object)>> {
+        let mut named: Vec<(Box<str>, Object)> = Vec::new();
+        for (name, reg) in self.entries {
+            let value = self.frame.get(*reg)?;
+            match name {
+                Some(name) => {
+                    let name = Box::from(open.name(*name));
+                    push_keyword(&mut named, name, value, function)?;
+                }
+                None => spread(&mut named, value, function)?,
+            }
+        }
+        Ok(named)
+    }
+}
+
+impl Keywords for Vec<(Box<str>, Object)> {
+    /// Nothing to do. A builtin cannot write `f(**d)`, so every keyword it
+    /// passes already has a name, and passing the same one twice is a mistake
+    /// in the builtin rather than something a program can write.
+    fn fold(self, _: &str, _: &Globals) -> Result<Self> {
+        Ok(self)
+    }
 }
 
 /// Add a keyword argument, refusing a name that is already there.
