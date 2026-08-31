@@ -317,9 +317,15 @@ fn an_unhashable_value_cannot_be_a_key_or_a_member() {
         raises("print({[1]})\n"),
         "TypeError: cannot use 'list' as a set element (unhashable type: 'list')"
     );
+    // Two type names, because the tuple is what was used as the key and the
+    // list inside it is what refused to hash.
     assert_eq!(
         raises("print({ (1, [2]): 3 })\n"),
-        "TypeError: cannot use 'list' as a dict key (unhashable type: 'list')"
+        "TypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')"
+    );
+    assert_eq!(
+        raises("print({(1, [2])})\n"),
+        "TypeError: cannot use 'tuple' as a set element (unhashable type: 'list')"
     );
     assert_eq!(
         raises("print([1] in {1: 2})\n"),
@@ -5084,5 +5090,33 @@ fn popping_a_key_that_is_not_there_depends_on_the_default() {
         "1 gone\n\
          KeyError: 'a'\n\
          KeyError: 'popitem(): dictionary is empty'\n"
+    );
+}
+
+/// The two type names in an unhashable complaint are not the same name. The
+/// first is what was handed over and the second is what inside it refused, and
+/// for a tuple holding a list those are `tuple` and `list`.
+#[test]
+fn an_unhashable_complaint_names_what_was_given_and_what_refused() {
+    let (out, raised) = execute(
+        "d = {'a': 1}\n\
+         s = {1}\n\
+         for work in (lambda: ([], 1) in d, lambda: ([], 1) in s,\n\
+         \x20            lambda: d[([], 1)], lambda: [] in d, lambda: [] in s,\n\
+         \x20            lambda: d.get(([], 1))):\n\
+         \x20   try:\n\
+         \x20       work()\n\
+         \x20   except TypeError as e:\n\
+         \x20       print('TypeError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "TypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')\n\
+         TypeError: cannot use 'tuple' as a set element (unhashable type: 'list')\n\
+         TypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')\n\
+         TypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n\
+         TypeError: cannot use 'list' as a set element (unhashable type: 'list')\n\
+         TypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')\n"
     );
 }

@@ -6,6 +6,8 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+An unhashable key named the wrong type. `({}, 1)` used as a dict key said `cannot use 'list' as a dict key` where CPython says `cannot use 'tuple'`, because the message took its first type name from whatever inside the value refused rather than from the value itself. The two are the same name for a bare list and different names for a tuple holding one, and the second half of the message is where the thing to go and fix is named. Found while writing the dict methods below, and fixed in the one place all of these are worded.
+
 Dictionaries have their ten methods: `get`, `setdefault`, `pop`, `popitem`, `clear`, `copy`, `update`, `keys`, `values` and `items`. The eleventh, `fromkeys`, is called on the type rather than on a dictionary and there is no type object for a builtin type to hang it on yet, so it is named and refused rather than written in the wrong place.
 
 The three views are views and not lists, which is the whole difference between Python 2 and Python 3 here. `ks = d.keys()` holds the dictionary rather than a copy of its keys, so an entry put in afterwards is in `ks`, and a program that stashes a view early and reads it late gets the current answer. They can be walked, measured with `len`, asked with `in`, printed and sorted, and `for k in d` and `for k in d.keys()` are the same walk rather than two that happen to agree.

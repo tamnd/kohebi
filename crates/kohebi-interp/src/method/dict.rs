@@ -95,7 +95,7 @@ fn window(receiver: &Object, args: &Args, of: Of, method: &str) -> Result<Object
 /// `dict.get(key, default=None)`.
 fn get(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
     let (wanted, fallback) = pair(&args, "get")?;
-    let key = hashable(wanted)?;
+    let key = kohebi_core::ops::key(wanted, "dict key")?;
     Ok(entries(receiver)
         .borrow()
         .get(&key)
@@ -106,7 +106,7 @@ fn get(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
 /// `dict.setdefault(key, default=None)`.
 fn setdefault(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
     let (wanted, fallback) = pair(&args, "setdefault")?;
-    let key = hashable(wanted)?;
+    let key = kohebi_core::ops::key(wanted, "dict key")?;
     let mut held = entries(receiver).borrow_mut();
     if let Some(already) = held.get(&key) {
         return Ok(already.clone());
@@ -127,7 +127,7 @@ fn pop(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
         [wanted, fallback] => (wanted, Some(fallback.clone())),
         given => return Err(counted("pop", given.len())),
     };
-    let key = hashable(wanted)?;
+    let key = kohebi_core::ops::key(wanted, "dict key")?;
     match entries(receiver).borrow_mut().remove(&key) {
         Some(value) => Ok(value),
         None => fallback.ok_or_else(|| missing(wanted)),
@@ -236,7 +236,7 @@ fn read(vm: &mut Vm, other: &Object) -> Result<Vec<(Key, Object)>> {
                 pieces.len()
             )));
         };
-        taken.push((hashable(key)?, value.clone()));
+        taken.push((kohebi_core::ops::key(key, "dict key")?, value.clone()));
         at += 1;
     }
     Ok(taken)
@@ -261,16 +261,6 @@ fn counted(method: &str, given: usize) -> Error {
     Error::type_error(format!(
         "{method} expected at most 2 arguments, got {given}"
     ))
-}
-
-/// A value as a key, with CPython's wording for one that cannot be.
-///
-/// The two type names need not be the same one. `d.get(([], 1))` says
-/// `cannot use 'tuple' as a dict key (unhashable type: 'list')`, naming what was
-/// handed over and then what inside it refused, and the second is the one to go
-/// and fix.
-fn hashable(value: &Object) -> Result<Key> {
-    crate::view::hashable(value)
 }
 
 /// The `KeyError` for a key that is not there, which prints the key itself.

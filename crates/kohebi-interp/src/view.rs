@@ -33,7 +33,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use kohebi_core::{Dict, Error, Key, Native, Object, Result};
+use kohebi_core::{Dict, Error, Native, Object, Result};
 
 /// Which of the three views this is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,7 +179,7 @@ pub(crate) fn contains(container: &Object, value: &Object) -> Option<Result<Obje
         // dictionary itself. `[] in d.keys()` raises where `[] in [1]` does
         // not, because the question went to a hash table and never reached a
         // comparison.
-        Of::Keys => match hashable(value) {
+        Of::Keys => match kohebi_core::ops::key(value, "dict key") {
             Ok(key) => view.entries.borrow().contains(&key),
             Err(refused) => return Some(Err(refused)),
         },
@@ -198,7 +198,7 @@ pub(crate) fn contains(container: &Object, value: &Object) -> Option<Result<Obje
             let [wanted, value] = pair.as_ref() else {
                 return Some(Ok(Object::Bool(false)));
             };
-            match hashable(wanted) {
+            match kohebi_core::ops::key(wanted, "dict key") {
                 Ok(key) => view
                     .entries
                     .borrow()
@@ -209,20 +209,6 @@ pub(crate) fn contains(container: &Object, value: &Object) -> Option<Result<Obje
         }
     };
     Some(Ok(Object::Bool(found)))
-}
-
-/// A value as a dictionary key, with CPython's wording for one that cannot be.
-///
-/// Here rather than in the method table because the views need it too, and
-/// because there is exactly one right wording for it.
-pub(crate) fn hashable(value: &Object) -> Result<Key> {
-    Key::new(value.clone()).map_err(|refused| {
-        Error::type_error(format!(
-            "cannot use '{}' as a dict key ({})",
-            value.type_name(),
-            refused.message()
-        ))
-    })
 }
 
 /// Refuse a set operation on a view, or `None` when there is nothing to refuse.
