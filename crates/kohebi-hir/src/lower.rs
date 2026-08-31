@@ -123,6 +123,8 @@ pub fn lower_module(module: &Mod, name: &str) -> Result<Body> {
     };
     Ok(Body {
         name: name.into(),
+        // A module is not written inside anything, so the two are the same.
+        qualname: name.into(),
         params: Params::default(),
         slots: scope.slots,
         block,
@@ -606,6 +608,15 @@ enum Reuse {
 
 /// One frame's worth of lowering state.
 struct Scope {
+    /// Whether the names this frame binds go into a namespace instead of slots.
+    ///
+    /// True for a class body and nothing else. Two things follow from it. The
+    /// names it binds are namespace entries, so a read that finds nothing there
+    /// falls through to the module rather than being an `UnboundLocalError`. And
+    /// it is not an enclosing scope for anything defined inside it, so a method
+    /// that mentions a class attribute by its bare name gets a `NameError`,
+    /// which is why [`Lowering::capture`] steps over one.
+    namespace: bool,
     slots: Vec<Slot>,
     temps: u32,
     /// The names this frame keeps in slots, which for a module is none of them.
@@ -613,6 +624,32 @@ struct Scope {
     /// The names a `global` statement in this frame took out of it, which is
     /// the one way a name assigned in a function is not a local of it.
     declared: HashSet<Name>,
+    /// The names a class body binds anywhere in it.
+    ///
+    /// Only a class body records this, and only [`Lowering::read`] uses it. A
+    /// name the body binds is read out of the namespace and then out of the
+    /// module, never out of an enclosing function, even where the read comes
+    /// before the binding. So in
+    ///
+    /// ```text
+    /// a = 'module'
+    /// def f():
+    ///     a = 'enclosing'
+    ///     class C:
+    ///         print(a)
+    ///         a = 'class'
+    /// ```
+    ///
+    /// the `print` says `module`. CPython settles it the same way, by using
+    /// `LOAD_NAME` rather than `LOAD_CLASSDEREF` for a name the body binds.
+    bound: HashSet<Name>,
+    /// The names a `nonlocal` statement in this frame took out of it.
+    ///
+    /// Only a class body reads this. In a function a `nonlocal` name is in
+    /// `free` and an assigned name is in `locals`, so the two never have to be
+    /// told apart. A class body declares nothing, so both land in `free`, and
+    /// the difference is whether a write goes to the namespace or to the cell.
+    nonlocals: HashSet<Name>,
     /// The functions defined directly in this frame.
     functions: Vec<Body>,
     /// The names this frame took from an enclosing one, and their slots here.
@@ -626,12 +663,15 @@ struct Scope {
 }
 
 impl Scope {
-    fn new() -> Self {
+    fn new(namespace: bool) -> Self {
         Scope {
+            namespace,
             slots: Vec::new(),
             temps: 0,
             locals: HashMap::new(),
             declared: HashSet::new(),
+            nonlocals: HashSet::new(),
+            bound: HashSet::new(),
             functions: Vec::new(),
             free: HashMap::new(),
             order: Vec::new(),
@@ -656,12 +696,21 @@ impl Scope {
 /// for in the frames around it before it can be called a global.
 struct Lower {
     scopes: Vec<Scope>,
+    /// What goes in front of the name of anything defined here, which is
+    /// `__qualname__` minus the last part.
+    ///
+    /// A function contributes `f.<locals>.` and a class contributes `C.`, which
+    /// is the difference between the two: a name written inside a class is
+    /// reached through the class and a name written inside a function is not
+    /// reachable at all, and CPython spells that difference out.
+    path: String,
 }
 
 impl Lower {
     fn new() -> Self {
         Self {
-            scopes: vec![Scope::new()],
+            scopes: vec![Scope::new(false)],
+            path: String::new(),
         }
     }
 
@@ -703,6 +752,24 @@ impl Lower {
     /// Reading a name: a slot if this frame has one, a cell if an enclosing
     /// function does, and the module namespace otherwise.
     fn read(&mut self, name: &Name) -> Expr {
+        // A class body's names are its namespace, so a slot found here is a cell
+        // taken from an enclosing function and the namespace still comes first.
+        // A `global` in the body takes the name out of the namespace entirely,
+        // which is what `resolve` returning `None` with the name declared means.
+        if self.scope().namespace && !self.taken_out(name) {
+            // A name the body binds is its own, so an enclosing function's copy
+            // of it is not reachable from here at all. See [`Scope::bound`].
+            if self.scope().bound.contains(name) {
+                return Expr::Name(name.clone());
+            }
+            return match self.resolve(name) {
+                Some(cell) => Expr::NameOrCell {
+                    name: name.clone(),
+                    cell,
+                },
+                None => Expr::Name(name.clone()),
+            };
+        }
         match self.resolve(name) {
             Some(local) => Expr::Local(local),
             None => Expr::Global(name.clone()),
@@ -711,10 +778,24 @@ impl Lower {
 
     /// Writing a name, which lands in the same place reading it comes from.
     fn write(&mut self, name: &Name) -> Place {
+        // Except in a class body, where a write always lands in the namespace
+        // even when there is a cell underneath. `nonlocal` is how a body says it
+        // meant the cell, and that puts the name in `declared` rather than here.
+        if self.scope().namespace && !self.taken_out(name) {
+            return Place::Name(name.clone());
+        }
         match self.resolve(name) {
             Some(local) => Place::Local(local),
             None => Place::Global(name.clone()),
         }
+    }
+
+    /// Whether a `global` or a `nonlocal` took this name out of the namespace a
+    /// class body is filling, which is the only way one of its names is not one
+    /// of its attributes.
+    fn taken_out(&self, name: &Name) -> bool {
+        let scope = self.scope();
+        scope.declared.contains(name) || scope.nonlocals.contains(name)
     }
 
     /// The slot a name is in, capturing it from an enclosing frame if that is
@@ -735,10 +816,18 @@ impl Lower {
     /// is a global and reading one from inside a function is not a closure. A
     /// `global` declaration in a frame in between stops the search there, since
     /// from that frame inwards the name is the module's.
+    ///
+    /// A class body in between is stepped over rather than searched. Its names
+    /// are attributes of the class and not variables of an enclosing scope,
+    /// which is why a method that mentions a class attribute by its bare name
+    /// gets a `NameError` and has to write `self.x` or `C.x`.
     fn capture(&mut self, name: &Name) -> Option<Local> {
         let here = self.scopes.len().checked_sub(1)?;
         let mut owner = None;
         for at in (1..here).rev() {
+            if self.scopes[at].namespace {
+                continue;
+            }
             if self.scopes[at].declared.contains(name) {
                 return None;
             }
@@ -953,6 +1042,52 @@ impl Lower {
                 // a handler re-raises what that handler caught.
                 out.push(Stmt::Raise { exc, cause });
             }
+            StmtKind::ClassDef {
+                name,
+                bases,
+                keywords,
+                body,
+                decorator_list,
+                type_params,
+            } => {
+                let what = if type_params.is_empty() {
+                    if keywords.is_empty() {
+                        None
+                    } else {
+                        // `metaclass=`, and everything a metaclass is handed.
+                        Some("a class with keyword arguments")
+                    }
+                } else {
+                    Some("a class with type parameters")
+                };
+                if let Some(what) = what {
+                    return Err(Failed::Unsupported(Unsupported { what, line }));
+                }
+                if bases.len() > 1 {
+                    return Err(Failed::Unsupported(Unsupported {
+                        what: "a class with several bases",
+                        line,
+                    }));
+                }
+                // The same order a `def` puts them in, and for the same reason:
+                // a decorator is evaluated where it is written and applied from
+                // the bottom up once the class exists.
+                let mut decorators = Vec::with_capacity(decorator_list.len());
+                for decorator in decorator_list {
+                    let callee = self.lower_expr(decorator, out)?;
+                    decorators.push(self.pin(out, callee));
+                }
+                let mut value = self.lower_class(name, bases, body, out)?;
+                for callee in decorators.into_iter().rev() {
+                    value = Expr::Call {
+                        callee: callee.boxed(),
+                        args: vec![value],
+                        keywords: Vec::new(),
+                    };
+                }
+                let place = self.write(name);
+                out.push(Stmt::Store { place, value });
+            }
             StmtKind::Assert { test, msg } => self.lower_assert(test, msg.as_ref(), out)?,
             StmtKind::Try {
                 body,
@@ -1095,24 +1230,41 @@ impl Lower {
             .map(|param| param.arg.clone())
             .collect();
 
-        self.frame(name, params, &named, source, defaults, kw_defaults)
+        let (id, captures) = self.frame(name, params, &named, source, false)?;
+        Ok(Expr::Function {
+            id,
+            defaults,
+            kw_defaults,
+            captures,
+        })
     }
 
-    /// Lower a body in a frame of its own and hand back what makes it.
+    /// Lower a body in a frame of its own, and hand back which body it became
+    /// and the cells it takes from this one.
     ///
-    /// Everything that has a frame comes through here: a `def`, a `lambda` and
-    /// a comprehension. The defaults are already lowered, because they belong
-    /// to the frame around this one and were evaluated there.
+    /// Everything that has a frame comes through here: a `def`, a `lambda`, a
+    /// comprehension and a class body. What the caller does with the pair
+    /// differs, which is why the node is built there rather than here: a `def`
+    /// has defaults to carry and a class has its bases.
+    ///
+    /// `namespace` is what makes a class body different from the other three.
+    /// See [`Scope::namespace`].
     fn frame(
         &mut self,
         name: &str,
         params: Params,
         parameters: &[Name],
         source: Source<'_>,
-        defaults: Vec<Expr>,
-        kw_defaults: Vec<Option<Expr>>,
-    ) -> Result<Expr> {
-        self.scopes.push(Scope::new());
+        namespace: bool,
+    ) -> Result<(FuncId, Vec<Local>)> {
+        let qualname: Name = format!("{}{name}", self.path).into();
+        let outer = self.path.len();
+        self.path.push_str(name);
+        // A class is reached through its name and a function's insides are not
+        // reachable at all, which is the whole of why the two read differently.
+        self.path
+            .push_str(if namespace { "." } else { ".<locals>." });
+        self.scopes.push(Scope::new(namespace));
         // The parameters take the first slots, in the order [`Params`] says they
         // do, so that binding a call's arguments is filling in registers from
         // zero rather than a lookup per argument.
@@ -1123,24 +1275,21 @@ impl Lower {
         let Some(scope) = self.scopes.pop() else {
             unreachable!("pushed just above")
         };
+        self.path.truncate(outer);
         let block = block?;
 
         let functions = &mut self.scope_mut().functions;
         let id = FuncId(count(functions.len()));
         functions.push(Body {
             name: name.into(),
+            qualname,
             params,
             slots: scope.slots,
             block,
             functions: scope.functions,
             free: scope.order,
         });
-        Ok(Expr::Function {
-            id,
-            defaults,
-            kw_defaults,
-            captures: scope.from,
-        })
+        Ok((id, scope.from))
     }
 
     /// The body of a function, once its frame is the one being lowered.
@@ -1234,14 +1383,19 @@ impl Lower {
             double_star: false,
         };
         let parameters = [Name::from(OVER)];
-        let function = self.frame(
+        let (id, captures) = self.frame(
             comp.collect.name(),
             params,
             &parameters,
             Source::Comp(comp),
-            Vec::new(),
-            Vec::new(),
+            /* namespace */ false,
         )?;
+        let function = Expr::Function {
+            id,
+            defaults: Vec::new(),
+            kw_defaults: Vec::new(),
+            captures,
+        };
         // `iter` is called here rather than inside, so that `[x for x in 4]`
         // raises where it is written.
         Ok(Expr::Call {
@@ -1391,6 +1545,15 @@ impl Lower {
             if self.capture(&name).is_none() {
                 return syntax(format!("no binding for nonlocal '{name}' found"), line);
             }
+            self.scope_mut().nonlocals.insert(name);
+        }
+        // A class body binds its names into a namespace rather than into slots,
+        // so there is nothing to give one to. The pass still had to run, because
+        // the `global` and `nonlocal` declarations above are what say which of
+        // its names are not going in the namespace at all.
+        if self.scope().namespace {
+            self.scope_mut().bound = binder.bound.into_iter().collect();
+            return Ok(());
         }
         for name in binder.bound {
             if self.scope().declared.contains(&name) || self.scope().free.contains_key(&name) {
@@ -1399,6 +1562,37 @@ impl Lower {
             self.declare(&name);
         }
         Ok(())
+    }
+
+    /// The class a `class` statement builds, before anything binds it.
+    ///
+    /// The bases are lowered here, in the frame the statement is written in, so
+    /// they are evaluated before the body runs. The body is a frame of its own
+    /// filling a namespace rather than slots, which is [`Scope::namespace`] and
+    /// is most of what makes a class body different from a function's.
+    fn lower_class(
+        &mut self,
+        name: &Name,
+        bases: &[AExpr],
+        body: &[AStmt],
+        out: &mut Block,
+    ) -> Result<Expr> {
+        let bases = bases
+            .iter()
+            .map(|base| self.lower_expr(base, out))
+            .collect::<Result<Vec<_>>>()?;
+        let (id, captures) = self.frame(
+            name,
+            Params::default(),
+            &[],
+            Source::Block(body),
+            /* namespace */ true,
+        )?;
+        Ok(Expr::Class {
+            id,
+            bases,
+            captures,
+        })
     }
 
     /// `assert`, which is an `if` around a `raise` and is lowered to one.
@@ -1602,6 +1796,7 @@ impl Lower {
         match place {
             Place::Local(local) => Expr::Local(*local),
             Place::Global(name) => Expr::Global(name.clone()),
+            Place::Name(name) => Expr::Name(name.clone()),
             Place::Attr { object, name } => Expr::Attr {
                 object: object.clone().boxed(),
                 name: name.clone(),

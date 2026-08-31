@@ -178,7 +178,7 @@ impl fmt::Debug for Builtin {
 }
 
 impl Native for Builtin {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         match self.flavour {
             Flavour::Function => "builtin_function_or_method",
             Flavour::Class => "type",

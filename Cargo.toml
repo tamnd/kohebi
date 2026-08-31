@@ -79,6 +79,10 @@ pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 module_name_repetitions = "allow"
+# `Native::type_name` borrows from the value, because a class defined in Python
+# owns its name. Every builtin implementation still returns a literal, and this
+# lint would have each of them say so in a signature the trait fixes.
+unnecessary_literal_bound = "allow"
 # The unsafe in this workspace is load-bearing. Every block justifies itself.
 undocumented_unsafe_blocks = "warn"
 missing_safety_doc = "deny"

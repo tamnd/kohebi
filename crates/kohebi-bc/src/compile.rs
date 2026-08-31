@@ -46,6 +46,7 @@ fn compile_body(body: &Body, names: &mut Vec<Box<str>>) -> Code {
     let mut compiler = Compiler {
         code: Code {
             name: body.name.clone(),
+            qualname: body.qualname.clone(),
             params: body.params,
             registers: slots,
             locals: body
@@ -499,6 +500,11 @@ impl Compiler<'_> {
                 let name = self.name(name);
                 self.emit(Instr::StoreGlobal { name, src });
             }
+            Place::Name(name) => {
+                let src = self.operand(value);
+                let name = self.name(name);
+                self.emit(Instr::StoreName { name, src });
+            }
             // The value goes first. `a.b = c` reads `c` and then `a`, and a
             // property on `a` can see the difference.
             Place::Attr { object, name } => {
@@ -530,6 +536,10 @@ impl Compiler<'_> {
             Place::Global(name) => {
                 let name = self.name(name);
                 self.emit(Instr::DeleteGlobal { name });
+            }
+            Place::Name(name) => {
+                let name = self.name(name);
+                self.emit(Instr::DeleteName { name });
             }
             Place::Attr { object, name } => {
                 let object = self.operand(object);
@@ -685,6 +695,15 @@ impl Compiler<'_> {
                 let name = self.name(name);
                 self.emit(Instr::LoadGlobal { dst, name });
             }
+            Expr::Name(name) => {
+                let name = self.name(name);
+                self.emit(Instr::LoadName { dst, name });
+            }
+            Expr::NameOrCell { name, cell } => {
+                let cell = register(*cell);
+                let name = self.name(name);
+                self.emit(Instr::LoadNameOrCell { dst, cell, name });
+            }
             Expr::AssertionError => {
                 self.emit(Instr::LoadAssertionError { dst });
             }
@@ -824,6 +843,20 @@ impl Compiler<'_> {
                     func: FuncId(id.0),
                     defaults,
                     kw_defaults,
+                    captures,
+                });
+            }
+            Expr::Class {
+                id,
+                bases,
+                captures,
+            } => {
+                let bases = self.operands(bases);
+                let captures = self.registers(captures);
+                self.emit(Instr::MakeClass {
+                    dst,
+                    func: FuncId(id.0),
+                    bases,
                     captures,
                 });
             }

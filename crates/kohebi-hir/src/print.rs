@@ -249,7 +249,10 @@ fn statement(out: &mut String, body: &Body, stmt: &Stmt, depth: usize) {
 fn target(body: &Body, place: &Place) -> String {
     match place {
         Place::Local(local) => slot(body, *local),
-        Place::Global(name) => name.to_string(),
+        // A namespace write and a global write print the same, because inside
+        // a class body the bare name is what one means. The two never turn up
+        // in one listing: a body either has a namespace or it does not.
+        Place::Global(name) | Place::Name(name) => name.to_string(),
         Place::Attr { object, name } => format!("{}.{name}", expr(body, object)),
         Place::Item { object, index } => {
             format!("{}[{}]", expr(body, object), expr(body, index))
@@ -257,11 +260,21 @@ fn target(body: &Body, place: &Place) -> String {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per expression, which is what a printer is, and the same \
+              reason the statement printer above gives"
+)]
 fn expr(body: &Body, value: &Expr) -> String {
     match value {
         Expr::Const(value) => constant(value),
         Expr::Local(local) => slot(body, *local),
-        Expr::Global(name) => name.to_string(),
+        // A namespace read and a global read print the same, for the reason
+        // given in [`target`].
+        Expr::Global(name) | Expr::Name(name) => name.to_string(),
+        Expr::NameOrCell { name, cell } => {
+            format!("cell_or_name({}, {name})", slot(body, *cell))
+        }
         // Angle brackets because there is no way to write this, which is the
         // whole point of it. A bare `AssertionError` in the listing would read
         // as the global a program can shadow.
@@ -357,7 +370,29 @@ fn expr(body: &Body, value: &Expr) -> String {
             kw_defaults,
             captures,
         } => function(body, *id, defaults, kw_defaults, captures),
+        Expr::Class {
+            id,
+            bases,
+            captures,
+        } => class(body, *id, bases, captures),
     }
+}
+
+/// What a `class` builds, in the shape [`function`] prints a `def` in.
+///
+/// The bases go where a function's parameters go because they are the part the
+/// surrounding frame evaluated, which is the thing worth reading here.
+fn class(body: &Body, id: FuncId, bases: &[Expr], captures: &[Local]) -> String {
+    let Some(func) = body.functions.get(id.0 as usize) else {
+        return format!("class ?{}", id.0);
+    };
+    let over = if captures.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<String> = captures.iter().map(|local| slot(body, *local)).collect();
+        format!(" over {}", names.join(", "))
+    };
+    format!("class {}({}){over}", func.name, joined(body, bases))
 }
 
 /// What a `def` or a `lambda` builds, with the parts of it the surrounding

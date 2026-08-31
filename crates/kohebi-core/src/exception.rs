@@ -69,7 +69,7 @@ impl Class {
 
 impl Native for Class {
     /// The type of a class is `type`, the same as for every other class.
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         "type"
     }
 
@@ -189,7 +189,7 @@ impl Exception {
 }
 
 impl Native for Exception {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         self.kind.name()
     }
 

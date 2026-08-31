@@ -1060,3 +1060,123 @@ fn the_message_of_an_assert_is_evaluated_only_when_the_assert_fails() {
         \x20   raise <AssertionError>($0)"
     );
 }
+
+#[test]
+fn a_class_is_a_body_whose_names_go_into_a_namespace() {
+    // Not slots. The body's names are what becomes the class, so they are
+    // written by name and read by name, which is the whole difference between
+    // this listing and a function's.
+    assert_eq!(
+        whole("class C:\n    x = 1\n    y = x + 1\n"),
+        "body <test>:\n    \
+         C = class C()\n\
+         body C():\n    \
+         x = 1\n    \
+         y = x + 1"
+    );
+}
+
+#[test]
+fn the_bases_of_a_class_are_evaluated_where_the_class_is_written() {
+    // In the frame around it and before the body runs, which a base with a side
+    // effect in it can tell.
+    assert_eq!(
+        whole("class C(pick()):\n    pass\n"),
+        "body <test>:\n    C = class C(pick())\nbody C():\n    nop"
+    );
+}
+
+#[test]
+fn a_class_body_is_not_an_enclosing_scope_for_the_methods_in_it() {
+    // `x` in the method is a global, not a capture, so the body takes no cells
+    // and the listing has no `over` clause. A method naming a class attribute
+    // by its bare name gets a `NameError` at run time, which is what CPython
+    // does and is the reason `self.x` is how it is written instead.
+    assert_eq!(
+        whole("class C:\n    x = 1\n    def get(self):\n        return x\n"),
+        "body <test>:\n    \
+         C = class C()\n\
+         body C():\n    \
+         x = 1\n    \
+         get = function get(self)\n\
+         body get(self):\n    \
+         return x"
+    );
+}
+
+#[test]
+fn a_class_body_reads_a_closure_variable_it_never_binds_through_the_cell() {
+    // The cell comes down from the function, so the class body takes it the way
+    // a nested function would.
+    assert_eq!(
+        whole(
+            "def f():\n    \
+             n = 1\n    \
+             class C:\n        \
+             k = n\n    \
+             return C\n"
+        ),
+        "body <test>:\n    \
+         f = function f()\n\
+         body f():\n    \
+         cell n = 1\n    \
+         C = class C() over cell n\n    \
+         return C\n\
+         body C() over n:\n    \
+         k = cell_or_name(free n, n)"
+    );
+}
+
+#[test]
+fn a_class_body_that_binds_a_name_reads_it_as_a_name_and_not_as_the_cell() {
+    // The read comes before the binding and still does not find the enclosing
+    // `n`, because a name the body binds is the body's own. CPython settles it
+    // the same way, by using `LOAD_NAME` rather than `LOAD_CLASSDEREF`, and the
+    // listing has no `over` clause because no cell was taken at all.
+    assert_eq!(
+        whole(
+            "def f():\n    \
+             n = 1\n    \
+             class C:\n        \
+             k = n\n        \
+             n = 2\n    \
+             return C\n"
+        ),
+        "body <test>:\n    \
+         f = function f()\n\
+         body f():\n    \
+         n = 1\n    \
+         C = class C()\n    \
+         return C\n\
+         body C():\n    \
+         k = n\n    \
+         n = 2"
+    );
+}
+
+#[test]
+fn a_global_in_a_class_body_takes_the_name_out_of_the_namespace() {
+    // So it is not an attribute of the class afterwards. The same is true of a
+    // `nonlocal`, and both are why the namespace is not simply every name the
+    // body binds.
+    assert_eq!(
+        whole("class C:\n    global total\n    total = 1\n    x = 2\n"),
+        "body <test>:\n    C = class C()\nbody C():\n    nop\n    total = 1\n    x = 2"
+    );
+}
+
+#[test]
+fn the_class_statements_that_have_no_lowering_yet_say_which_one() {
+    assert_eq!(
+        refused("class C(A, B):\n    pass\n"),
+        "line 1: a class with several bases is not lowered yet"
+    );
+    assert_eq!(
+        refused("class C(metaclass=M):\n    pass\n"),
+        "line 1: a class with keyword arguments is not lowered yet"
+    );
+    assert_eq!(
+        refused("class C[T]:\n    pass\n"),
+        "line 1: a class with type parameters is not lowered yet"
+    );
+}
