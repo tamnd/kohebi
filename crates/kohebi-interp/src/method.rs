@@ -35,7 +35,7 @@
 //! word the refusal differently. Every one of those was read off a running
 //! 3.14.7 rather than reasoned about.
 
-mod dict;
+pub(crate) mod dict;
 mod list;
 mod path;
 mod set;

@@ -5378,8 +5378,7 @@ fn a_type_object_has_a_name_and_nothing_else_yet() {
 #[test]
 fn a_constructor_that_is_not_written_says_which_one() {
     let (out, raised) = execute(
-        "for work in (lambda: dict(), lambda: bytes(), lambda: object(),\n\
-         \x20            lambda: type(1, 2, 3)):\n\
+        "for work in (lambda: bytes(), lambda: type(1, 2, 3)):\n\
          \x20   try:\n\
          \x20       work()\n\
          \x20   except NotImplementedError as e:\n\
@@ -5388,10 +5387,68 @@ fn a_constructor_that_is_not_written_says_which_one() {
     assert_eq!(raised, None);
     assert_eq!(
         out,
-        "NotImplementedError: dict() is not implemented yet\n\
-         NotImplementedError: bytes() is not implemented yet\n\
-         NotImplementedError: object() is not implemented yet\n\
+        "NotImplementedError: bytes() is not implemented yet\n\
          NotImplementedError: type() with three arguments is not implemented yet\n"
+    );
+}
+
+/// `dict()` takes the four shapes `dict.update` takes, because it is the same
+/// operation with a dictionary that does not exist yet.
+#[test]
+fn the_dictionary_constructor_takes_what_update_takes() {
+    let (out, raised) = execute(
+        "print(dict(), dict({1: 2}), dict([(1, 2), (3, 4)]), dict(a=1, b=2))\n\
+         print(dict({1: 2}, a=3), dict([(1, 2)], a=3), dict({'a': 1}, a=3))\n\
+         print(dict([['a', 1]]), dict(['ab', 'cd']), dict({1: 2}.items()))\n\
+         print(dict(set()), dict(self=1), type(dict()) is dict, dict() == {})\n\
+         for work in (lambda: dict('ab'), lambda: dict([1, 2]), lambda: dict(1),\n\
+         \x20            lambda: dict([(1, 2, 3)]), lambda: dict([([1], 2)]),\n\
+         \x20            lambda: dict({}, {})):\n\
+         \x20   try:\n\
+         \x20       work()\n\
+         \x20   except (TypeError, ValueError) as e:\n\
+         \x20       print(type(e).__name__ + ':', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "{} {1: 2} {1: 2, 3: 4} {'a': 1, 'b': 2}\n\
+         {1: 2, 'a': 3} {1: 2, 'a': 3} {'a': 3}\n\
+         {'a': 1} {'a': 'b', 'c': 'd'} {1: 2}\n\
+         {} {'self': 1} True True\n\
+         ValueError: dictionary update sequence element #0 has length 1; 2 is required\n\
+         TypeError: object is not iterable\n\
+         TypeError: 'int' object is not iterable\n\
+         ValueError: dictionary update sequence element #0 has length 3; 2 is required\n\
+         TypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n\
+         TypeError: dict expected at most 1 argument, got 2\n"
+    );
+}
+
+/// `object()` is a value with nothing in it, and the two things a program does
+/// with one are ask whether it is itself and ask whether it is true.
+#[test]
+fn a_bare_object_has_an_identity_and_nothing_else() {
+    let (out, raised) = execute(
+        "s = object()\n\
+         t = object()\n\
+         print(s is s, s is t, s == s, s == t, bool(s), [s, t].index(t))\n\
+         print(type(s) is object, isinstance(s, object), isinstance(s, int))\n\
+         print(type(s).__name__, len(repr(s).split(' at 0x')))\n\
+         for work in (lambda: object(1), lambda: object(x=1)):\n\
+         \x20   try:\n\
+         \x20       work()\n\
+         \x20   except TypeError as e:\n\
+         \x20       print('TypeError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "True False True False True 1\n\
+         True True False\n\
+         object 2\n\
+         TypeError: object() takes no arguments\n\
+         TypeError: object() takes no arguments\n"
     );
 }
 

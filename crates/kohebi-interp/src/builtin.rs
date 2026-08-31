@@ -58,11 +58,11 @@
 //! The types themselves are in the table too, and most of them are
 //! constructors that were already in this file under their own names. `bool`,
 //! `str`, `list`, `tuple`, `set`, `range`, `map` and `filter` are those.
-//! `dict`, `bytes` and `object` are bound to type objects with nothing behind
-//! them, because `type({})` gives back `dict` and the name a program writes
-//! after that has to find the same object rather than a `NameError`.
+//! `bytes` is bound to a type object with nothing behind it, because
+//! `type(b'')` gives back `bytes` and the name a program writes after that has
+//! to find the same object rather than a `NameError`.
 //!
-//! `int` and `float` are the two that turned from a name into a constructor.
+//! `int` and `float` are two that turned from a name into a constructor.
 //! Neither is much code here, because the reading of a string is
 //! the `number` module and the argument shapes are the interesting half: `int`
 //! takes a value positionally and a base either way, which is two arities and
@@ -70,11 +70,16 @@
 //! all. The rest is which check happens before which, and the order is not the
 //! order the arguments are written in.
 //!
+//! `dict` is a third, and it is three lines, because `dict(x)` and
+//! `d.update(x)` take the same four shapes and mean the same thing by them.
+//! The shared half lives with the method rather than here. `object` is the
+//! fourth and it is in [`crate::types`], because what it hands back is a value
+//! with nothing in it and that value belongs next to the type graph it sits at
+//! the bottom of.
+//!
 //! ## What is not here
 //!
-//! The three constructors above. `dict` is four argument shapes, `bytes` is
-//! five, and `object` needs a value with nothing in it that nothing else in
-//! the runtime has.
+//! `bytes`, which is five argument shapes and one of them wants a codec.
 //!
 //! `frozenset` and `complex` are types this runtime has no value for at all,
 //! so neither is even a name. `enumerate`, `zip` and `reversed` are three more
@@ -92,13 +97,16 @@
 #![expect(clippy::similar_names, reason = "stop and step are Python's names")]
 
 use std::any::Any;
+use std::cell::RefCell;
 use std::fmt;
+use std::rc::Rc;
 
 use kohebi_core::dict::Set;
-use kohebi_core::{Compare, Error, Int, Kind, Native, Object, Result, exception, ops};
+use kohebi_core::{Compare, Dict, Error, Int, Kind, Native, Object, Result, exception, ops};
 
 use crate::iterate::{self, Range};
 use crate::lazy::Lazy;
+use crate::method;
 use crate::number;
 use crate::stream::{Stream, Which};
 use crate::types::{self, Type};
@@ -368,13 +376,13 @@ pub fn table() -> Vec<(&'static str, Object)> {
     let types = [
         ("bool", Some(bool as Free)),
         ("bytes", None),
-        ("dict", None),
+        ("dict", Some(dict as Free)),
         ("filter", Some(filter as Free)),
         ("float", Some(float as Free)),
         ("int", Some(int as Free)),
         ("list", Some(list as Free)),
         ("map", Some(map as Free)),
-        ("object", None),
+        ("object", Some(types::bare as Free)),
         ("range", Some(range as Free)),
         ("set", Some(set as Free)),
         ("str", Some(str as Free)),
@@ -776,6 +784,21 @@ fn float(_vm: &mut Vm, args: Args) -> Result<Object> {
             other.type_name()
         ))),
     }
+}
+
+/// `dict()`, `dict(mapping)`, `dict(pairs)` and `dict(**names)`.
+///
+/// The same four shapes `dict.update` takes, and the same code, because they
+/// are the same operation with a different dictionary underneath: one that
+/// already exists and one that is about to. So the whole of this is a fresh
+/// dictionary and the name to put in a complaint about the count.
+fn dict(vm: &mut Vm, args: Args) -> Result<Object> {
+    let taken = method::dict::merged(vm, args, "dict")?;
+    let mut held = Dict::default();
+    for (key, value) in taken {
+        held.insert(key, value);
+    }
+    Ok(Object::Dict(Rc::new(RefCell::new(held))))
 }
 
 /// `any(iterable)`.

@@ -911,7 +911,7 @@ try:
 except TypeError as e:
     print("TypeError:", e)
 try:
-    dict()
+    bytes()
 except NotImplementedError as e:
     print("NotImplementedError:", e)
 try:
@@ -930,8 +930,38 @@ except AttributeError as e:
          True False True\n\
          True True True\n\
          TypeError: isinstance() arg 2 must be a type, a tuple of types, or a union\n\
-         NotImplementedError: dict() is not implemented yet\n\
+         NotImplementedError: bytes() is not implemented yet\n\
          AttributeError: type object 'int' has no attribute 'nosuch'\n"
+    );
+}
+
+/// The other two constructors end to end. A dictionary built four ways, and a
+/// bare object, which is the one value in the runtime with nothing in it.
+#[test]
+fn a_dictionary_and_a_bare_object_are_built() {
+    let file = source(
+        "dict-and-object",
+        r#"print(dict(), dict({1: 2}), dict([(1, 2), (3, 4)]), dict(a=1))
+print(dict({1: 2}, a=3), dict(["ab"]), dict({1: 2}.items()), dict(set()))
+s = object()
+print(s is s, s is object(), bool(s), type(s) is object, type(s).__name__)
+for work in (lambda: dict([1, 2]), lambda: dict([(1, 2, 3)]), lambda: object(1)):
+    try:
+        work()
+    except (TypeError, ValueError) as e:
+        print(type(e).__name__ + ":", e)
+"#,
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "{} {1: 2} {1: 2, 3: 4} {'a': 1}\n\
+         {1: 2, 'a': 3} {'a': 'b'} {1: 2} {}\n\
+         True False True True object\n\
+         TypeError: object is not iterable\n\
+         ValueError: dictionary update sequence element #0 has length 3; 2 is required\n\
+         TypeError: object() takes no arguments\n"
     );
 }
 

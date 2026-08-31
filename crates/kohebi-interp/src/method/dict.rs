@@ -169,31 +169,43 @@ fn clear(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
 
 /// `dict.update([other], **kwargs)`.
 fn update(vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
-    let (positional, named) = args.split();
-    let taken = match positional.as_slice() {
-        [] => Vec::new(),
-        [other] => read(vm, other)?,
-        given => {
-            return Err(Error::type_error(format!(
-                "update expected at most 1 argument, got {}",
-                given.len()
-            )));
-        }
-    };
-    // The positional first and the keywords second, so that
-    // `d.update({'a': 1}, a=2)` leaves `a` at 2, which is what CPython does and
-    // is the only ordering that makes the keyword form useful as an override.
+    let taken = merged(vm, args, "update")?;
     let mut held = entries(receiver).borrow_mut();
     for (key, value) in taken {
         held.insert(key, value);
     }
-    for (name, value) in named {
-        held.insert(
+    Ok(Object::None)
+}
+
+/// The entries one optional positional argument and any keywords contribute,
+/// in the order they have to go in.
+///
+/// The positional first and the keywords second, so that
+/// `d.update({'a': 1}, a=2)` leaves `a` at 2, which is what CPython does and is
+/// the only ordering that makes the keyword form useful as an override.
+///
+/// `dict(...)` and `d.update(...)` take exactly the same arguments and mean
+/// exactly the same thing by them, so this is the whole of both and the only
+/// difference is the name in the complaint about the count.
+pub(crate) fn merged(vm: &mut Vm, args: Args, function: &str) -> Result<Vec<(Key, Object)>> {
+    let (positional, named) = args.split();
+    let mut taken = match positional.as_slice() {
+        [] => Vec::new(),
+        [other] => read(vm, other)?,
+        given => {
+            return Err(Error::type_error(format!(
+                "{function} expected at most 1 argument, got {}",
+                given.len()
+            )));
+        }
+    };
+    taken.extend(named.into_iter().map(|(name, value)| {
+        (
             Key::new(Object::str(&*name)).expect("a string is hashable"),
             value,
-        );
-    }
-    Ok(Object::None)
+        )
+    }));
+    Ok(taken)
 }
 
 /// The entries an argument to `update` contributes.

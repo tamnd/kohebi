@@ -176,6 +176,68 @@ impl Native for Type {
     }
 }
 
+/// What `object()` hands back, which is a value with nothing in it.
+///
+/// Nothing else in the runtime is this shape. Every other value is something:
+/// a number, a container, a function, an instance of a class a program wrote.
+/// This one is the bottom of the language, and what a program does with it is
+/// exactly the two things it has, an identity and a truth. `sentinel =
+/// object()` is the reason it exists, and that idiom needs no more than those.
+///
+/// It is not a `class::Instance` with an empty namespace, because an instance
+/// points at the class it came from and there is no `object` class to point at:
+/// `object` is a [`Type`], and a `Type` is a name and a constructor rather than
+/// something an instance can be under. The two meet at the `of` function
+/// instead, which answers `object` for this and so makes
+/// `type(object()) is object` true.
+pub struct Bare;
+
+impl fmt::Debug for Bare {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.repr())
+    }
+}
+
+impl Native for Bare {
+    fn type_name(&self) -> &str {
+        "object"
+    }
+
+    /// What CPython prints, address and all. There is nothing else to say
+    /// about a value with nothing in it, which is why CPython prints an
+    /// address here as well.
+    fn repr(&self) -> String {
+        format!(
+            "<object object at {:#x}>",
+            std::ptr::from_ref(self) as usize
+        )
+    }
+
+    /// True. Only a value that says otherwise is false, and this one says
+    /// nothing at all.
+    fn truthy(&self) -> bool {
+        true
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+/// `object()`, which takes nothing at all.
+///
+/// Not even the arguments `object.__init__` would forward, because a subclass
+/// is what makes those meaningful and a builtin type cannot be subclassed here
+/// yet. CPython says the same thing for `object(1)` when nothing has been
+/// subclassed either.
+pub(crate) fn bare(_vm: &mut Vm, args: Args) -> Result<Object> {
+    let (positional, named) = args.split();
+    if positional.is_empty() && named.is_empty() {
+        return Ok(Object::native(Bare));
+    }
+    Err(Error::type_error("object() takes no arguments"))
+}
+
 /// The type of a value, as a value.
 pub(crate) fn of(vm: &mut Vm, value: &Object) -> Object {
     // An instance knows its own class, and that class is a value already, so
