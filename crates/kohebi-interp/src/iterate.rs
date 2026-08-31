@@ -42,8 +42,6 @@ use std::rc::Rc;
 
 use kohebi_core::{Dict, Error, Int, Kind, Native, Object, Result, Set, StrBuf};
 
-use crate::generator::Generator;
-
 /// What [`Next`](kohebi_bc::Instr::Next) writes when there is nothing left.
 ///
 /// One value, cloned into a register, compared by asking whether the register
@@ -332,6 +330,10 @@ impl Native for Iter {
         format!("<{} object>", self.type_name())
     }
 
+    fn walking(&self) -> bool {
+        true
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -353,7 +355,7 @@ impl Native for Iter {
 /// `TypeError` naming the type, when it cannot be walked.
 pub fn over(value: &Object) -> Result<Object> {
     if let Object::Native(native) = value
-        && (native.as_any().is::<Iter>() || native.as_any().is::<Generator>())
+        && native.walking()
     {
         return Ok(value.clone());
     }

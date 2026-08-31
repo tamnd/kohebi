@@ -64,6 +64,18 @@ pub trait Native: fmt::Debug {
         true
     }
 
+    /// Whether this is already an iterator, meaning `iter(x) is x` and a `for`
+    /// over a half consumed one carries on rather than starting again.
+    ///
+    /// It is a question rather than a downcast because the layer above has
+    /// several types that answer yes, and they arrive one at a time. Asking
+    /// each of them in turn would put a list in the one function that turns a
+    /// value into a walk, and that list would grow by a line every time a lazy
+    /// builtin is written.
+    fn walking(&self) -> bool {
+        false
+    }
+
     /// The concrete value, for the runtime to downcast back to.
     fn as_any(&self) -> &dyn Any;
 }

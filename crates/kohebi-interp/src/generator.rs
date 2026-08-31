@@ -146,6 +146,10 @@ impl Native for Generator {
         )
     }
 
+    fn walking(&self) -> bool {
+        true
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

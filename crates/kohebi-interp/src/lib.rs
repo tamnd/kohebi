@@ -16,9 +16,10 @@
 //! Assignment, arithmetic, comparison, the boolean operators, `if`, `while` and
 //! `for`, subscripting and slicing, tuple, list, set and dict displays,
 //! unpacking, `try` and `raise`, `assert`, classes, generators, and calls: to
-//! the builtins there are, which are `print`, `len`, `iter`, `next` and `range`,
-//! to functions the program defined with `def` or `lambda`, and to classes it
-//! defined with `class`.
+//! the builtins there are, to functions the program defined with `def` or
+//! `lambda`, and to classes it defined with `class`. [`builtin`] has the list
+//! of which builtins those are and why the rest are not there yet, rather than
+//! a second copy of it here that would be out of date by the next one.
 //!
 //! A generator suspends and resumes, is its own iterator, walks under a `for`
 //! and hands what it returned to the `StopIteration` that ends it. What it does
@@ -40,6 +41,7 @@ pub mod class;
 pub mod function;
 pub mod generator;
 pub mod iterate;
+pub mod lazy;
 pub mod ready;
 pub mod vm;
 
@@ -49,6 +51,7 @@ pub use class::{Class, Instance, Method};
 pub use function::Function;
 pub use generator::Generator;
 pub use iterate::{Iter, Range};
+pub use lazy::Lazy;
 pub use ready::Ready;
 pub use vm::{Step, Vm};
 
