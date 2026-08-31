@@ -50,15 +50,28 @@
 //! data about a hierarchy and none of it needs the [`Vm`]. This module puts the
 //! two lists together and that is the whole of its part in it.
 //!
+//! `type`, `isinstance` and `issubclass` are the three that ask about types
+//! rather than about values. What they ask about is [`crate::types`], and the
+//! only part of them here is the argument counting, which all three do before
+//! looking at anything.
+//!
+//! The types themselves are in the table too, and half of them are constructors
+//! that were already in this file under their own names. `bool`, `str`, `list`,
+//! `tuple`, `set`, `range`, `map` and `filter` are those. `int`, `float`,
+//! `dict`, `bytes` and `object` are bound to type objects with nothing behind
+//! them, because `type(1)` gives back `int` and the name a program writes after
+//! that has to find the same object rather than a `NameError`.
+//!
 //! ## What is not here
 //!
-//! Most of what is left in `builtins` is a type, and a type needs classes.
-//! `range`, `bool` and `str` are the exceptions, and each is a function that
-//! constructs one rather than the type itself: `bool` and `str` cannot be
-//! subclassed, and `str` has no methods on it that a program can look up. That
-//! is the same hole that keeps `''.upper()` a special case in the machine
-//! rather than a name found on a type, and it closes in one piece of work
-//! rather than four.
+//! The five constructors above, which is the next piece of work. `int` and
+//! `float` are each a parser with more corners than they look like, `dict` is
+//! four argument shapes, and `object` needs a value with nothing in it that
+//! nothing else in the runtime has.
+//!
+//! `frozenset` and `complex` are types this runtime has no value for at all,
+//! so neither is even a name. `enumerate`, `zip` and `reversed` are three more
+//! lazy walks in the shape of `map` and `filter`.
 //!
 //! `str(bytes, encoding)` is refused because there are no codecs. The argument
 //! checks CPython does before it reaches one are done here anyway, since none
@@ -80,8 +93,9 @@ use kohebi_core::{Compare, Error, Int, Kind, Native, Object, Result, exception, 
 use crate::iterate::{self, Range};
 use crate::lazy::Lazy;
 use crate::stream::{Stream, Which};
+use crate::types::{self, Type};
 use crate::view;
-use crate::vm::{Step, Vm};
+use crate::vm::{self, Step, Vm};
 
 /// What a builtin does when it is called.
 ///
@@ -191,26 +205,10 @@ impl Args {
     }
 }
 
-/// What a builtin prints as, which is not always "function".
-///
-/// `range` is a class in CPython and `print(range)` says `<class 'range'>`. It
-/// is implemented here as a function that constructs one, and without this it
-/// would say `<built-in function range>` instead. Nobody's program turns on
-/// that string, but it is the sort of small lie that a compatibility suite
-/// finds and that costs more to correct later than to get right now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Flavour {
-    /// An ordinary builtin function.
-    Function,
-    /// A type, called to construct one of itself.
-    Class,
-}
-
 /// A function implemented in Rust rather than in Python.
 pub struct Builtin {
     name: &'static str,
     body: Body,
-    flavour: Flavour,
     /// The value this was looked up on, when it was looked up on one.
     ///
     /// `[].append` is this type with a list in here, and `len` is this type
@@ -230,18 +228,12 @@ impl Builtin {
     ///
     /// The table below builds its own rather than calling this, because it
     /// builds twenty at once out of a list. This is for the ones that arrive
-    /// one at a time from somewhere that is not this file, of which
-    /// `pathlib.Path` is the first.
+    /// one at a time from somewhere that is not this file.
     #[must_use]
-    pub fn function(
-        name: &'static str,
-        body: fn(&mut Vm, Args) -> Result<Object>,
-        flavour: Flavour,
-    ) -> Self {
+    pub fn function(name: &'static str, body: fn(&mut Vm, Args) -> Result<Object>) -> Self {
         Builtin {
             name,
             body: Body::Free(body),
-            flavour,
             receiver: None,
         }
     }
@@ -256,7 +248,6 @@ impl Builtin {
         Builtin {
             name,
             body: Body::Bound(body),
-            flavour: Flavour::Function,
             receiver: Some(receiver),
         }
     }
@@ -287,23 +278,19 @@ impl fmt::Debug for Builtin {
 
 impl Native for Builtin {
     fn type_name(&self) -> &str {
-        match self.flavour {
-            Flavour::Function => "builtin_function_or_method",
-            Flavour::Class => "type",
-        }
+        "builtin_function_or_method"
     }
 
     fn repr(&self) -> String {
-        match (self.flavour, &self.receiver) {
+        match &self.receiver {
             // CPython puts the receiver's address on the end of this one, which
             // nothing may depend on and which is left off here.
-            (_, Some(receiver)) => format!(
+            Some(receiver) => format!(
                 "<built-in method {} of {} object>",
                 self.name,
                 receiver.type_name()
             ),
-            (Flavour::Function, None) => format!("<built-in function {}>", self.name),
-            (Flavour::Class, None) => format!("<class '{}'>", self.name),
+            None => format!("<built-in function {}>", self.name),
         }
     }
 
@@ -333,49 +320,163 @@ impl Native for Builtin {
 /// Everything a program can name without importing it.
 ///
 /// Built once per run rather than per lookup, so that `print is print` is true
-/// the way it is in CPython.
+/// the way it is in CPython, and so that the `int` a program writes is the same
+/// object `type(1)` gives back.
 #[must_use]
 pub fn table() -> Vec<(&'static str, Object)> {
-    /// The plain half of [`Body`], so the table below can name one type.
+    /// The plain half of [`Body`], so the tables below can name one type.
     type Free = fn(&mut Vm, Args) -> Result<Object>;
     let functions = [
-        ("print", print as Free, Flavour::Function),
-        ("len", len as Free, Flavour::Function),
-        ("iter", iter as Free, Flavour::Function),
-        ("next", next as Free, Flavour::Function),
-        ("range", range as Free, Flavour::Class),
-        ("abs", abs as Free, Flavour::Function),
-        ("repr", repr as Free, Flavour::Function),
-        ("bool", bool as Free, Flavour::Class),
-        ("str", str as Free, Flavour::Class),
-        ("any", any as Free, Flavour::Function),
-        ("all", all as Free, Flavour::Function),
-        ("sum", sum as Free, Flavour::Function),
-        ("min", min as Free, Flavour::Function),
-        ("max", max as Free, Flavour::Function),
-        ("list", list as Free, Flavour::Class),
-        ("tuple", tuple as Free, Flavour::Class),
-        ("set", set as Free, Flavour::Class),
-        ("sorted", sorted as Free, Flavour::Function),
-        ("map", map as Free, Flavour::Class),
-        ("filter", filter as Free, Flavour::Class),
+        ("print", print as Free),
+        ("len", len as Free),
+        ("iter", iter as Free),
+        ("next", next as Free),
+        ("abs", abs as Free),
+        ("repr", repr as Free),
+        ("any", any as Free),
+        ("all", all as Free),
+        ("sum", sum as Free),
+        ("min", min as Free),
+        ("max", max as Free),
+        ("sorted", sorted as Free),
+        ("isinstance", isinstance as Free),
+        ("issubclass", issubclass as Free),
     ]
     .into_iter()
-    .map(|(name, body, flavour)| {
+    .map(|(name, body)| {
         (
             name,
             Object::native(Builtin {
                 name,
                 body: Body::Free(body),
-                flavour,
                 receiver: None,
             }),
         )
     });
+    // The types a program can name. `Some` is a constructor that is written and
+    // `None` is one that is not, and the second kind is here anyway because the
+    // name has to resolve: `type(1)` gives back `int`, and a program that then
+    // writes `int` must find that same object rather than a `NameError`.
+    let types = [
+        ("bool", Some(bool as Free)),
+        ("bytes", None),
+        ("dict", None),
+        ("filter", Some(filter as Free)),
+        ("float", None),
+        ("int", None),
+        ("list", Some(list as Free)),
+        ("map", Some(map as Free)),
+        ("object", None),
+        ("range", Some(range as Free)),
+        ("set", Some(set as Free)),
+        ("str", Some(str as Free)),
+        ("tuple", Some(tuple as Free)),
+        ("type", Some(type_of as Free)),
+    ]
+    .into_iter()
+    .map(|(name, make)| {
+        let typed = match make {
+            Some(make) => Type::made(name, make),
+            None => Type::later(name),
+        };
+        (name, Object::native(typed))
+    });
     // The exception classes are the rest of `builtins`, and they come from
     // `kohebi-core` rather than from here because that is where the hierarchy
     // they make up lives.
-    functions.chain(exception::classes()).collect()
+    functions.chain(types).chain(exception::classes()).collect()
+}
+
+/// `type(value)`, which is the type of a value as a value.
+///
+/// The three argument form makes a class, and that is a different function
+/// wearing the same name. CPython tells the two apart by counting, and so does
+/// this, except that the second one is not written.
+fn type_of(vm: &mut Vm, args: Args) -> Result<Object> {
+    let (positional, named) = args.split();
+    match (positional.len(), named.is_empty()) {
+        (1, true) => Ok(types::of(vm, &positional[0])),
+        // Deliberately before the count, because CPython refuses a keyword the
+        // same way it refuses the wrong number of arguments: `type()` has no
+        // parameter names for a caller to use.
+        (3, true) => Err(vm::later("type() with three arguments")),
+        _ => Err(Error::type_error("type() takes 1 or 3 arguments")),
+    }
+}
+
+/// `isinstance(value, classinfo)`.
+fn isinstance(vm: &mut Vm, args: Args) -> Result<Object> {
+    let (value, classinfo) = two(args, "isinstance")?;
+    let of = types::of(vm, &value);
+    Ok(Object::Bool(any_class(&of, &classinfo, Asked::Instance)?))
+}
+
+/// `issubclass(class, classinfo)`.
+fn issubclass(_vm: &mut Vm, args: Args) -> Result<Object> {
+    let (sub, classinfo) = two(args, "issubclass")?;
+    if !types::is_class(&sub) {
+        return Err(Error::type_error("issubclass() arg 1 must be a class"));
+    }
+    Ok(Object::Bool(any_class(&sub, &classinfo, Asked::Subclass)?))
+}
+
+/// Which of the two questions is being asked, which decides only the wording of
+/// the refusal. The walk itself is the same one.
+#[derive(Clone, Copy)]
+enum Asked {
+    Instance,
+    Subclass,
+}
+
+impl Asked {
+    /// What CPython says about a second argument that is not a class.
+    const fn refusal(self) -> &'static str {
+        match self {
+            Asked::Instance => "isinstance() arg 2 must be a type, a tuple of types, or a union",
+            Asked::Subclass => "issubclass() arg 2 must be a class, a tuple of classes, or a union",
+        }
+    }
+}
+
+/// Whether a class is below anything the second argument names.
+///
+/// A tuple stands for any of its members and may hold tuples of its own, which
+/// is not what an `except` clause allows and is what these two do. The nesting
+/// is walked with recursion because a program that writes one of these more
+/// than a couple deep has written something stranger than a stack overflow.
+fn any_class(sub: &Object, classinfo: &Object, asked: Asked) -> Result<bool> {
+    if let Object::Tuple(members) = classinfo {
+        for member in members.iter() {
+            if any_class(sub, member, asked)? {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    if !types::is_class(classinfo) {
+        return Err(Error::type_error(asked.refusal()));
+    }
+    Ok(types::derives(sub, classinfo))
+}
+
+/// The two arguments both of the class questions take.
+///
+/// Neither takes a keyword, and both count before they look at anything, which
+/// is why `isinstance(1)` complains about the count rather than about `1`.
+fn two(args: Args, function: &str) -> Result<(Object, Object)> {
+    let (positional, named) = args.split();
+    if !named.is_empty() {
+        return Err(Error::type_error(format!(
+            "{function}() takes no keyword arguments"
+        )));
+    }
+    let [value, classinfo] = <[Object; 2]>::try_from(positional).map_err(|given| {
+        Error::type_error(format!(
+            "{function} expected 2 arguments, got {}",
+            given.len()
+        ))
+    })?;
+    Ok((value, classinfo))
 }
 
 /// `print(*values, sep=' ', end='\n', file=None, flush=False)`.

@@ -121,6 +121,7 @@ use crate::module::{self, Found, Modules};
 use crate::path as pathlib;
 use crate::ready::Ready;
 use crate::stream::{self, Which};
+use crate::types;
 use crate::view;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
@@ -151,6 +152,14 @@ pub struct Vm {
     /// The same namespace laid out by index. See [`Globals`].
     open: Globals,
     builtins: Names,
+    /// One type object per type name, made the first time something asks.
+    ///
+    /// Seeded from the builtins so that the `int` a program writes and the
+    /// `int` that `type(1)` gives back are the same object. The types with no
+    /// name in `builtins` arrive here the first time `type` is called on one,
+    /// which is what makes `type(None) is type(None)` true. See
+    /// [`crate::types`].
+    types: RefCell<Names>,
     /// The class a failed `assert` raises.
     ///
     /// Held rather than looked up, because the point of it is that no lookup
@@ -217,9 +226,19 @@ impl Vm {
             "__main__",
             Object::native(module::Module::new("__main__", None, Rc::clone(&home))),
         );
+        // Every class already bound to a name, under the name of the type it
+        // is, which for a class is always `type`. Asking that question rather
+        // than downcasting three ways means a fourth kind of class object would
+        // be seeded here without this line changing.
+        let types: Names = builtins
+            .iter()
+            .filter(|(_, value)| value.type_name() == "type")
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
         Vm {
             home,
             open: Globals::default(),
+            types: RefCell::new(types),
             assertion_error: builtins
                 .get("AssertionError")
                 .expect("every builtin exception class is in the table")
@@ -231,6 +250,21 @@ impl Vm {
             handled: Vec::new(),
             modules,
         }
+    }
+
+    /// The type object for a type of this name, made if this is the first ask.
+    ///
+    /// One per name for the life of the machine, which is what `type(None) is
+    /// type(None)` needs. A name that was not seeded from the builtins is a
+    /// type a program has no way to write down, so nothing can construct one
+    /// and the type object says so when called.
+    pub(crate) fn class_named(&self, name: &str) -> Object {
+        if let Some(found) = self.types.borrow().get(name) {
+            return found.clone();
+        }
+        let made = Object::native(types::Type::opaque(name));
+        self.types.borrow_mut().insert(name.into(), made.clone());
+        made
     }
 
     /// A machine writing to the two standard streams.
@@ -1145,6 +1179,7 @@ impl Vm {
         // gathered, because that is the order the messages come out in: a
         // number called with a bad keyword complains about being a number.
         let builtin = callee.downcast::<Builtin>();
+        let typed = callee.downcast::<types::Type>();
         let class = callee.downcast::<exception::Class>();
         let defined_class = callee.downcast::<Class>();
         let method = callee.downcast::<Method>();
@@ -1169,12 +1204,13 @@ impl Vm {
             (Some(init), _) => init.downcast::<Function>(),
             (None, defined) => defined,
         };
-        let function: &str = match (builtin, defined, class, defined_class) {
-            (Some(builtin), _, _, _) => builtin.name(),
-            (None, Some(function), _, _) => &function.code().qualname,
-            (None, None, Some(class), _) => class.kind().name(),
-            (None, None, None, Some(defined_class)) => defined_class.name(),
-            (None, None, None, None) => {
+        let function: &str = match (builtin, typed, defined, class, defined_class) {
+            (Some(builtin), ..) => builtin.name(),
+            (None, Some(typed), ..) => typed.name(),
+            (None, None, Some(function), ..) => &function.code().qualname,
+            (None, None, None, Some(class), _) => class.kind().name(),
+            (None, None, None, None, Some(defined_class)) => defined_class.name(),
+            (None, None, None, None, None) => {
                 return Err(Error::type_error(format!(
                     "'{}' object is not callable",
                     callee.type_name()
@@ -1189,6 +1225,10 @@ impl Vm {
         if let Some(builtin) = builtin {
             let positional = positional.collect::<Result<Vec<_>>>()?;
             return builtin.call(self, Args::new(positional, named));
+        }
+        if let Some(typed) = typed {
+            let positional = positional.collect::<Result<Vec<_>>>()?;
+            return typed.call(self, Args::new(positional, named));
         }
         if let Some(class) = class {
             // An exception class takes whatever it is given and keeps it,
@@ -2147,6 +2187,28 @@ fn attribute(object: &Object, name: &str) -> Result<Object> {
                 name,
             )),
         };
+    }
+    // A builtin type and a builtin exception class have one attribute each and
+    // no namespace to look anything else up in, so both stop here rather than
+    // falling through to the method tables. Everything else a type will
+    // eventually answer to arrives when those tables become the type object.
+    if let Some(typed) = object.downcast::<types::Type>() {
+        if name == "__name__" {
+            return Ok(Object::str(typed.name()));
+        }
+        return Err(no_attribute(
+            &format!("type object '{}'", typed.name()),
+            name,
+        ));
+    }
+    if let Some(class) = object.downcast::<exception::Class>() {
+        if name == "__name__" {
+            return Ok(Object::str(class.kind().name()));
+        }
+        return Err(no_attribute(
+            &format!("type object '{}'", class.kind().name()),
+            name,
+        ));
     }
     if let Some(class) = object.downcast::<Class>() {
         // Before the namespace, because the name belongs to the class rather

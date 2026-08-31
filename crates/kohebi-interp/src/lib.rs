@@ -28,11 +28,17 @@
 //! everything else is.
 //!
 //! Attributes work on a class, on an instance of one, on a module, and on the
-//! builtin types that have a table in [`method`]. What none of them has yet is
-//! a type object, so `type(x)` cannot find the same methods a lookup can, and a
-//! builtin type cannot be subclassed. A type with no table at all raises a
-//! `NotImplementedError` naming attribute access rather than doing something
-//! almost right, and `with` and `match` are the same: named, not guessed at.
+//! builtin types that have a table in [`method`]. A type with no table at all
+//! raises a `NotImplementedError` naming attribute access rather than doing
+//! something almost right, and `with` and `match` are the same: named, not
+//! guessed at.
+//!
+//! `type(x)` gives back a type object, which is [`types`], and `isinstance` and
+//! `issubclass` ask about the small inheritance graph those make up. A type
+//! object is a name and a constructor and not a namespace yet, so it does not
+//! hold the methods in [`method`] and a builtin type still cannot be
+//! subclassed. Joining the two is what makes `int.from_bytes` and `class C(int)`
+//! possible, and it is one piece of work rather than one per type.
 //!
 //! Imports read a `.py` file off `sys.path` and run it, and each module's
 //! globals are its own. `sys` and [`path`], which is `pathlib`, are written in
@@ -63,10 +69,11 @@ pub mod module;
 pub mod path;
 pub mod ready;
 pub mod stream;
+pub mod types;
 pub mod view;
 pub mod vm;
 
-pub use builtin::{Args, Builtin, Flavour};
+pub use builtin::{Args, Builtin};
 pub use cell::Cell;
 pub use class::{Class, Instance, Method};
 pub use function::Function;
@@ -76,6 +83,7 @@ pub use lazy::Lazy;
 pub use path::Path;
 pub use ready::Ready;
 pub use stream::{Stream, Which};
+pub use types::Type;
 pub use view::View;
 pub use vm::{Step, Vm};
 

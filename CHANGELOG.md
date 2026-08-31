@@ -6,6 +6,14 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+`type(x)` gives back a type object, and `isinstance` and `issubclass` ask questions about it. There is one type object per type for the life of a run, so `type(1) is type(2)` and `type(1) is int` are both true, and the types with no name to be bound to get one the first time something asks, which is what makes `type(None) is type(None)` true as well. `type(e).__name__` works, which is how a program prints the name of an exception it caught.
+
+The inheritance the two questions know about is the exception tree, `bool` under `int`, a written class's chain of bases, and `object` over all of it. So `isinstance(True, int)` is true and `isinstance(1, bool)` is false, `isinstance(ValueError('x'), Exception)` is true, and a tuple of classes works and may hold tuples of its own, which is what these two allow and an `except` clause does not.
+
+`int`, `float`, `dict`, `bytes` and `object` are names now. The constructors behind them are not written and calling one says so, rather than the name not resolving at all: `type(1)` gives back `int`, and once a program has that it will write `int` next.
+
+`bool`, `str`, `list`, `tuple`, `set`, `range`, `map` and `filter` were already constructors and are now the type objects themselves, so the same object answers to the name and to `type(x)`. A builtin function no longer has a flavour that makes it print as a class, because the classes are real.
+
 ## 0.0.21
 
 The two hashed containers get their methods. Twenty seven of them between a dictionary and a set, plus the three dictionary views, which are windows onto the dictionary rather than copies of what was in it when they were taken. All five micro benchmarks run and print byte for byte what CPython 3.14.7 prints, which one of them could not do at 0.0.20 and none of them could do at 0.0.18.
