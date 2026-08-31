@@ -26,11 +26,17 @@
 //! [`crate::iterate`], so a generator is as good an argument as a list, and all
 //! five stop as early as they are allowed to.
 //!
+//! `list`, `tuple`, `set` and `sorted` are the ones that collect a walk. The
+//! first three are the same six lines with a different container at the end of
+//! them, and `sorted` is those six lines and a merge sort written out, because
+//! a comparison here can raise and the standard library's sort has nowhere to
+//! put that.
+//!
 //! What none of them does is call back into Python. A builtin is handed the
 //! machine and still cannot call a Python function through it, which is why
-//! `min(key=...)` is refused by name and why `sorted`, `map` and `filter` are
-//! not here at all. That is one piece of work in the machine rather than five
-//! opinions about builtins.
+//! `key=` is refused by name on all three that take one, and why `map` and
+//! `filter` are not here at all. That is one piece of work in the machine
+//! rather than several opinions about builtins.
 //!
 //! Every builtin exception class is here too, and it comes from
 //! [`kohebi_core::exception`] rather than from this module, because a class is
@@ -61,6 +67,7 @@
 use std::any::Any;
 use std::fmt;
 
+use kohebi_core::dict::Set;
 use kohebi_core::{Compare, Error, Int, Kind, Native, Object, Result, exception, ops};
 
 use crate::iterate::{self, Range};
@@ -243,6 +250,10 @@ pub fn table() -> Vec<(&'static str, Object)> {
         ("sum", sum as Body, Flavour::Function),
         ("min", min as Body, Flavour::Function),
         ("max", max as Body, Flavour::Function),
+        ("list", list as Body, Flavour::Class),
+        ("tuple", tuple as Body, Flavour::Class),
+        ("set", set as Body, Flavour::Class),
+        ("sorted", sorted as Body, Flavour::Function),
     ]
     .into_iter()
     .map(|(name, body, flavour)| {
@@ -525,6 +536,130 @@ fn extremum(vm: &mut Vm, mut args: Args, op: Compare, function: &str) -> Result<
             format!("{function}() iterable argument is empty"),
         )),
     }
+}
+
+/// `list(iterable)` and `list()`.
+fn list(vm: &mut Vm, args: Args) -> Result<Object> {
+    Ok(Object::list(gather(vm, &args, "list")?))
+}
+
+/// `tuple(iterable)` and `tuple()`.
+fn tuple(vm: &mut Vm, args: Args) -> Result<Object> {
+    Ok(Object::tuple(gather(vm, &args, "tuple")?))
+}
+
+/// `set(iterable)` and `set()`.
+fn set(vm: &mut Vm, args: Args) -> Result<Object> {
+    let mut members = Set::new();
+    for item in gather(vm, &args, "set")? {
+        members.insert(ops::key(&item, "set element")?);
+    }
+    Ok(Object::set(members))
+}
+
+/// `sorted(iterable, key=None, reverse=False)`.
+fn sorted(vm: &mut Vm, mut args: Args) -> Result<Object> {
+    // One message for every wrong count, rather than the pair of them the
+    // three constructors above use.
+    if args.positional.len() != 1 {
+        return Err(Error::type_error(format!(
+            "sorted expected 1 argument, got {}",
+            args.positional.len()
+        )));
+    }
+    let key = args.take("key");
+    let reverse = args.take("reverse").is_some_and(|value| value.truthy());
+    // `sort()` and not `sorted()`, because in CPython this is `list.sort`
+    // under another name and the complaint comes from there.
+    args.rest("sort")?;
+    // `key=None` is no key, the same as it is for `min` and `max`.
+    if key.is_some_and(|key| !matches!(key, Object::None)) {
+        return Err(Error::new(
+            Kind::NotImplementedError,
+            "sorted(key=...) has to call a Python function and a builtin cannot yet",
+        ));
+    }
+
+    let mut items = gather(vm, &args, "sorted")?;
+    // Reversed, sorted, reversed again, which is how CPython does it and is
+    // not the same as sorting and then reversing. Equal elements come out in
+    // the order they went in either way round, and reversing the result would
+    // put them back to front.
+    if reverse {
+        items.reverse();
+    }
+    let mut items = merge_sort(items)?;
+    if reverse {
+        items.reverse();
+    }
+    Ok(Object::list(items))
+}
+
+/// The walk `list`, `tuple`, `set` and `sorted` share, empty when there is
+/// nothing to walk.
+fn gather(vm: &mut Vm, args: &Args, function: &str) -> Result<Vec<Object>> {
+    args.no_keywords(function)?;
+    args.arity(function, 0, 1)?;
+    let Some(iterable) = args.positional.first() else {
+        return Ok(Vec::new());
+    };
+    let walk = iterate::over(iterable)?;
+    let mut items = Vec::new();
+    while let Step::Value(item) = vm.advance(&walk)? {
+        items.push(item);
+    }
+    Ok(items)
+}
+
+/// A stable sort that can fail, which the standard library's cannot.
+///
+/// Two reasons it is written out rather than handed to `slice::sort_by`. A
+/// comparison here runs Python's `<` and that can raise, and a comparator
+/// returning an `Ordering` has nowhere to put the error. And `<` is the only
+/// thing Python's sort is defined in terms of: a NaN is less than nothing and
+/// greater than nothing, so the order it induces is not the total order
+/// `sort_by` requires, and a comparator the standard library can catch
+/// breaking that contract is a panic rather than a list.
+///
+/// Merge sort because it is stable, which `sorted` promises, and because it is
+/// the one shape where the comparison order is obvious enough to match
+/// CPython's: the later of the two elements goes on the left, which is the
+/// side named first when the two cannot be compared at all.
+fn merge_sort(items: Vec<Object>) -> Result<Vec<Object>> {
+    let mut source = items;
+    let mut target = Vec::with_capacity(source.len());
+    let mut width = 1;
+    while width < source.len() {
+        target.clear();
+        let mut at = 0;
+        while at < source.len() {
+            let middle = (at + width).min(source.len());
+            let end = (at + 2 * width).min(source.len());
+            merge(&source[at..middle], &source[middle..end], &mut target)?;
+            at = end;
+        }
+        std::mem::swap(&mut source, &mut target);
+        width *= 2;
+    }
+    Ok(source)
+}
+
+/// Two sorted runs into one, taking from the left one unless the right one is
+/// strictly smaller, which is the whole of what makes the sort stable.
+fn merge(left: &[Object], right: &[Object], out: &mut Vec<Object>) -> Result<()> {
+    let (mut i, mut j) = (0, 0);
+    while i < left.len() && j < right.len() {
+        if ops::compare(Compare::Lt, &right[j], &left[i])?.truthy() {
+            out.push(right[j].clone());
+            j += 1;
+        } else {
+            out.push(left[i].clone());
+            i += 1;
+        }
+    }
+    out.extend_from_slice(&left[i..]);
+    out.extend_from_slice(&right[j..]);
+    Ok(())
 }
 
 /// Whichever of the two the operator prefers, with the new one on the left.
