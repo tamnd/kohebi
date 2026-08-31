@@ -789,6 +789,11 @@ fn subslice<T: PartialEq>(haystack: &[T], needle: &[T]) -> bool {
 /// `role` is what the value was being used as, which 3.14 puts in front of the
 /// old `unhashable type` message: a `set element`, a `dict key`.
 ///
+/// The two type names in that message need not be the same one. The first is
+/// what was handed over and the second is what inside it refused, and for a
+/// tuple holding a list those are `tuple` and `list`. The second is the one to
+/// go and fix, which is why the old message says that one.
+///
 /// # Errors
 ///
 /// A list, a dict, a set, or a tuple containing one of those.
@@ -796,7 +801,7 @@ pub fn key(value: &Object, role: &str) -> Result<Key> {
     Key::new(value.clone()).map_err(|unhashable| {
         Error::type_error(format!(
             "cannot use '{}' as a {role} ({})",
-            unhashable.type_name,
+            value.type_name(),
             unhashable.message()
         ))
     })
@@ -1557,6 +1562,19 @@ mod tests {
         assert_eq!(
             bad(contains(&dict(vec![(i(1), i(2))]), &l(vec![]))),
             "TypeError: cannot use 'list' as a dict key (unhashable type: 'list')"
+        );
+        // Two different type names, because the tuple is what was handed over
+        // and the list inside it is what refused.
+        assert_eq!(
+            bad(contains(
+                &dict(vec![(i(1), i(2))]),
+                &t(vec![l(vec![]), i(1)])
+            )),
+            "TypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')"
+        );
+        assert_eq!(
+            bad(contains(&set(vec![i(1)]), &t(vec![l(vec![]), i(1)]))),
+            "TypeError: cannot use 'tuple' as a set element (unhashable type: 'list')"
         );
     }
 
