@@ -120,6 +120,7 @@ use crate::module::{self, Found, Modules};
 // in this file and the two are easy to mistake for each other.
 use crate::path as pathlib;
 use crate::ready::Ready;
+use crate::stream::{self, Which};
 
 /// A namespace, which is a map from a name to whatever it is bound to.
 type Names = FxHashMap<Box<str>, Object>;
@@ -158,6 +159,14 @@ pub struct Vm {
     /// not shadow it.
     assertion_error: Object,
     output: Box<dyn Write>,
+    /// Where `sys.stderr` goes, which is somewhere else on purpose.
+    ///
+    /// Two sinks rather than one, because the whole reason a program writes to
+    /// standard error is that whoever is running it can send the two to
+    /// different places. A machine that folded them together would make
+    /// `2>/dev/null` do nothing, and a test that captures output would catch
+    /// the diagnostics along with it.
+    errors: Box<dyn Write>,
     /// How many calls are on the stack, against [`LIMIT`].
     depth: usize,
     /// The exceptions being handled right now, innermost last.
@@ -183,9 +192,9 @@ impl fmt::Debug for Vm {
 }
 
 impl Vm {
-    /// A machine writing to somewhere.
+    /// A machine writing to somewhere, and complaining somewhere else.
     #[must_use]
-    pub fn new(output: Box<dyn Write>) -> Self {
+    pub fn new(output: Box<dyn Write>, errors: Box<dyn Write>) -> Self {
         let builtins: Names = table()
             .into_iter()
             .map(|(name, value)| (Box::from(name), value))
@@ -216,19 +225,26 @@ impl Vm {
                 .clone(),
             builtins,
             output,
+            errors,
             depth: 0,
             handled: Vec::new(),
             modules,
         }
     }
 
-    /// A machine writing to standard output.
+    /// A machine writing to the two standard streams.
     ///
-    /// Buffered, because a program that prints in a loop through an unbuffered
-    /// handle spends its time in `write` rather than in the loop.
+    /// Output is buffered, because a program that prints in a loop through an
+    /// unbuffered handle spends its time in `write` rather than in the loop.
+    /// Errors are not, because the point of standard error is that it comes out
+    /// when it happens: a diagnostic still sitting in a buffer when the process
+    /// dies is a diagnostic nobody reads.
     #[must_use]
     pub fn stdout() -> Self {
-        Vm::new(Box::new(io::BufWriter::new(io::stdout())))
+        Vm::new(
+            Box::new(io::BufWriter::new(io::stdout())),
+            Box::new(io::stderr()),
+        )
     }
 
     /// Run a compiled module to completion and give back what its body
@@ -1025,9 +1041,7 @@ impl Vm {
     /// An `OSError` if the write fails, which is what CPython raises for a
     /// closed or broken stream.
     pub fn write(&mut self, text: &str) -> Result<()> {
-        self.output
-            .write_all(text.as_bytes())
-            .map_err(|error| os_error(&error))
+        self.write_to(Which::Stdout, text)
     }
 
     /// Push whatever is buffered out.
@@ -1036,7 +1050,36 @@ impl Vm {
     ///
     /// An `OSError` if the flush fails.
     pub fn flush(&mut self) -> Result<()> {
-        self.output.flush().map_err(|error| os_error(&error))
+        self.flush_to(Which::Stdout)
+    }
+
+    /// Write to one named sink, which is what `sys.stdout.write` reaches.
+    ///
+    /// # Errors
+    ///
+    /// An `OSError` if the write fails, which is what CPython raises for a
+    /// closed or broken stream.
+    pub fn write_to(&mut self, which: Which, text: &str) -> Result<()> {
+        self.sink(which)
+            .write_all(text.as_bytes())
+            .map_err(|error| os_error(&error))
+    }
+
+    /// Push one named sink out.
+    ///
+    /// # Errors
+    ///
+    /// An `OSError` if the flush fails.
+    pub fn flush_to(&mut self, which: Which) -> Result<()> {
+        self.sink(which).flush().map_err(|error| os_error(&error))
+    }
+
+    /// The sink a name refers to.
+    fn sink(&mut self, which: Which) -> &mut dyn Write {
+        match which {
+            Which::Stdout => &mut self.output,
+            Which::Stderr => &mut self.errors,
+        }
     }
 
     /// Call something with its arguments already in hand.
@@ -2084,6 +2127,13 @@ fn attribute(object: &Object, name: &str) -> Result<Object> {
     // kind. When there are type objects these become descriptors on one.
     if let Some(path) = object.downcast::<pathlib::Path>()
         && let Some(value) = pathlib::property(path, name)
+    {
+        return Ok(value);
+    }
+    // The same arrangement for the same reason: `sys.stdout.encoding` is a
+    // string and not something to call.
+    if let Some(found) = object.downcast::<stream::Stream>()
+        && let Some(value) = stream::property(*found, name)
     {
         return Ok(value);
     }

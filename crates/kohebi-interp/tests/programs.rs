@@ -35,15 +35,27 @@ impl Write for Buffer {
 
 /// Run a program and give back what it printed and what it raised.
 fn execute(source: &str) -> (String, Option<String>) {
+    let (out, _, raised) = both(source);
+    (out, raised)
+}
+
+/// Run a program and give back both sinks as well as what it raised.
+///
+/// The two are kept apart here for the same reason they are kept apart in a
+/// terminal: a test that only looked at one of them could not tell a line that
+/// went to standard error from one that never got written at all.
+fn both(source: &str) -> (String, String, Option<String>) {
     let tree = parse_module(source).expect("expected this to parse");
     let body = lower_module(&tree, "<test>").expect("expected this to lower");
     let code = compile(&body);
 
     let buffer = Buffer(Rc::new(RefCell::new(Vec::new())));
-    let mut vm = Vm::new(Box::new(buffer.clone()));
+    let diagnostics = Buffer(Rc::new(RefCell::new(Vec::new())));
+    let mut vm = Vm::new(Box::new(buffer.clone()), Box::new(diagnostics.clone()));
     let raised = vm.run(&code).err().map(|error| error.to_string());
     let written = String::from_utf8(buffer.0.borrow().clone()).expect("output is text");
-    (written, raised)
+    let complained = String::from_utf8(diagnostics.0.borrow().clone()).expect("output is text");
+    (written, complained, raised)
 }
 
 /// What a program prints, when it is expected not to raise.
@@ -395,7 +407,7 @@ fn a_builtin_is_one_object_and_prints_like_one() {
 fn a_module_body_answers_none() {
     let tree = parse_module("x = 1\n").expect("expected this to parse");
     let body = lower_module(&tree, "<test>").expect("expected this to lower");
-    let mut vm = Vm::new(Box::new(io::sink()));
+    let mut vm = Vm::new(Box::new(io::sink()), Box::new(io::sink()));
     let value = vm.run(&compile(&body)).expect("expected this not to raise");
     assert_eq!(value.repr(), "None");
     assert_eq!(
@@ -410,7 +422,7 @@ fn a_module_body_answers_none() {
 /// namespace between the two.
 #[test]
 fn what_one_body_binds_the_next_one_sees() {
-    let mut vm = Vm::new(Box::new(io::sink()));
+    let mut vm = Vm::new(Box::new(io::sink()), Box::new(io::sink()));
     for source in ["x = 41\ny = 'kept'\n", "x = x + 1\n"] {
         let tree = parse_module(source).expect("expected this to parse");
         let body = lower_module(&tree, "<test>").expect("expected this to lower");
@@ -433,7 +445,7 @@ fn what_one_body_binds_the_next_one_sees() {
 fn a_body_that_raises_keeps_what_it_bound_first() {
     let tree = parse_module("a = 1\nb = 1 / 0\n").expect("expected this to parse");
     let body = lower_module(&tree, "<test>").expect("expected this to lower");
-    let mut vm = Vm::new(Box::new(io::sink()));
+    let mut vm = Vm::new(Box::new(io::sink()), Box::new(io::sink()));
     vm.run(&compile(&body)).expect_err("expected this to raise");
     assert_eq!(
         vm.global("a").map(|value| value.repr()).as_deref(),
@@ -446,7 +458,7 @@ fn a_body_that_raises_keeps_what_it_bound_first() {
 /// empty slot behind that later reads as bound.
 #[test]
 fn a_deleted_global_stays_deleted_across_bodies() {
-    let mut vm = Vm::new(Box::new(io::sink()));
+    let mut vm = Vm::new(Box::new(io::sink()), Box::new(io::sink()));
     for source in ["x = 1\n", "del x\n"] {
         let tree = parse_module(source).expect("expected this to parse");
         let body = lower_module(&tree, "<test>").expect("expected this to lower");
@@ -4905,5 +4917,50 @@ fn a_relative_import_and_a_star_import_are_refused_by_name() {
     assert_eq!(
         refuses("import sys\nfrom sys import *\n"),
         "line 2: a star import is not lowered yet"
+    );
+}
+
+/// The machine has two sinks and keeps them apart. This is the level that can
+/// check it, because a test here holds both buffers and can see that a line
+/// went to one of them and not the other.
+#[test]
+fn standard_error_is_not_standard_output() {
+    let (out, err, raised) = both(
+        "import sys\n\
+         print('to out')\n\
+         print('to err', file=sys.stderr)\n\
+         sys.stdout.write('written out\\n')\n\
+         sys.stderr.write('written err\\n')\n\
+         sys.stdout.flush()\n\
+         sys.stderr.flush()\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(out, "to out\nwritten out\n");
+    assert_eq!(err, "to err\nwritten err\n");
+}
+
+/// `write` counts what a text stream counts, which is characters. A string
+/// whose characters are three and four bytes long makes the difference visible.
+#[test]
+fn writing_counts_characters_and_not_bytes() {
+    let (out, _, raised) = both("import sys\nprint(sys.stderr.write('\u{e9}\u{1f600}ab'))\n");
+    assert_eq!(raised, None);
+    assert_eq!(out, "4\n");
+}
+
+/// `writelines` puts nothing between the lines, and stops at the first element
+/// that is not a string with everything before it already written.
+#[test]
+fn writelines_adds_nothing_and_stops_where_it_fails() {
+    let (out, err, raised) = both(
+        "import sys\n\
+         sys.stdout.writelines(['a', 'b', 'c'])\n\
+         sys.stderr.writelines(['d', 'e', 1, 'f'])\n",
+    );
+    assert_eq!(out, "abc");
+    assert_eq!(err, "de");
+    assert_eq!(
+        raised.as_deref(),
+        Some("TypeError: write() argument must be str, not int")
     );
 }

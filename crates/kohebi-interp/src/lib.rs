@@ -39,6 +39,11 @@
 //! Rust instead. Packages are not there: a directory with an `__init__.py` in
 //! it needs a `__path__` for its submodules to resolve against, so `import a.b`
 //! refuses rather than doing half of it.
+//!
+//! Output goes to two sinks rather than one, so `sys.stdout` and `sys.stderr`
+//! are different places and a program can write to either. [`stream`] has what
+//! those two can do and what they cannot, which is everything that would need a
+//! file descriptor or a file object.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-interp/0.0.0")]
 
@@ -53,6 +58,7 @@ pub mod method;
 pub mod module;
 pub mod path;
 pub mod ready;
+pub mod stream;
 pub mod vm;
 
 pub use builtin::{Args, Builtin, Flavour};
@@ -64,6 +70,7 @@ pub use iterate::{Iter, Range};
 pub use lazy::Lazy;
 pub use path::Path;
 pub use ready::Ready;
+pub use stream::{Stream, Which};
 pub use vm::{Step, Vm};
 
 /// The design documents that govern this crate.
