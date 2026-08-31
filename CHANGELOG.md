@@ -6,6 +6,10 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+## 0.0.20
+
+Two merged pull requests, and the release that actually reaches crates.io. `cargo install kohebi` works from here rather than from 0.0.19, which built its binaries and published no crates.
+
 `import` and `from ... import` work, and there is one module to point them at. `sys` is built in, meaning the runtime hands it over rather than reading a file, and it carries `argv`, `modules`, `path`, `platform`, `byteorder`, `maxsize`, `maxunicode`, `version`, `version_info`, `executable` and `builtin_module_names`. `sys.version_info` says 3.14 because that is the language being implemented, and `sys.version` names kohebi and its version, because saying CPython there would be a lie a program could act on.
 
 A module is an object with a namespace, and `sys.modules` is the registry itself rather than a copy of it, so a program that looks in there sees what the runtime sees. An import of something already imported is a lookup in that dictionary, which is what makes the second import cheap and what will make cycles terminate once modules can come from files.
