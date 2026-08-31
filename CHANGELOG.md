@@ -6,6 +6,10 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+## 0.0.19
+
+One merged pull request and the release that puts kohebi on crates.io, so `cargo install kohebi` works. Nothing in the runtime changed.
+
 The crates go to crates.io. All fourteen of them, because the binary depends on the other thirteen and a registry will not take a crate whose dependencies are not on it, so publishing `kohebi` means publishing the workspace. The thirteen each get a README saying they are internal, have no stable API and should be pinned exactly if anyone depends on them at all, which is the honest description and is better than a blank page.
 
 The release workflow does it after the six binaries are built and never before, because a GitHub release can be taken down and a crates.io version cannot, only yanked. It reads its token from a `crates-io` environment that only a `v*.*.*` tag may deploy to, so a branch cannot reach it.

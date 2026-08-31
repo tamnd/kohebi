@@ -251,7 +251,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "kohebi"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "anyhow",
  "clap",
@@ -268,14 +268,14 @@ dependencies = [
 
 [[package]]
 name = "kohebi-abi"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "kohebi-core",
 ]
 
 [[package]]
 name = "kohebi-aot"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "anyhow",
  "kohebi-cir",
@@ -288,7 +288,7 @@ dependencies = [
 
 [[package]]
 name = "kohebi-bc"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "kohebi-hir",
  "kohebi-parse",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "kohebi-capi"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "kohebi-abi",
  "kohebi-core",
@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "kohebi-cir"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "kohebi-core",
  "smallvec",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "kohebi-core"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "bitflags",
  "hashbrown",
@@ -325,14 +325,14 @@ dependencies = [
 
 [[package]]
 name = "kohebi-hir"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "kohebi-parse",
 ]
 
 [[package]]
 name = "kohebi-interp"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "kohebi-bc",
  "kohebi-cir",
@@ -345,7 +345,7 @@ dependencies = [
 
 [[package]]
 name = "kohebi-jit"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "kohebi-bc",
  "kohebi-cir",
@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "kohebi-parse"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "kohebi-core",
  "memchr",
@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "kohebi-pyo3-compat"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "kohebi-abi",
  "kohebi-core",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "kohebi-std"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "itoa",
  "kohebi-abi",
@@ -388,7 +388,7 @@ dependencies = [
 
 [[package]]
 name = "kohebi-testing"
-version = "0.0.18"
+version = "0.0.19"
 dependencies = [
  "anyhow",
  "kohebi-core",
