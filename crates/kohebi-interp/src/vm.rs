@@ -92,6 +92,7 @@ use crate::builtin::{Args, Builtin, table};
 use crate::cell::Cell;
 use crate::class::{Class, Instance, Method};
 use crate::function::Function;
+use crate::generator::Generator;
 use crate::iterate;
 use crate::ready::Ready;
 
@@ -197,7 +198,7 @@ impl Vm {
         // here is one shallower than the limit rather than exactly it.
         let ready = Ready::new(module);
         let outcome = self.enter().and_then(|()| {
-            let mut frame = Frame::new(ready.code());
+            let mut frame = Frame::new(ready.shared());
             let outcome = self.execute(&ready, &mut frame);
             self.depth -= 1;
             outcome
@@ -209,7 +210,18 @@ impl Vm {
         outcome
     }
 
-    fn execute(&mut self, ready: &Ready, frame: &mut Frame<'_>) -> Result<Object> {
+    /// Run a frame that cannot stop halfway, which is every frame but a
+    /// generator's.
+    fn execute(&mut self, ready: &Ready, frame: &mut Frame) -> Result<Object> {
+        match self.run_frame(ready, frame)? {
+            Outcome::Returned(value) => Ok(value),
+            Outcome::Yielded { .. } => {
+                unreachable!("only a generator body holds a yield, and it is not run this way")
+            }
+        }
+    }
+
+    fn run_frame(&mut self, ready: &Ready, frame: &mut Frame) -> Result<Outcome> {
         let code = ready.code();
         // What the handled stack owes whoever called this. A `finally` that
         // raised while it was interrupting another exception leaves its own
@@ -222,7 +234,13 @@ impl Vm {
             frame.pc += 1;
             match self.step(instr, ready, frame) {
                 Ok(Flow::Next) => {}
-                Ok(Flow::Done(value)) => return Ok(value),
+                Ok(Flow::Done(value)) => return Ok(Outcome::Returned(value)),
+                // The frame is left exactly as it is, with the counter already
+                // past the `yield`, so starting it again is calling this with
+                // the same frame and nothing else.
+                Ok(Flow::Yielded { value, resume }) => {
+                    return Ok(Outcome::Yielded { value, resume });
+                }
                 // The only place an exception is caught, which is what lets
                 // every instruction below be written as though it could not
                 // be. A frame with nothing on its handler stack hands the
@@ -242,7 +260,7 @@ impl Vm {
         }
         // A body the compiler ended without a `ret`, which a module body is
         // not, so this is only reachable from a hand-written `Code`.
-        Ok(Object::None)
+        Ok(Outcome::Returned(Object::None))
     }
 
     /// Record what was being handled when this exception was raised, for the
@@ -290,7 +308,7 @@ impl Vm {
                   and the work in another, which is harder to read rather than \
                   easier and is not how any interpreter worth copying is written"
     )]
-    fn step(&mut self, instr: Instr, ready: &Ready, frame: &mut Frame<'_>) -> Result<Flow> {
+    fn step(&mut self, instr: Instr, ready: &Ready, frame: &mut Frame) -> Result<Flow> {
         let code = ready.code();
         match instr {
             Instr::Move { dst, src } => {
@@ -498,6 +516,12 @@ impl Vm {
                 }
             }
             Instr::Return { src } => return Ok(Flow::Done(frame.get(src)?.clone())),
+            Instr::Yield { dst, src } => {
+                return Ok(Flow::Yielded {
+                    value: frame.get(src)?.clone(),
+                    resume: dst,
+                });
+            }
 
             Instr::LoadAttr { dst, object, name } => {
                 let value = attribute(frame.get(object)?, self.open.name(name))?;
@@ -589,9 +613,15 @@ impl Vm {
             }
             Instr::Next { dst, iter } => {
                 // The end of a walk is a value rather than a raise, so this
-                // arm has no error path of its own. See [`iterate`].
-                let value = iterate::step(frame.get(iter)?)?;
-                frame.set(dst, value.unwrap_or_else(iterate::done));
+                // arm has no error path of its own. See [`iterate`]. What a
+                // generator returned is dropped here, which is what a `for`
+                // loop does with it.
+                let over = frame.get(iter)?.clone();
+                let value = match self.advance(&over)? {
+                    Step::Value(value) => value,
+                    Step::End(_) => iterate::done(),
+                };
+                frame.set(dst, value);
             }
             Instr::Exhausted { dst, src } => {
                 let end = iterate::is_done(frame.get(src)?);
@@ -604,7 +634,8 @@ impl Vm {
                 star,
                 after,
             } => {
-                let laid_out = unpack(frame.get(src)?, before, star, after)?;
+                let value = frame.get(src)?.clone();
+                let laid_out = self.unpack(&value, before, star, after)?;
                 frame.set(dst, laid_out);
             }
             Instr::Raise { exc, cause } => {
@@ -693,7 +724,7 @@ impl Vm {
     fn call(
         &mut self,
         code: &Code,
-        frame: &Frame<'_>,
+        frame: &Frame,
         callee: Reg,
         args: Span,
         keywords: Span,
@@ -796,8 +827,22 @@ impl Vm {
                 .map(|reg| frame.get(*reg).cloned()),
             named,
         )?;
+        if body.code().generator {
+            // A generator function runs none of its body when it is called.
+            // The arguments are bound anyway, because binding is where a call
+            // goes wrong and `f(1, 2)` on a one parameter generator has to
+            // fail here rather than at the first `next`.
+            let frame = Frame::with(body.shared(), registers);
+            let generator = Object::native(Generator::new(Rc::clone(&body), frame));
+            // A generator `__init__` gives back the instance and leaves its
+            // body suspended in an object nothing holds, which follows from
+            // throwing away what `__init__` returned. CPython refuses the
+            // program instead, and that refusal belongs with the rest of the
+            // dunder checks rather than here.
+            return Ok(instance.unwrap_or(generator));
+        }
         self.enter()?;
-        let mut inner = Frame::with(body.code(), registers);
+        let mut inner = Frame::with(body.shared(), registers);
         let outcome = self.execute(&body, &mut inner);
         self.depth -= 1;
         // What `__init__` returned is thrown away. CPython insists it be `None`
@@ -815,7 +860,7 @@ impl Vm {
     /// is what makes a read of a name the body has not bound yet find the
     /// module's rather than being the `UnboundLocalError` the same read in a
     /// function would be.
-    fn by_name(&self, frame: &Frame<'_>, name: NameId) -> Result<Object> {
+    fn by_name(&self, frame: &Frame, name: NameId) -> Result<Object> {
         let text = self.open.name(name);
         if let Some(value) = frame.namespace.get(text) {
             return Ok(value.clone());
@@ -833,7 +878,7 @@ impl Vm {
     fn build_class(
         &mut self,
         ready: &Ready,
-        frame: &Frame<'_>,
+        frame: &Frame,
         func: FuncId,
         bases: Span,
         captures: Span,
@@ -859,7 +904,7 @@ impl Vm {
         };
         let captures = operands(code, frame, captures)?;
         let body = Rc::clone(body);
-        let mut inner = Frame::new(body.code());
+        let mut inner = Frame::new(body.shared());
         // A class body takes cells the way a function does, and for the same
         // reason: a name it reads from the function around it is a binding
         // rather than a value, and the two frames share it.
@@ -880,6 +925,150 @@ impl Vm {
             base,
             inner.namespace,
         )))
+    }
+
+    /// One step of an iterator.
+    ///
+    /// On the machine rather than in [`iterate`] because a generator is an
+    /// iterator whose next value is a piece of a Python program, so a step can
+    /// run anything at all. Every other iterator this reaches walks a container
+    /// and cannot, which is why the rest of them stay where they are.
+    ///
+    /// # Errors
+    ///
+    /// A `TypeError` when the value is not an iterator, and whatever a
+    /// generator's body raises.
+    pub fn advance(&mut self, value: &Object) -> Result<Step> {
+        if let Some(generator) = value.downcast::<Generator>() {
+            return self.resume(generator, Object::None);
+        }
+        Ok(match iterate::step(value)? {
+            Some(value) => Step::Value(value),
+            None => Step::End(Object::None),
+        })
+    }
+
+    /// Run a generator until its next `yield`, or until it is over.
+    ///
+    /// The frame comes out of the generator, runs on the machine like any
+    /// other, and goes back in where it stopped. Nothing about it is special
+    /// while it is running, which is the point: the same loop, the same handler
+    /// stack, the same recursion limit.
+    fn resume(&mut self, generator: &Generator, sent: Object) -> Result<Step> {
+        // Counted against the limit before the frame is taken out, so that the
+        // generator is left suspended rather than half started when a deep
+        // recursion is what asked for the next value.
+        self.enter()?;
+        let stepped = self.stepping(generator, sent);
+        self.depth -= 1;
+        stepped
+    }
+
+    /// The body of [`Vm::resume`], with the depth already counted.
+    fn stepping(&mut self, generator: &Generator, sent: Object) -> Result<Step> {
+        let Some((mut frame, resume)) = generator.start() else {
+            if generator.is_running() {
+                // Reachable from a generator whose body asks for its own next
+                // value, which is a mistake rather than a recursion: there is
+                // one frame and it is already on the stack.
+                return Err(Error::value_error("generator already executing"));
+            }
+            // One that is over is an empty iterator from now on, and says so
+            // every time rather than only the first.
+            return Ok(Step::End(Object::None));
+        };
+        if let Some(resume) = resume {
+            frame.set(resume, sent);
+        }
+        let ready = Rc::clone(generator.ready());
+        match self.run_frame(&ready, &mut frame) {
+            Ok(Outcome::Yielded { value, resume }) => {
+                generator.suspend(frame, Some(resume));
+                Ok(Step::Value(value))
+            }
+            Ok(Outcome::Returned(value)) => {
+                generator.finish();
+                Ok(Step::End(value))
+            }
+            // A generator that raised is over, the same as one that returned.
+            // The exception goes to whoever asked for the value, and asking
+            // again gets the ordinary end rather than the exception twice.
+            Err(error) => {
+                generator.finish();
+                Err(error)
+            }
+        }
+    }
+
+    /// A value laid out as the list an unpacking target wants.
+    ///
+    /// Without a star the list is `before` long and the value has to hold exactly
+    /// that many. With one it is `before + 1 + after`, and the element in the
+    /// middle is a list of whatever the fixed targets did not claim, which may
+    /// be empty.
+    ///
+    /// The whole value is walked before anything is bound, which is what makes
+    /// `a, b = b, a` a swap and not two writes racing each other, and it is also
+    /// the only way to know whether there were too many: an iterator does not say
+    /// how long it is, so being one past the end is the answer to asking for one
+    /// more element and being given one.
+    fn unpack(&mut self, value: &Object, before: u32, star: bool, after: u32) -> Result<Object> {
+        let before = before as usize;
+        let after = after as usize;
+        let least = before + after;
+
+        let iter = iterate::over(value).map_err(|_| {
+            Error::type_error(format!(
+                "cannot unpack non-iterable {} object",
+                value.type_name()
+            ))
+        })?;
+        let mut items = Vec::with_capacity(least);
+        // One more than the fixed targets need when there is no star, because a
+        // list of exactly `least` and one of `least + 1` are the difference between
+        // an answer and a `ValueError`, and the only way to tell them apart is to
+        // ask for the extra one.
+        let wanted = if star { usize::MAX } else { least + 1 };
+        while items.len() < wanted {
+            match self.advance(&iter)? {
+                Step::Value(item) => items.push(item),
+                Step::End(_) => break,
+            }
+        }
+
+        if items.len() < least {
+            let expected = if star {
+                format!("at least {least}")
+            } else {
+                least.to_string()
+            };
+            return Err(Error::new(
+                Kind::ValueError,
+                format!(
+                    "not enough values to unpack (expected {expected}, got {})",
+                    items.len()
+                ),
+            ));
+        }
+        if !star && items.len() > least {
+            // `items` is one longer than the targets at most, because the walk
+            // stopped there, so the count in the message is not the length of the
+            // value. CPython counts the whole thing, so this one does too.
+            let mut total = items.len();
+            while matches!(self.advance(&iter)?, Step::Value(_)) {
+                total += 1;
+            }
+            return Err(Error::new(
+                Kind::ValueError,
+                format!("too many values to unpack (expected {least}, got {total})"),
+            ));
+        }
+
+        if star {
+            let rest: Vec<Object> = items.drain(before..items.len() - after).collect();
+            items.insert(before, Object::list(rest));
+        }
+        Ok(Object::list(items))
     }
 
     /// Take a step down, refusing one that goes deeper than [`LIMIT`].
@@ -965,6 +1154,43 @@ enum Flow {
     Next,
     /// Leave the frame with this value, which is what a `return` does.
     Done(Object),
+    /// Stop the frame here and hand this value out, which is what a `yield`
+    /// does. See [`Outcome::Yielded`].
+    Yielded { value: Object, resume: Reg },
+}
+
+/// How a frame stopped.
+///
+/// Only a generator's frame can stop in the second way, and only a generator's
+/// frame is ever started again, which is why the two are the same enum: whoever
+/// is holding the frame is the one who has to know the difference.
+enum Outcome {
+    /// It ran to a `return`, or off the end, and will not run again.
+    Returned(Object),
+    /// It reached a `yield` and is waiting where it stopped.
+    Yielded {
+        /// What the `yield` handed out.
+        value: Object,
+        /// The register the `yield` writes when the frame starts again, which
+        /// is where a `send` puts its value and where a plain step puts `None`.
+        resume: Reg,
+    },
+}
+
+/// One step of an iterator.
+///
+/// Not an `Option`, because the end of a generator carries something. `return
+/// 3` in a generator is a `StopIteration` a program can catch and read a 3 out
+/// of, and a `for` loop over the same generator throws that 3 away. Both need
+/// the end and only one of them needs the value, so the value travels with the
+/// end rather than being reachable only by raising.
+#[derive(Debug)]
+pub enum Step {
+    /// A value, which is almost always.
+    Value(Object),
+    /// The end, carrying what a generator returned. `Object::None` for
+    /// everything else, since nothing else can return.
+    End(Object),
 }
 
 /// A region of a body an exception leaves through.
@@ -989,7 +1215,13 @@ struct Handler {
 }
 
 /// One call's frame.
-struct Frame<'a> {
+///
+/// Owns the code it is running rather than borrowing it, because a generator's
+/// frame outlives the call that made it: it is put away at a `yield` and picked
+/// up again by the next `next`, by which time the caller that built it is long
+/// gone. The code is already behind an `Rc` for the same sort of reason, so this
+/// costs a refcount per call and nothing else.
+pub(crate) struct Frame {
     registers: Vec<Option<Object>>,
     /// The names a class body binds, which is empty in every other frame.
     ///
@@ -1002,19 +1234,20 @@ struct Frame<'a> {
     pc: usize,
     /// The `try` statements this frame is inside, innermost last.
     handlers: Vec<Handler>,
-    /// What the registers are called, borrowed from the code so that an empty
-    /// one can say which variable it was. Read on the error path only.
-    locals: &'a [Box<str>],
+    /// What is running, which is where the names of the registers come from
+    /// when an empty one has to say which variable it was.
+    code: Rc<Code>,
 }
 
-impl<'a> Frame<'a> {
+impl Frame {
     /// An empty frame, which is what a module body starts with.
-    fn new(code: &'a Code) -> Self {
-        Frame::with(code, vec![None; code.registers as usize])
+    fn new(code: &Rc<Code>) -> Self {
+        let registers = vec![None; code.registers as usize];
+        Frame::with(code, registers)
     }
 
     /// A frame whose low registers a call has already filled in.
-    fn with(code: &'a Code, registers: Vec<Option<Object>>) -> Self {
+    fn with(code: &Rc<Code>, registers: Vec<Option<Object>>) -> Self {
         Frame {
             registers,
             namespace: Names::default(),
@@ -1022,7 +1255,7 @@ impl<'a> Frame<'a> {
             // Nothing until a `try` is reached, and most frames never reach
             // one, so this stays an empty vector that never allocates.
             handlers: Vec::new(),
-            locals: &code.locals,
+            code: Rc::clone(code),
         }
     }
 
@@ -1035,7 +1268,7 @@ impl<'a> Frame<'a> {
             // nothing better to say about it than that it happened.
             _ => Err(Error::new(
                 Kind::UnboundLocalError,
-                match self.locals.get(reg.0 as usize).map(|name| &**name) {
+                match self.code.locals.get(reg.0 as usize).map(|name| &**name) {
                     Some("") | None => "cannot access local variable where it is \
                                         not associated with a value"
                         .to_owned(),
@@ -1066,7 +1299,7 @@ impl<'a> Frame<'a> {
 /// Never fails on a program the compiler wrote, because the only instructions
 /// that name a register this way are the ones it emitted for a slot it had
 /// already decided holds a cell.
-fn cell_at<'a>(frame: &'a Frame<'_>, reg: Reg) -> &'a Cell {
+fn cell_at(frame: &Frame, reg: Reg) -> &Cell {
     let Some(Some(value)) = frame.registers.get(reg.0 as usize) else {
         unreachable!("a cell register is filled before the body starts")
     };
@@ -1082,7 +1315,7 @@ fn cell_at<'a>(frame: &'a Frame<'_>, reg: Reg) -> &'a Cell {
 /// away, and Python has two different sentences for it depending on which frame
 /// the name belongs to. A captured name is a free variable and says so; one
 /// this frame owns is an ordinary local that happens to be shared.
-fn through(code: &Code, frame: &Frame<'_>, reg: Reg) -> Result<Object> {
+fn through(code: &Code, frame: &Frame, reg: Reg) -> Result<Object> {
     if let Some(value) = cell_at(frame, reg).get() {
         return Ok(value);
     }
@@ -1103,7 +1336,7 @@ fn through(code: &Code, frame: &Frame<'_>, reg: Reg) -> Result<Object> {
 }
 
 /// The values a span of registers holds.
-fn operands(code: &Code, frame: &Frame<'_>, span: Span) -> Result<Vec<Object>> {
+fn operands(code: &Code, frame: &Frame, span: Span) -> Result<Vec<Object>> {
     code.operands(span)
         .iter()
         .map(|reg| frame.get(*reg).cloned())
@@ -1111,7 +1344,7 @@ fn operands(code: &Code, frame: &Frame<'_>, span: Span) -> Result<Vec<Object>> {
 }
 
 /// A dict display, which is entries and `**` spreads in the order written.
-fn build_dict(code: &Code, frame: &Frame<'_>, entries: Span) -> Result<Object> {
+fn build_dict(code: &Code, frame: &Frame, entries: Span) -> Result<Object> {
     let mut dict = Dict::new();
     for (key, value) in &code.entries[entries.range()] {
         let value = frame.get(*value)?;
@@ -1310,77 +1543,6 @@ fn compare(op: CmpOp, left: &Object, right: &Object) -> Result<Object> {
         CmpOp::NotIn => return Ok(ops::not(&ops::contains(right, left)?)),
     };
     ops::compare(op, left, right)
-}
-
-/// A value laid out as the list an unpacking target wants.
-///
-/// Without a star the list is `before` long and the value has to hold exactly
-/// that many. With one it is `before + 1 + after`, and the element in the
-/// middle is a list of whatever the fixed targets did not claim, which may
-/// be empty.
-///
-/// The whole value is walked before anything is bound, which is what makes
-/// `a, b = b, a` a swap and not two writes racing each other, and it is also
-/// the only way to know whether there were too many: an iterator does not say
-/// how long it is, so being one past the end is the answer to asking for one
-/// more element and being given one.
-fn unpack(value: &Object, before: u32, star: bool, after: u32) -> Result<Object> {
-    let before = before as usize;
-    let after = after as usize;
-    let least = before + after;
-
-    let iter = iterate::over(value).map_err(|_| {
-        Error::type_error(format!(
-            "cannot unpack non-iterable {} object",
-            value.type_name()
-        ))
-    })?;
-    let mut items = Vec::with_capacity(least);
-    // One more than the fixed targets need when there is no star, because a
-    // list of exactly `least` and one of `least + 1` are the difference between
-    // an answer and a `ValueError`, and the only way to tell them apart is to
-    // ask for the extra one.
-    let wanted = if star { usize::MAX } else { least + 1 };
-    while items.len() < wanted {
-        match iterate::step(&iter)? {
-            Some(item) => items.push(item),
-            None => break,
-        }
-    }
-
-    if items.len() < least {
-        let expected = if star {
-            format!("at least {least}")
-        } else {
-            least.to_string()
-        };
-        return Err(Error::new(
-            Kind::ValueError,
-            format!(
-                "not enough values to unpack (expected {expected}, got {})",
-                items.len()
-            ),
-        ));
-    }
-    if !star && items.len() > least {
-        // `items` is one longer than the targets at most, because the walk
-        // stopped there, so the count in the message is not the length of the
-        // value. CPython counts the whole thing, so this one does too.
-        let mut total = items.len();
-        while iterate::step(&iter)?.is_some() {
-            total += 1;
-        }
-        return Err(Error::new(
-            Kind::ValueError,
-            format!("too many values to unpack (expected {least}, got {total})"),
-        ));
-    }
-
-    if star {
-        let rest: Vec<Object> = items.drain(before..items.len() - after).collect();
-        items.insert(before, Object::list(rest));
-    }
-    Ok(Object::list(items))
 }
 
 /// A name nothing is bound to.

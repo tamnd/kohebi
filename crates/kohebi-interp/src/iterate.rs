@@ -12,9 +12,11 @@
 //! of a walk is a value, [`Done`], that `Next` writes into a register and
 //! `Exhausted` reads back out. It is safe to put in a register because no
 //! program can obtain one: nothing else constructs it, and the only instruction
-//! that looks at it is emitted immediately after the one that writes it. When
-//! generators and user defined iterators arrive they raise `StopIteration` the
-//! way Python says, and the runtime turns that back into this at the boundary.
+//! that looks at it is emitted immediately after the one that writes it. A
+//! generator is already stepped this way: it ends by returning rather than by
+//! raising, and `next()` is the one place that turns the end back into the
+//! `StopIteration` a program can see. A user defined iterator will arrive
+//! raising one for real, and the boundary that catches it is the same boundary.
 //!
 //! ## Holding the container rather than copying it
 //!
@@ -39,6 +41,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use kohebi_core::{Dict, Error, Int, Kind, Native, Object, Result, Set, StrBuf};
+
+use crate::generator::Generator;
 
 /// What [`Next`](kohebi_bc::Instr::Next) writes when there is nothing left.
 ///
@@ -336,14 +340,20 @@ impl Native for Iter {
 /// An iterator over a value, which is what `iter(x)` and `for` both want.
 ///
 /// A value that is already an iterator comes back unchanged, which is what
-/// makes `iter(iter(x))` the same iterator rather than a wrapper around one.
+/// makes `iter(iter(x))` the same iterator rather than a wrapper around one. A
+/// generator is one of those, so `iter(g) is g`, and a `for` over a half
+/// consumed generator carries on rather than starting again.
+///
+/// Stepping what comes back is [`Vm::advance`](crate::Vm::advance) rather than
+/// [`step`], because a generator takes its step by running Python code and
+/// nothing here can do that.
 ///
 /// # Errors
 ///
 /// `TypeError` naming the type, when it cannot be walked.
 pub fn over(value: &Object) -> Result<Object> {
     if let Object::Native(native) = value
-        && native.as_any().is::<Iter>()
+        && (native.as_any().is::<Iter>() || native.as_any().is::<Generator>())
     {
         return Ok(value.clone());
     }

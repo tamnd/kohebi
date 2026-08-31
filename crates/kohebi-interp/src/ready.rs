@@ -57,6 +57,12 @@ impl Ready {
         &self.code
     }
 
+    /// The same, shared, for a frame that has to outlive the call that made it.
+    #[must_use]
+    pub fn shared(&self) -> &Rc<Code> {
+        &self.code
+    }
+
     /// The body of a `def`, by the number the body holding it gave it.
     #[must_use]
     pub fn function(&self, id: FuncId) -> Option<&Rc<Ready>> {

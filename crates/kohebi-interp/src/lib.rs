@@ -15,16 +15,22 @@
 //!
 //! Assignment, arithmetic, comparison, the boolean operators, `if`, `while` and
 //! `for`, subscripting and slicing, tuple, list, set and dict displays,
-//! unpacking, `try` and `raise`, `assert`, classes, and calls: to the builtins
-//! there are, which are `print`, `len`, `iter`, `next` and `range`, to functions
-//! the program defined with `def` or `lambda`, and to classes it defined with
-//! `class`.
+//! unpacking, `try` and `raise`, `assert`, classes, generators, and calls: to
+//! the builtins there are, which are `print`, `len`, `iter`, `next` and `range`,
+//! to functions the program defined with `def` or `lambda`, and to classes it
+//! defined with `class`.
+//!
+//! A generator suspends and resumes, is its own iterator, walks under a `for`
+//! and hands what it returned to the `StopIteration` that ends it. What it does
+//! not have is `send`, `close`, `throw` and `yield from`, which are all reached
+//! as attributes of the generator object and so are waiting on the same thing
+//! everything else is.
 //!
 //! Attributes work on a class and on an instance of one, and nowhere else. Every
 //! builtin type is still without them, because none of them has a type object to
 //! hang one on, so `''.upper()` raises a `NotImplementedError` naming attribute
-//! access rather than doing something almost right. Generators, `with`, `match`
-//! and imports are the same: named, not guessed at.
+//! access rather than doing something almost right. `with`, `match` and imports
+//! are the same: named, not guessed at.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-interp/0.0.0")]
 
@@ -32,6 +38,7 @@ pub mod builtin;
 pub mod cell;
 pub mod class;
 pub mod function;
+pub mod generator;
 pub mod iterate;
 pub mod ready;
 pub mod vm;
@@ -40,9 +47,10 @@ pub use builtin::{Args, Builtin, Flavour};
 pub use cell::Cell;
 pub use class::{Class, Instance, Method};
 pub use function::Function;
+pub use generator::Generator;
 pub use iterate::{Iter, Range};
 pub use ready::Ready;
-pub use vm::Vm;
+pub use vm::{Step, Vm};
 
 /// The design documents that govern this crate.
 pub const SPEC: &[&str] = &["docs/spec/02-architecture.md"];

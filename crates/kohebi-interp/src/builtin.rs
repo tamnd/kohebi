@@ -39,7 +39,7 @@ use std::fmt;
 use kohebi_core::{Error, Int, Kind, Native, Object, Result, exception, ops};
 
 use crate::iterate::{self, Range};
-use crate::vm::Vm;
+use crate::vm::{Step, Vm};
 
 /// What a builtin does when it is called.
 type Body = fn(&mut Vm, Args) -> Result<Object>;
@@ -319,17 +319,27 @@ fn iter(_vm: &mut Vm, args: Args) -> Result<Object> {
 }
 
 /// `next(it)` and `next(it, default)`.
-fn next(_vm: &mut Vm, args: Args) -> Result<Object> {
+fn next(vm: &mut Vm, args: Args) -> Result<Object> {
     args.no_keywords("next")?;
     args.arity("next", 1, 2)?;
-    match iterate::step(&args.positional[0])? {
-        Some(value) => Ok(value),
-        // The one place the sentinel turns back into the exception Python
+    // Through the machine rather than through `iterate`, because stepping a
+    // generator runs Python code and only the machine can do that.
+    match vm.advance(&args.positional[0])? {
+        Step::Value(value) => Ok(value),
+        // The one place the end of a walk turns back into the exception Python
         // says it is. `next` is where a program can see the end of an
         // iterator, and a `for` loop is not.
-        None => match args.positional.get(1) {
+        Step::End(returned) => match args.positional.get(1) {
+            // A default swallows the exception and everything it carried, so
+            // `next(g, 'd')` on a generator that returned `'r'` is `'d'` and
+            // the `'r'` is gone.
             Some(default) => Ok(default.clone()),
-            None => Err(Error::new(Kind::StopIteration, "")),
+            // What a generator returned is the argument to the `StopIteration`,
+            // and only the first time: the generator is finished afterwards and
+            // every later `next` raises a bare one. A `return None`, written or
+            // implied, is a bare one from the start.
+            None if matches!(returned, Object::None) => Err(Error::new(Kind::StopIteration, "")),
+            None => Err(Error::raised(Kind::StopIteration, vec![returned])),
         },
     }
 }
