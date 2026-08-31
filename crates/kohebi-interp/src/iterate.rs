@@ -408,7 +408,7 @@ fn not_iterable(value: &Object) -> Error {
 }
 
 /// The `TypeError` for a register that should have held an iterator.
-fn not_an_iterator(value: &Object) -> Error {
+pub(crate) fn not_an_iterator(value: &Object) -> Error {
     Error::type_error(format!("'{}' object is not an iterator", value.type_name()))
 }
 

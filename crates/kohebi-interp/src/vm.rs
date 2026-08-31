@@ -93,7 +93,7 @@ use crate::cell::Cell;
 use crate::class::{Class, Instance, Method};
 use crate::function::Function;
 use crate::generator::Generator;
-use crate::iterate;
+use crate::iterate::{self, Iter};
 use crate::ready::Ready;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
@@ -213,15 +213,31 @@ impl Vm {
     /// Run a frame that cannot stop halfway, which is every frame but a
     /// generator's.
     fn execute(&mut self, ready: &Ready, frame: &mut Frame) -> Result<Object> {
-        match self.run_frame(ready, frame)? {
-            Outcome::Returned(value) => Ok(value),
-            Outcome::Yielded { .. } => {
-                unreachable!("only a generator body holds a yield, and it is not run this way")
-            }
-        }
+        self.run_frame(ready, frame, &mut None)
     }
 
-    fn run_frame(&mut self, ready: &Ready, frame: &mut Frame) -> Result<Outcome> {
+    /// Run a frame until something stops it, and give back whatever that was:
+    /// what a `return` returned, or what a `yield` handed out.
+    ///
+    /// `suspended` says which of the two happened. A `yield` writes the register
+    /// it wants the resumed frame to fill, and a `return` leaves it alone, so a
+    /// caller that passes `None` and finds `None` there afterwards knows the
+    /// frame is finished. Only a generator has any use for that, and only a
+    /// generator's body can contain a `yield` at all, so every other caller goes
+    /// through [`Vm::execute`] and ignores it.
+    ///
+    /// It is an out parameter rather than a second thing in the return value
+    /// because of what this function is: the loop every Python instruction runs
+    /// inside. An enum wide enough to hold a value and a register is wider than
+    /// a value, and a return that wide goes back through memory, which puts a
+    /// copy on the way out of every call in the program to carry something only
+    /// a generator reads. That copy measured at six percent of a call.
+    fn run_frame(
+        &mut self,
+        ready: &Ready,
+        frame: &mut Frame,
+        suspended: &mut Option<Reg>,
+    ) -> Result<Object> {
         let code = ready.code();
         // What the handled stack owes whoever called this. A `finally` that
         // raised while it was interrupting another exception leaves its own
@@ -234,12 +250,13 @@ impl Vm {
             frame.pc += 1;
             match self.step(instr, ready, frame) {
                 Ok(Flow::Next) => {}
-                Ok(Flow::Done(value)) => return Ok(Outcome::Returned(value)),
+                Ok(Flow::Done(value)) => return Ok(value),
                 // The frame is left exactly as it is, with the counter already
                 // past the `yield`, so starting it again is calling this with
                 // the same frame and nothing else.
                 Ok(Flow::Yielded { value, resume }) => {
-                    return Ok(Outcome::Yielded { value, resume });
+                    *suspended = Some(resume);
+                    return Ok(value);
                 }
                 // The only place an exception is caught, which is what lets
                 // every instruction below be written as though it could not
@@ -260,7 +277,7 @@ impl Vm {
         }
         // A body the compiler ended without a `ret`, which a module body is
         // not, so this is only reachable from a hand-written `Code`.
-        Ok(Outcome::Returned(Object::None))
+        Ok(Object::None)
     }
 
     /// Record what was being handled when this exception was raised, for the
@@ -616,10 +633,17 @@ impl Vm {
                 // arm has no error path of its own. See [`iterate`]. What a
                 // generator returned is dropped here, which is what a `for`
                 // loop does with it.
-                let over = frame.get(iter)?.clone();
-                let value = match self.advance(&over)? {
-                    Step::Value(value) => value,
-                    Step::End(_) => iterate::done(),
+                //
+                // The container case is written here rather than being left to
+                // [`Vm::advance`], which is the same two lines, because this is
+                // every `for` loop in the program and that one cannot be folded
+                // into it. See the note there.
+                let value = match frame.get(iter)?.downcast::<Iter>() {
+                    Some(walk) => walk.step()?.unwrap_or_else(iterate::done),
+                    None => match self.advance_elsewhere(frame.get(iter)?)? {
+                        Step::Value(value) => value,
+                        Step::End(_) => iterate::done(),
+                    },
                 };
                 frame.set(dst, value);
             }
@@ -634,8 +658,7 @@ impl Vm {
                 star,
                 after,
             } => {
-                let value = frame.get(src)?.clone();
-                let laid_out = self.unpack(&value, before, star, after)?;
+                let laid_out = self.unpack(frame.get(src)?, before, star, after)?;
                 frame.set(dst, laid_out);
             }
             Instr::Raise { exc, cause } => {
@@ -938,14 +961,37 @@ impl Vm {
     ///
     /// A `TypeError` when the value is not an iterator, and whatever a
     /// generator's body raises.
+    ///
+    /// # Performance
+    ///
+    /// `Instr::Next` deliberately does not call this. It writes the container
+    /// case out again and calls the private half of this for the rest, and that
+    /// is worth about a tenth of every `for` loop in a program with no generator
+    /// in it. The reason is the `&mut self`: this can enter a Python frame, that
+    /// makes it part of the interpreter's own recursion, and a call inside that
+    /// cycle does not fold into the instruction that made it however it is
+    /// annotated. Six lines said twice buys the loop back, and the benchmark
+    /// found that rather than a reviewer.
+    ///
+    /// Everything that is not an instruction should call this. `next()` does.
+    #[inline]
     pub fn advance(&mut self, value: &Object) -> Result<Step> {
-        if let Some(generator) = value.downcast::<Generator>() {
-            return self.resume(generator, Object::None);
+        match value.downcast::<Iter>() {
+            Some(iter) => Ok(match iter.step()? {
+                Some(value) => Step::Value(value),
+                None => Step::End(Object::None),
+            }),
+            None => self.advance_elsewhere(value),
         }
-        Ok(match iterate::step(value)? {
-            Some(value) => Step::Value(value),
-            None => Step::End(Object::None),
-        })
+    }
+
+    /// The rest of [`Vm::advance`]: a generator, or something that is not an
+    /// iterator at all.
+    fn advance_elsewhere(&mut self, value: &Object) -> Result<Step> {
+        match value.downcast::<Generator>() {
+            Some(generator) => self.resume(generator, Object::None),
+            None => Err(iterate::not_an_iterator(value)),
+        }
     }
 
     /// Run a generator until its next `yield`, or until it is over.
@@ -981,12 +1027,15 @@ impl Vm {
             frame.set(resume, sent);
         }
         let ready = Rc::clone(generator.ready());
-        match self.run_frame(&ready, &mut frame) {
-            Ok(Outcome::Yielded { value, resume }) => {
-                generator.suspend(frame, Some(resume));
+        let mut suspended = None;
+        match self.run_frame(&ready, &mut frame, &mut suspended) {
+            // A register to resume into means a `yield` stopped it, and the
+            // frame goes back where it came from to be started again from there.
+            Ok(value) if suspended.is_some() => {
+                generator.suspend(frame, suspended);
                 Ok(Step::Value(value))
             }
-            Ok(Outcome::Returned(value)) => {
+            Ok(value) => {
                 generator.finish();
                 Ok(Step::End(value))
             }
@@ -1155,26 +1204,10 @@ enum Flow {
     /// Leave the frame with this value, which is what a `return` does.
     Done(Object),
     /// Stop the frame here and hand this value out, which is what a `yield`
-    /// does. See [`Outcome::Yielded`].
+    /// does. The register is the one the frame writes when it starts again,
+    /// which is where a `send` puts its value and where a plain step puts
+    /// `None`. See the `suspended` parameter of [`Vm::run_frame`].
     Yielded { value: Object, resume: Reg },
-}
-
-/// How a frame stopped.
-///
-/// Only a generator's frame can stop in the second way, and only a generator's
-/// frame is ever started again, which is why the two are the same enum: whoever
-/// is holding the frame is the one who has to know the difference.
-enum Outcome {
-    /// It ran to a `return`, or off the end, and will not run again.
-    Returned(Object),
-    /// It reached a `yield` and is waiting where it stopped.
-    Yielded {
-        /// What the `yield` handed out.
-        value: Object,
-        /// The register the `yield` writes when the frame starts again, which
-        /// is where a `send` puts its value and where a plain step puts `None`.
-        resume: Reg,
-    },
 }
 
 /// One step of an iterator.
