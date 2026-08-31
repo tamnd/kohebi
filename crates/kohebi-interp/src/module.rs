@@ -7,10 +7,15 @@
 //!
 //! ## Where a module comes from
 //!
-//! Two places. `sys` is built in, meaning it is written in Rust and handed over
-//! rather than read, which is the arrangement CPython uses for it too. Anything
-//! else is a `.py` file found on `sys.path`, read, compiled and run, and the
-//! namespace its body left behind is the module.
+//! Two places. `sys` and `pathlib` are built in, meaning they are written in
+//! Rust and handed over rather than read. Anything else is a `.py` file found
+//! on `sys.path`, read, compiled and run, and the namespace its body left
+//! behind is the module.
+//!
+//! CPython has `sys` built in as well and has `pathlib` as a file in its
+//! standard library. There is no standard library here to put one in, and a
+//! `pathlib` written in Python would need most of the language before it could
+//! run, so it is Rust for now and `sys.builtin_module_names` says so.
 //!
 //! The search is single-file and top level. A directory with an `__init__.py` in
 //! it is a package, and a package needs a `__path__` of its own for its
@@ -312,8 +317,7 @@ impl Modules {
         if let Some(found) = self.get(name) {
             return Ok(Found::Ready(found));
         }
-        if name == "sys" {
-            let built = self.sys();
+        if let Some(built) = self.built_in(name) {
             self.put(name, built.clone());
             return Ok(Found::Ready(built));
         }
@@ -322,7 +326,7 @@ impl Modules {
             // there are no packages. Saying which of the two it is matters: the
             // head being a plain file is a different mistake from it being
             // absent, and CPython distinguishes them.
-            return Err(if self.find(head).is_some() || head == "sys" {
+            return Err(if self.find(head).is_some() || BUILT_IN.contains(&head) {
                 Error::new(
                     Kind::ModuleNotFoundError,
                     format!("No module named '{name}'; '{head}' is not a package"),
@@ -360,6 +364,21 @@ impl Modules {
     pub(crate) fn forget(&self, name: &str) {
         if let Object::Dict(dict) = &self.loaded {
             dict.borrow_mut().remove(&key(name));
+        }
+    }
+
+    /// A module written in Rust, built fresh, or nothing when the name is not
+    /// one of them.
+    ///
+    /// Built rather than looked up, because the caller puts what comes back
+    /// into `sys.modules` and every import after that finds it there. So a
+    /// program that deletes the entry gets a new one, which is the same thing
+    /// that happens to a module read off disk.
+    fn built_in(&self, name: &str) -> Option<Object> {
+        match name {
+            "sys" => Some(self.sys()),
+            "pathlib" => Some(crate::path::module()),
+            _ => None,
         }
     }
 
@@ -411,7 +430,7 @@ impl Modules {
         );
         bind(
             "builtin_module_names",
-            Object::tuple(vec![Object::str("sys")]),
+            Object::tuple(BUILT_IN.iter().map(|name| Object::str(*name)).collect()),
         );
 
         Object::native(Module::new("sys", None, Rc::new(RefCell::new(names))))
@@ -439,6 +458,15 @@ fn missing(name: &str) -> Error {
 fn key(name: &str) -> Key {
     Key::new(Object::str(name)).unwrap_or_else(|_| unreachable!("a str is hashable"))
 }
+
+/// The modules written in Rust, sorted, which is what `sys.builtin_module_names`
+/// is and the order it comes in.
+///
+/// CPython has `pathlib` as a `.py` file in its standard library rather than as
+/// something compiled in, so this list is not the same as CPython's and cannot
+/// be. What the name means is which modules an import will find without going
+/// to the disk, and that is what it answers here.
+const BUILT_IN: &[&str] = &["pathlib", "sys"];
 
 /// What CPython calls this operating system, which is not what Rust calls it.
 const PLATFORM: &str = if cfg!(target_os = "macos") {

@@ -116,6 +116,9 @@ use crate::method;
 // `Module` in this file is the compiled one that came out of the bytecode, so
 // the one a program imports is reached through its own module name.
 use crate::module::{self, Found, Modules};
+// Under the name it has in Python, because `std::path` is already spoken for
+// in this file and the two are easy to mistake for each other.
+use crate::path as pathlib;
 use crate::ready::Ready;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
@@ -1866,7 +1869,15 @@ fn binary(op: Operator, left: &Object, right: &Object) -> Result<Object> {
         Operator::Add => ops::add(left, right),
         Operator::Sub => ops::sub(left, right),
         Operator::Mult => ops::mul(left, right),
-        Operator::Div => ops::true_div(left, right),
+        // A path joins with `/` rather than dividing, and it is asked first
+        // because the operators in `kohebi-core` know nothing about a type
+        // this crate defines. Anything that is not a path on at least one side
+        // falls through, so `1 / 2` never pays for the question and the
+        // complaint about `Path('a') / 1` is still worded by the operator.
+        Operator::Div => match pathlib::divide(left, right) {
+            Some(joined) => Ok(joined),
+            None => ops::true_div(left, right),
+        },
         Operator::FloorDiv => ops::floor_div(left, right),
         Operator::Mod => ops::modulo(left, right),
         Operator::Pow => ops::pow(left, right),
@@ -2067,6 +2078,14 @@ fn attribute(object: &Object, name: &str) -> Result<Object> {
         return class
             .lookup(name)
             .ok_or_else(|| no_attribute(&format!("type object '{}'", class.name()), name));
+    }
+    // Before the method table, because a path's `parent` and `name` are
+    // answers rather than things to call, and a table can only hold the second
+    // kind. When there are type objects these become descriptors on one.
+    if let Some(path) = object.downcast::<pathlib::Path>()
+        && let Some(value) = pathlib::property(path, name)
+    {
+        return Ok(value);
     }
     if let Some(found) = method::lookup(object, name) {
         return Ok(found);

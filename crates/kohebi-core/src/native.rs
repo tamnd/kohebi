@@ -88,6 +88,18 @@ pub trait Native: fmt::Debug {
         false
     }
 
+    /// This value's hash, or nothing to be hashed by address like an object
+    /// with no `__hash__` of its own.
+    ///
+    /// A type that overrides [`Native::equals`] with anything other than
+    /// identity has to override this too, because two values that are equal
+    /// and hash differently get filed in one slot of a dictionary and looked
+    /// for in another, and what a program sees is a key it just put in coming
+    /// back missing.
+    fn hash(&self) -> Option<i64> {
+        None
+    }
+
     /// The concrete value, for the runtime to downcast back to.
     fn as_any(&self) -> &dyn Any;
 }

@@ -6,6 +6,16 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+`pathlib` is the second module written in Rust rather than read off disk, and it holds `Path`. Almost all of what a program does with a path happens before anything touches a disk, so that is the half that is here: a path is parsed into a drive, a root and the names between the separators, and `parent`, `name`, `stem`, `suffix`, `suffixes`, `parts`, `anchor`, `drive` and `root` are each one of those three read straight off. `Path('a//b/')` and `Path('a/b')` are the same path and print the same, and `a/../b` is left alone, because those two are only the same when `a` is not a symbolic link.
+
+Joining is `/` in either direction, `joinpath`, or extra arguments to `Path` itself, and a segment with a root of its own throws away everything in front of it. `with_name` and `with_suffix` replace the last piece. `as_posix` gives forward slashes whatever the platform writes, which is what a program that has to print a path on both wants.
+
+`resolve` follows symbolic links rather than tidying up the text, and it applies `..` to what the links resolved to, so `link/..` is the directory holding the link's target. It is non-strict, which is `pathlib`'s default: a name along the way that does not exist is kept rather than complained about, and a link that points at itself is left where it is. `absolute` does the other half on its own, joining the working directory and touching nothing else. `exists`, `is_file` and `is_dir` are the three questions that read the filesystem, and all three answer false rather than raising.
+
+Everything that opens a file or reads a directory is named and refused: `glob`, `iterdir`, `mkdir`, `open`, `read_text` and the rest raise a `NotImplementedError` saying so, rather than an `AttributeError` claiming a path has no such thing. `Path` is a function that constructs rather than a class, which is the same gap `range` and `str` are in and closes when builtin types get type objects.
+
+A native value can carry its own hash now. Anything whose equality is by value rather than by identity has to, because two values that are equal and hash differently get filed in one slot of a dictionary and looked for in another, and what a program sees is a key it just put in coming back missing. `Path` is the first one that needs it.
+
 `import` reads files now. A module named in an import is looked for as `<directory>/<name>.py` on `sys.path`, and `sys.path[0]` is the directory the script is in, so a module beside the script is found first. The file is read, compiled and run, and the namespace its body left behind is the module. That is the whole of it: a program split across several files runs.
 
 The interesting part was not the loader, it was what a module's globals are. Until now the machine laid one module's names out as a vector of slots for the whole run, on the reasoning that a call should be a Rust call and not also a namespace rebuild. That reasoning stops holding the moment a function defined in one module is called while another one is running, because the numbers in its instructions are indices into its own module's name table and mean something else in anybody else's.

@@ -224,6 +224,26 @@ impl Builtin {
         self.name
     }
 
+    /// A free function, for a module that has one to bind.
+    ///
+    /// The table below builds its own rather than calling this, because it
+    /// builds twenty at once out of a list. This is for the ones that arrive
+    /// one at a time from somewhere that is not this file, of which
+    /// `pathlib.Path` is the first.
+    #[must_use]
+    pub fn function(
+        name: &'static str,
+        body: fn(&mut Vm, Args) -> Result<Object>,
+        flavour: Flavour,
+    ) -> Self {
+        Builtin {
+            name,
+            body: Body::Free(body),
+            flavour,
+            receiver: None,
+        }
+    }
+
     /// A method of a builtin type, bound to the value it was found on.
     #[must_use]
     pub fn method(

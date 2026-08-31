@@ -93,13 +93,17 @@ pub fn hash(object: &Object) -> Result<i64, Unhashable> {
         // not CPython's, for the same reason a string hash is not: what it owes
         // us is that equal slices hash equally within one run.
         Object::Slice(value) => lanes(value.parts().into_iter(), 3),
-        // A native value has no `__hash__` to run, and the default one in
-        // CPython is derived from the address. So is this, and it is worth no
-        // more than CPython's is: it differs between runs and nothing may
-        // depend on it. What it owes us is that the same object hashes the same
-        // way twice, which is what puts a builtin function in a dict and finds
-        // it again.
-        Object::Native(value) => Ok(address(std::ptr::from_ref(value.as_ref()).cast::<()>())),
+        // A native value with a hash of its own is one whose equality is by
+        // value rather than by identity, and it has to answer this the same way
+        // for two values it calls equal. Everything else falls back to the
+        // address, which is what CPython's default `__hash__` is derived from.
+        // That is worth no more than CPython's is: it differs between runs and
+        // nothing may depend on it. What it owes us is that the same object
+        // hashes the same way twice, which is what puts a builtin function in a
+        // dict and finds it again.
+        Object::Native(value) => Ok(value
+            .hash()
+            .unwrap_or_else(|| address(std::ptr::from_ref(value.as_ref()).cast::<()>()))),
         // Everything that can change is out, because a key that could change
         // could move out from under the slot it was filed in. A `frozenset`
         // is the way Python gives you a hashable one, and there is not one

@@ -34,6 +34,7 @@
 //! 3.14.7 rather than reasoned about.
 
 mod list;
+mod path;
 mod string;
 
 use kohebi_core::{Error, Int, Kind, Object, Result};
@@ -90,6 +91,12 @@ fn methods(object: &Object) -> Option<&'static Methods> {
     match object {
         Object::List(_) => Some(&list::METHODS),
         Object::Str(_) => Some(&string::METHODS),
+        // A downcast rather than a variant, because a path is a native value
+        // and so is everything else that will want a table here. The list this
+        // becomes is why the question is asked once, in one place.
+        Object::Native(_) if object.downcast::<crate::path::Path>().is_some() => {
+            Some(&path::METHODS)
+        }
         _ => None,
     }
 }

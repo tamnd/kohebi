@@ -464,3 +464,97 @@ fn a_failed_assertion_prints_and_fails() {
     assert_eq!(out, "");
     assert_eq!(err, "AssertionError\n");
 }
+
+/// What `pathlib` calls a path here, which is in a repr and in the complaint
+/// about a name a path has not got, and which is not the same word everywhere.
+const FLAVOUR: &str = if cfg!(windows) {
+    "WindowsPath"
+} else {
+    "PosixPath"
+};
+
+/// `pathlib` is written in Rust, so an import of it finds a module without
+/// looking on the disk, and what it holds behaves like a path.
+///
+/// Every path printed here goes through `as_posix`, because Windows writes a
+/// separator this file cannot spell twice. The one place the platform shows
+/// through is `parts`, whose first element is the anchor.
+#[test]
+fn a_path_is_taken_apart_and_put_back_together() {
+    let file = source(
+        "pathlib-pure",
+        r"from pathlib import Path
+p = Path('a//b/') / 'c.tar.gz'
+print(p.as_posix(), p.name, p.stem, p.suffix, p.suffixes)
+print(p.parent.as_posix(), p.parent.parent.as_posix(), p.parts)
+print((Path('x') / 'y').as_posix(), (Path('x') / Path('/y')).as_posix())
+print(p.with_suffix('.txt').as_posix(), p.with_name('d').as_posix())
+print(Path('a') == Path('./a'), Path('a').is_absolute())
+",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "a/b/c.tar.gz c.tar.gz c.tar .gz ['.tar', '.gz']\n\
+         a/b a ('a', 'b', 'c.tar.gz')\n\
+         x/y /y\n\
+         a/b/c.tar.txt a/b/d\n\
+         True False\n"
+    );
+}
+
+/// The one property this runtime needs before anything else can use `pathlib`:
+/// the directory a script is in, which is `__file__` resolved and then walked
+/// back up. Nothing is printed, because a path differs between machines.
+#[test]
+fn a_script_can_find_the_directory_it_is_in() {
+    let file = program(
+        "pathlib-beside",
+        &[
+            (
+                "main.py",
+                r"import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import beside
+
+print(beside.WHO, Path(__file__).name, Path(__file__).resolve().is_absolute())
+",
+            ),
+            ("beside.py", "WHO = 'beside'\n"),
+        ],
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(out, "beside main.py True\n");
+}
+
+/// A name `Path` really has but this runtime has not written says so, and a
+/// name it has not got at all is the ordinary `AttributeError`.
+#[test]
+fn a_path_tells_a_missing_method_from_an_unwritten_one() {
+    let file = source(
+        "pathlib-later",
+        r"from pathlib import Path
+try:
+    Path('a').read_text()
+except NotImplementedError as e:
+    print('NotImplementedError:', e)
+try:
+    Path('a').nope
+except AttributeError as e:
+    print('AttributeError:', e)
+",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        format!(
+            "NotImplementedError: {FLAVOUR}.read_text is not implemented yet\n\
+             AttributeError: '{FLAVOUR}' object has no attribute 'nope'\n"
+        )
+    );
+}
