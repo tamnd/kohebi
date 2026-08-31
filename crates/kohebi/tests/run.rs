@@ -808,3 +808,80 @@ except NotImplementedError as e:
          NotImplementedError: dict.fromkeys is not implemented yet\n"
     );
 }
+
+/// All seventeen set methods end to end, with `sorted` around every answer
+/// because a set has no order worth comparing against.
+#[test]
+fn a_set_knows_how_to_do_everything_a_set_does() {
+    let file = source(
+        "set-methods",
+        r#"s = {1, 2, 3}
+print(sorted(s.union([4], (5,))), sorted(s.intersection([1, 2])))
+print(sorted(s.difference([1])), sorted(s.symmetric_difference([3, 4])))
+print(s.issubset([1, 2, 3]), s.issuperset([1]), s.isdisjoint([9]))
+print(sorted(s.copy()), s.copy() is s)
+t = {1, 2, 3}
+t.update([4])
+t.intersection_update([2, 3, 4])
+t.difference_update([4])
+t.symmetric_difference_update([3, 9])
+t.add(7)
+t.discard(7)
+t.remove(2)
+print(sorted(t), t.pop() in (9,), sorted(t))
+t.clear()
+print(t, len(t), bool(t))
+try:
+    set().pop()
+except KeyError as e:
+    print("KeyError:", e)
+try:
+    s.remove(9)
+except KeyError as e:
+    print("KeyError:", e)
+try:
+    s.add()
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    s.clear(1)
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    s.isdisjoint(1)
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    s.symmetric_difference([1], [2])
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    s.union(x=1)
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    s.nosuchmethod
+except AttributeError as e:
+    print("AttributeError:", e)
+"#,
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "[1, 2, 3, 4, 5] [1, 2]\n\
+         [2, 3] [1, 2, 4]\n\
+         True True True\n\
+         [1, 2, 3] False\n\
+         [9] True []\n\
+         set() 0 False\n\
+         KeyError: 'pop from an empty set'\n\
+         KeyError: 9\n\
+         TypeError: set.add() takes exactly one argument (0 given)\n\
+         TypeError: set.clear() takes no arguments (1 given)\n\
+         TypeError: 'int' object is not iterable\n\
+         TypeError: set.symmetric_difference() takes exactly one argument (2 given)\n\
+         TypeError: set.union() takes no keyword arguments\n\
+         AttributeError: 'set' object has no attribute 'nosuchmethod'\n"
+    );
+}

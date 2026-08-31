@@ -36,6 +36,7 @@
 mod dict;
 mod list;
 mod path;
+mod set;
 mod stream;
 mod string;
 mod view;
@@ -94,6 +95,7 @@ fn methods(object: &Object) -> Option<&'static Methods> {
     match object {
         Object::Dict(_) => Some(&dict::METHODS),
         Object::List(_) => Some(&list::METHODS),
+        Object::Set(_) => Some(&set::METHODS),
         Object::Str(_) => Some(&string::METHODS),
         // A downcast rather than a variant, because a path is a native value
         // and so is everything else that will want a table here. The list this

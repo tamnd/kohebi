@@ -869,8 +869,12 @@ fn a_dict_or_a_set_that_changes_size_during_a_walk_says_so() {
         "RuntimeError: dictionary changed size during iteration"
     );
     assert_eq!(
-        raises("s = {1}\nfor x in s:\n    s.add\n"),
-        "NotImplementedError: attribute access is not implemented yet"
+        raises("s = {1}\nfor x in s:\n    s.add(x + 1)\n"),
+        "RuntimeError: Set changed size during iteration"
+    );
+    assert_eq!(
+        raises("s = {1, 2}\nfor x in s:\n    s.discard(2)\n"),
+        "RuntimeError: Set changed size during iteration"
     );
     // Deleting from a dict during a walk is the same complaint, and the reason
     // the position is into the entry table rather than a count of live entries
@@ -5118,5 +5122,117 @@ fn an_unhashable_complaint_names_what_was_given_and_what_refused() {
          TypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n\
          TypeError: cannot use 'list' as a set element (unhashable type: 'list')\n\
          TypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')\n"
+    );
+}
+
+/// A set method takes any iterable where the matching operator takes a set,
+/// and any number of them where the operator takes one. `sorted` is around
+/// every answer because a set has no order to compare against.
+#[test]
+fn a_set_method_takes_what_the_operator_would_refuse() {
+    let (out, raised) = execute(
+        "s = {1, 2, 3}\n\
+         print(sorted(s.union([4], (5,), {6: 'x'})))\n\
+         print(sorted(s.intersection([1, 2], [2, 3])))\n\
+         print(sorted(s.difference([1], [2])))\n\
+         print(sorted(s.symmetric_difference([3, 4])))\n\
+         print(sorted(s.union()), s.issubset([1, 2, 3, 4]), s.isdisjoint('ab'))\n\
+         try:\n\
+         \x20   s | [4]\n\
+         except TypeError as e:\n\
+         \x20   print('TypeError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "[1, 2, 3, 4, 5, 6]\n\
+         [2]\n\
+         [3]\n\
+         [1, 2, 4]\n\
+         [1, 2, 3] True True\n\
+         TypeError: unsupported operand type(s) for |: 'set' and 'list'\n"
+    );
+}
+
+/// The five that change the set they were called on give back nothing, and
+/// `s.update(s)` works rather than complaining about a set that moved, because
+/// the argument is read all the way through before anything is inserted.
+#[test]
+fn the_updating_methods_change_the_set_and_return_nothing() {
+    let (out, raised) = execute(
+        "t = {1, 2, 3}\n\
+         print(t.update([4], (5,)), sorted(t))\n\
+         t.intersection_update([1, 2, 4, 5], [2, 4, 5])\n\
+         print(sorted(t))\n\
+         t.difference_update([4])\n\
+         print(sorted(t))\n\
+         t.symmetric_difference_update([2, 9])\n\
+         print(sorted(t))\n\
+         t.update(t)\n\
+         print(sorted(t))\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "None [1, 2, 3, 4, 5]\n\
+         [2, 4, 5]\n\
+         [2, 5]\n\
+         [5, 9]\n\
+         [5, 9]\n"
+    );
+}
+
+/// `remove` raises where `discard` shrugs, and both refuse an unhashable
+/// element, because the question never reached a comparison. `pop` on an empty
+/// set is a `KeyError` with a sentence in it rather than an element.
+#[test]
+fn taking_a_member_out_three_ways() {
+    let (out, raised) = execute(
+        "s = {1, 2}\n\
+         print(s.discard(9), s.remove(1), sorted(s))\n\
+         for work in (lambda: s.remove(9), lambda: set().pop(),\n\
+         \x20            lambda: s.discard([]), lambda: s.add([])):\n\
+         \x20   try:\n\
+         \x20       work()\n\
+         \x20   except KeyError as e:\n\
+         \x20       print('KeyError:', e)\n\
+         \x20   except TypeError as e:\n\
+         \x20       print('TypeError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "None None [2]\n\
+         KeyError: 9\n\
+         KeyError: 'pop from an empty set'\n\
+         TypeError: cannot use 'list' as a set element (unhashable type: 'list')\n\
+         TypeError: cannot use 'list' as a set element (unhashable type: 'list')\n"
+    );
+}
+
+/// An unhashable element gets one of two messages depending on which method
+/// was asked, because three of them build a whole set out of the argument
+/// before looking at anything and so lose what it was going to be used for.
+/// CPython does exactly this and a program can see it.
+#[test]
+fn two_wordings_for_an_unhashable_element() {
+    let (out, raised) = execute(
+        "s = {1}\n\
+         for work in (lambda: s.difference([[]]), lambda: s.isdisjoint([[]]),\n\
+         \x20            lambda: s.intersection([[]]), lambda: s.issubset([[]]),\n\
+         \x20            lambda: s.intersection_update([[]])):\n\
+         \x20   try:\n\
+         \x20       work()\n\
+         \x20   except TypeError as e:\n\
+         \x20       print('TypeError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "TypeError: cannot use 'list' as a set element (unhashable type: 'list')\n\
+         TypeError: cannot use 'list' as a set element (unhashable type: 'list')\n\
+         TypeError: unhashable type: 'list'\n\
+         TypeError: unhashable type: 'list'\n\
+         TypeError: unhashable type: 'list'\n"
     );
 }

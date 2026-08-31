@@ -6,6 +6,12 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+Sets have all seventeen of their methods, which makes this the first type in the runtime with nothing left on its list. `add`, `remove`, `discard`, `pop`, `clear`, `copy`, and then the six operations in both a form that gives back a new set and a form that changes the one it was called on: `union` and `update`, `intersection` and `intersection_update`, `difference` and `difference_update`, `symmetric_difference` and `symmetric_difference_update`, plus `issubset`, `issuperset` and `isdisjoint`.
+
+A method is not its operator. `s | t` wants a set on both sides and `s.union(t)` takes any iterable, so `{1} | [2]` raises and `{1}.union([2])` is `{1, 2}`, and that is deliberate in CPython rather than an accident: an operator between two different kinds of container is far more often a mistake than an intention. The methods also take any number of arguments where the operators take one, so `s.union(a, b, c)` is a single pass.
+
+An unhashable element is refused two different ways depending on which method was asked. `intersection`, `intersection_update` and `issubset` give the bare `unhashable type: 'list'` and everything else gives `cannot use 'list' as a set element (unhashable type: 'list')`. That is CPython's behaviour and the reason is that those three build a whole set out of the argument before looking at anything, so the value loses track of what it was going to be used for on the way in.
+
 An unhashable key named the wrong type. `({}, 1)` used as a dict key said `cannot use 'list' as a dict key` where CPython says `cannot use 'tuple'`, because the message took its first type name from whatever inside the value refused rather than from the value itself. The two are the same name for a bare list and different names for a tuple holding one, and the second half of the message is where the thing to go and fix is named. Found while writing the dict methods below, and fixed in the one place all of these are worded.
 
 Dictionaries have their ten methods: `get`, `setdefault`, `pop`, `popitem`, `clear`, `copy`, `update`, `keys`, `values` and `items`. The eleventh, `fromkeys`, is called on the type rather than on a dictionary and there is no type object for a builtin type to hang it on yet, so it is named and refused rather than written in the wrong place.
