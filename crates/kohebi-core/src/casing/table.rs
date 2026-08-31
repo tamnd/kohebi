@@ -1970,6 +1970,20 @@ pub(super) static UPPERCASE: [(u32, u32); 656] = [
     (0x0001_F170, 0x0001_F189),
 ];
 
+/// The thirty one that are titlecase, which is neither of the two above.
+pub(super) static TITLECASE: [(u32, u32); 10] = [
+    (0x01C5, 0x01C5),
+    (0x01C8, 0x01C8),
+    (0x01CB, 0x01CB),
+    (0x01F2, 0x01F2),
+    (0x1F88, 0x1F8F),
+    (0x1F98, 0x1F9F),
+    (0x1FA8, 0x1FAF),
+    (0x1FBC, 0x1FBC),
+    (0x1FCC, 0x1FCC),
+    (0x1FFC, 0x1FFC),
+];
+
 /// `str.upper`, for every code point it does not leave alone.
 ///
 /// A mapping shorter than the longest is padded out with zeros, which is not

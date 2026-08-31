@@ -31,7 +31,9 @@
 
 mod table;
 
-use table::{CASED, FOLD, IGNORABLE, LOWER, LOWERCASE, TITLE, UPPER, UPPERCASE};
+use table::{CASED, FOLD, IGNORABLE, LOWER, LOWERCASE, TITLE, TITLECASE, UPPER, UPPERCASE};
+
+use crate::ranges::among;
 
 /// `Σ`, the only code point whose lowercase depends on where it is.
 const CAPITAL_SIGMA: u32 = 0x03A3;
@@ -190,17 +192,32 @@ fn map(out: &mut Vec<u32>, table: &[(u32, [u32; 3])], cp: u32) {
     }
 }
 
-/// Whether `cp` falls in one of the ranges, which are sorted and disjoint.
-fn among(table: &[(u32, u32)], cp: u32) -> bool {
-    table
-        .binary_search_by(|&(lo, hi)| {
-            if cp < lo {
-                std::cmp::Ordering::Greater
-            } else if cp > hi {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        })
-        .is_ok()
+/// Whether `cp` is lowercase, which is the `Lowercase` property and so is
+/// wider than the `Ll` category: a modifier letter such as `ʰ` is in it.
+#[must_use]
+pub fn is_lowercase(cp: u32) -> bool {
+    among(&LOWERCASE, cp)
+}
+
+/// Whether `cp` is uppercase.
+#[must_use]
+pub fn is_uppercase(cp: u32) -> bool {
+    among(&UPPERCASE, cp)
+}
+
+/// Whether `cp` is titlecase, which is neither of the other two.
+///
+/// Thirty one code points, being the three Latin digraphs and the Greek
+/// letters with an iota subscript. `ǅ` is the one in the middle of `Ǆ` and
+/// `ǆ`, and `'ǅ'.swapcase()` is itself because it is neither upper nor lower.
+#[must_use]
+pub fn is_titlecase(cp: u32) -> bool {
+    among(&TITLECASE, cp)
+}
+
+/// Whether `cp` is cased at all, which is what decides where `title` sees a
+/// word start and is wider than the three above put together.
+#[must_use]
+pub fn is_cased(cp: u32) -> bool {
+    among(&CASED, cp)
 }

@@ -160,6 +160,13 @@ def main() -> int:
         ranges_of("IGNORABLE", "What the final sigma rule looks past, in both directions.", runs(ignorable)),
         ranges_of("LOWERCASE", "What `swapcase` turns into uppercase.", runs([cp for cp in points() if chr(cp).islower()])),
         ranges_of("UPPERCASE", "What `swapcase` turns into lowercase.", runs([cp for cp in points() if chr(cp).isupper()])),
+        ranges_of(
+            "TITLECASE",
+            "The thirty one that are titlecase, which is neither of the two above.",
+            # `istitle` on a single character is true for an uppercase one as
+            # well, since one uppercase letter is a correctly titled word.
+            runs([cp for cp in points() if chr(cp).istitle() and not chr(cp).isupper()]),
+        ),
         mapping_of("UPPER", "`str.upper`, for every code point it does not leave alone.", upper, width),
         mapping_of(
             "LOWER",

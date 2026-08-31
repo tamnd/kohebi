@@ -4051,10 +4051,10 @@ fn a_name_a_list_has_not_got_is_an_attribute_error_and_a_types_table_is_why() {
     );
     // A name the type really has, that this runtime has not written yet, is
     // neither of those. Calling it an `AttributeError` would be a lie, because
-    // `str` does have `isdigit`.
+    // `str` does have `format`.
     assert_eq!(
-        raises("'a'.isdigit()"),
-        "NotImplementedError: str.isdigit is not implemented yet"
+        raises("'a'.format()"),
+        "NotImplementedError: str.format is not implemented yet"
     );
     assert_eq!(
         raises("'a'.nope"),
@@ -4510,21 +4510,171 @@ fn a_width_is_read_before_a_fill_character_and_both_have_their_own_wording() {
 }
 
 #[test]
-fn the_classification_methods_are_still_named_rather_than_missing() {
-    // The six case ones have left `later` and the twelve classification ones
-    // have not, so the table can still tell a name it has not reached from a
-    // name that is not there.
-    assert_eq!(
-        raises("'a'.isdigit()"),
-        "NotImplementedError: str.isdigit is not implemented yet"
-    );
+fn the_five_that_need_machinery_rather_than_a_table_are_still_named() {
+    // The twelve classification ones have left `later` and `format` has not,
+    // so the table can still tell a name it has not reached from a name that
+    // is not there.
     assert_eq!(
         raises("'a'.format()"),
         "NotImplementedError: str.format is not implemented yet"
     );
     assert_eq!(
+        raises("'a'.encode()"),
+        "NotImplementedError: str.encode is not implemented yet"
+    );
+    assert_eq!(
         raises("'a'.nope"),
         "AttributeError: 'str' object has no attribute 'nope'"
+    );
+}
+
+#[test]
+fn the_three_number_questions_are_three_properties_that_nest() {
+    // `isdecimal` is what a positional numeral is written with, `isdigit` adds
+    // the ones that are a digit without being a position, and `isnumeric` adds
+    // everything else carrying a numeric value.
+    assert_eq!(
+        out("for c in ['٣', '³', '½', '一', 'Ⅴ']:\n\
+            \x20   print(c.isdecimal(), c.isdigit(), c.isnumeric(), c.isalpha(), c.isalnum())\n"),
+        "True True True False True\n\
+         False True True False True\n\
+         False False True False True\n\
+         False False True True True\n\
+         False False True False True\n"
+    );
+}
+
+#[test]
+fn a_claim_about_every_character_is_false_when_there_are_none_except_twice() {
+    // Ten of the twelve refuse the empty string, because a claim about every
+    // character is worth nothing without any. The two that are claims about
+    // what is not there accept it.
+    assert_eq!(
+        out(
+            "print(''.isalnum(), ''.isalpha(), ''.isdecimal(), ''.isdigit())\n\
+             print(''.isidentifier(), ''.islower(), ''.isnumeric(), ''.isspace())\n\
+             print(''.istitle(), ''.isupper(), ''.isascii(), ''.isprintable())\n"
+        ),
+        "False False False False\n\
+         False False False False\n\
+         False False True True\n"
+    );
+}
+
+#[test]
+fn whitespace_is_pythons_list_and_not_unicodes() {
+    // The four separators at 1c to 1f are whitespace to Python and are not to
+    // Unicode, and this is the same answer `split` and `strip` work from.
+    assert_eq!(
+        out(
+            "print(' \\t\\n\\r\\x0b\\x0c\\x1c\\x1d\\x1e\\x1f\\x85\\xa0\\u2028'.isspace())\n\
+             print('\\u200b'.isspace(), 'a b'.isspace(), ''.isspace())\n\
+             print('a\\x1cb'.split(), repr('\\x1ca\\x1c'.strip()))\n"
+        ),
+        "True\n\
+         False False False\n\
+         ['a', 'b'] 'a'\n"
+    );
+}
+
+#[test]
+fn islower_and_isupper_want_one_that_is_and_none_that_is_not() {
+    // Not every character, which would make `'abc!'` fail. One at least, and
+    // nothing leaning the other way. A digit is neither for nor against, and a
+    // titlecase character is against both.
+    assert_eq!(
+        out(
+            "for s in ['abc', 'abc!', 'ABC', 'Abc', '123', 'ǅ', 'aǅ', 'ª', 'ʰ', 'Ⅰ', 'ⅰ']:\n\
+            \x20   print(s.islower(), s.isupper(), s.istitle())\n"
+        ),
+        "True False False\n\
+         True False False\n\
+         False True False\n\
+         False False True\n\
+         False False False\n\
+         False False True\n\
+         False False False\n\
+         True False False\n\
+         True False False\n\
+         False True True\n\
+         True False False\n"
+    );
+}
+
+#[test]
+fn istitle_wants_every_word_started_once_and_at_least_one_word() {
+    // What ends a word is a character that is neither upper, lower nor title,
+    // which is why an apostrophe starts a new one and why a digit in the
+    // middle of a word breaks it.
+    assert_eq!(
+        out(
+            "for s in ['Hello World', \"They'Re\", \"They're\", 'A', 'ǅa', 'Ǆa', 'A1a', 'A1A', '123']:\n\
+            \x20   print(s.istitle(), end=' ')\n\
+             print()\n"
+        ),
+        "True True False True True True False True False \n"
+    );
+}
+
+#[test]
+fn isidentifier_knows_nothing_about_keywords_and_nothing_about_normalising() {
+    // `'if'` is a name as far as this method is concerned, and the caller is
+    // the one who has to care. The ligature is a name here and is spelled `fi`
+    // by the time a program has been parsed, which is the parser's doing.
+    assert_eq!(
+        out(
+            "for s in ['a', '_', 'if', 'a1', '1a', '', 'a b', 'ﬁ', 'ª', 'à', 'π', '\\u0300']:\n\
+            \x20   print(s.isidentifier(), end=' ')\n\
+             print()\n"
+        ),
+        "True True True True False False False True True True True False \n"
+    );
+}
+
+#[test]
+fn isprintable_and_isascii_ask_about_what_is_not_there() {
+    assert_eq!(
+        out(
+            "print('abc'.isprintable(), 'a b'.isprintable(), 'a\\tb'.isprintable())\n\
+             print('\\xa0'.isprintable(), 'ä'.isprintable(), 'ä'.isascii(), 'abc'.isascii())\n"
+        ),
+        "True True False\n\
+         False True False True\n"
+    );
+}
+
+/// The sweep against CPython covers every code point except these, a lone
+/// surrogate being the one thing a `str` may hold that cannot be written to a
+/// stream, so it is checked here instead. `isprintable` is the method that has
+/// to notice, since it is the only one asking a question of a `char` rather
+/// than of a table.
+#[test]
+fn a_surrogate_is_a_code_point_that_is_not_a_character_and_prints_as_nothing() {
+    assert_eq!(
+        out(
+            "print('\\ud800'.isprintable(), '\\ud800'.isascii(), '\\ud800'.isalpha())\n\
+             print(('a' + '\\ud800').isprintable(), ('a' + '\\ud800').islower(), len('\\ud800'))\n"
+        ),
+        "False False False\n\
+         False True 1\n"
+    );
+}
+
+#[test]
+fn the_classification_methods_take_no_arguments_either() {
+    let mut lines = Vec::new();
+    for call in [
+        "'a'.isalpha(1)",
+        "'a'.isdigit(x=1)",
+        "'a'.isidentifier(1, 2)",
+    ] {
+        lines.push(raises(call));
+    }
+    assert_eq!(
+        lines.join("\n"),
+        "TypeError: str.isalpha() takes no arguments (1 given)\n\
+         TypeError: str.isdigit() takes no keyword arguments\n\
+         TypeError: str.isidentifier() takes no arguments (2 given)"
     );
 }
 
