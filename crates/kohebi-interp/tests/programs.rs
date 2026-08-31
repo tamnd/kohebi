@@ -5236,3 +5236,163 @@ fn two_wordings_for_an_unhashable_element() {
          TypeError: unhashable type: 'list'\n"
     );
 }
+
+/// The type of a value is a value, and there is one of them per type rather
+/// than a fresh one per ask. The identity is the whole point: a program that
+/// writes `type(x) is int` is asking about the object the name `int` is bound
+/// to, and the two have to be the same one.
+#[test]
+fn a_type_is_one_object_and_the_name_finds_the_same_one() {
+    let (out, raised) = execute(
+        "print(type(1), type('a'), type([]), type(None), type(type))\n\
+         print(type(1) is int, type(1) is type(2), type(None) is type(None))\n\
+         print(type([]) is list, type(1) is str, type(int) is type)\n\
+         print(type(1).__name__, type(None).__name__, ValueError.__name__)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "<class 'int'> <class 'str'> <class 'list'> <class 'NoneType'> <class 'type'>\n\
+         True True True\n\
+         True False True\n\
+         int NoneType ValueError\n"
+    );
+}
+
+/// A type with no name in `builtins` still has a type object, because
+/// `type(x)` has to answer for every x. Those are made the first time
+/// something asks and kept, which is what makes the identity hold for the ones
+/// a program cannot write down.
+#[test]
+fn a_type_with_no_name_still_has_one_object() {
+    let (out, raised) = execute(
+        "def gen():\n\
+         \x20   yield 1\n\
+         g = gen()\n\
+         print(type(g), type(iter([])), type({}.keys()), type(len))\n\
+         print(type(g) is type(gen()), type(iter([])) is type(iter([1])))\n\
+         try:\n\
+         \x20   type(g)()\n\
+         except TypeError as e:\n\
+         \x20   print('TypeError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "<class 'generator'> <class 'list_iterator'> <class 'dict_keys'> \
+         <class 'builtin_function_or_method'>\n\
+         True True\n\
+         TypeError: cannot create 'generator' instances\n"
+    );
+}
+
+/// The whole of the inheritance the runtime knows about: the exception tree,
+/// `bool` under `int`, a written class's chain of bases, and `object` over
+/// everything.
+#[test]
+fn what_derives_from_what() {
+    let (out, raised) = execute(
+        "class Animal:\n\
+         \x20   pass\n\
+         class Dog(Animal):\n\
+         \x20   pass\n\
+         d = Dog()\n\
+         print(isinstance(True, int), isinstance(1, bool), isinstance(1, object))\n\
+         print(isinstance(ValueError('x'), Exception), isinstance(ValueError('x'), TypeError))\n\
+         print(isinstance(d, Dog), isinstance(d, Animal), isinstance(d, object), isinstance(d, int))\n\
+         print(issubclass(bool, int), issubclass(int, bool), issubclass(Dog, Animal))\n\
+         print(issubclass(Animal, Dog), issubclass(ValueError, Exception), issubclass(type, object))\n\
+         print(isinstance(1, (str, int)), isinstance(1, ((str,), (int,))), isinstance(1, ()))\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "True False True\n\
+         True False\n\
+         True True True False\n\
+         True False True\n\
+         False True True\n\
+         True True False\n"
+    );
+}
+
+/// The mistakes both class questions can be made. Neither takes a keyword,
+/// both count before they look at anything, and each words a second argument
+/// that is not a class its own way.
+#[test]
+fn the_class_questions_refuse_what_is_not_a_class() {
+    let (out, raised) = execute(
+        "for work in (lambda: isinstance(1), lambda: isinstance(1, 2, 3),\n\
+         \x20            lambda: isinstance(1, 2), lambda: isinstance(1, (2,)),\n\
+         \x20            lambda: isinstance(x=1), lambda: issubclass(1, int),\n\
+         \x20            lambda: issubclass(int, 1), lambda: issubclass(int),\n\
+         \x20            lambda: type(), lambda: type(1, 2), lambda: type(x=1)):\n\
+         \x20   try:\n\
+         \x20       work()\n\
+         \x20   except TypeError as e:\n\
+         \x20       print('TypeError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "TypeError: isinstance expected 2 arguments, got 1\n\
+         TypeError: isinstance expected 2 arguments, got 3\n\
+         TypeError: isinstance() arg 2 must be a type, a tuple of types, or a union\n\
+         TypeError: isinstance() arg 2 must be a type, a tuple of types, or a union\n\
+         TypeError: isinstance() takes no keyword arguments\n\
+         TypeError: issubclass() arg 1 must be a class\n\
+         TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union\n\
+         TypeError: issubclass expected 2 arguments, got 1\n\
+         TypeError: type() takes 1 or 3 arguments\n\
+         TypeError: type() takes 1 or 3 arguments\n\
+         TypeError: type() takes 1 or 3 arguments\n"
+    );
+}
+
+/// A type object has one attribute and no namespace behind it, so a name it
+/// does not have is the `AttributeError` a type gives rather than the one an
+/// object gives. The two are worded differently and a program can see it.
+#[test]
+fn a_type_object_has_a_name_and_nothing_else_yet() {
+    let (out, raised) = execute(
+        "for work in (lambda: int.nosuch, lambda: ValueError.nosuch, lambda: type(None).nosuch):\n\
+         \x20   try:\n\
+         \x20       work()\n\
+         \x20   except AttributeError as e:\n\
+         \x20       print('AttributeError:', e)\n\
+         print(bool(int), int == int, type(1) == int, type(1) != str, {int: 'a'}[int])\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "AttributeError: type object 'int' has no attribute 'nosuch'\n\
+         AttributeError: type object 'ValueError' has no attribute 'nosuch'\n\
+         AttributeError: type object 'NoneType' has no attribute 'nosuch'\n\
+         True True True True a\n"
+    );
+}
+
+/// A type whose constructor is real and unwritten says so rather than saying
+/// the name does not exist. `type(1)` gives back `int`, so `int` has to be a
+/// name, and a name that resolves has to be honest about what it cannot do.
+#[test]
+fn a_constructor_that_is_not_written_says_which_one() {
+    let (out, raised) = execute(
+        "for work in (lambda: int('5'), lambda: float(1), lambda: dict(),\n\
+         \x20            lambda: bytes(), lambda: object(), lambda: type(1, 2, 3)):\n\
+         \x20   try:\n\
+         \x20       work()\n\
+         \x20   except NotImplementedError as e:\n\
+         \x20       print('NotImplementedError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "NotImplementedError: int() is not implemented yet\n\
+         NotImplementedError: float() is not implemented yet\n\
+         NotImplementedError: dict() is not implemented yet\n\
+         NotImplementedError: bytes() is not implemented yet\n\
+         NotImplementedError: object() is not implemented yet\n\
+         NotImplementedError: type() with three arguments is not implemented yet\n"
+    );
+}

@@ -8,12 +8,14 @@
 //!
 //! ## Why this is not the type object yet
 //!
-//! It is half of one. A type object holds a namespace and this is a table, and
-//! the difference is everything a namespace can do that a table cannot: be
-//! looked up by `type(x)`, be subclassed, be added to. What this does have is
-//! the part every one of those needs first, which is a place where the answer
-//! to "what does a list know how to do" is written down once. `type()` and
-//! dunder dispatch are built on this rather than beside it.
+//! It is half of one. The other half is [`crate::types`], which is what
+//! `type(x)` gives back, and the two do not know about each other: a type
+//! object holds a name and a constructor and this holds the methods. Joining
+//! them means giving a type object a namespace, and a namespace is everything
+//! a table is not: it can be added to, subclassed, and looked up through by an
+//! instance. What this does have is the part all of that needs first, which is
+//! a place where the answer to "what does a list know how to do" is written
+//! down once. Dunder dispatch is built on this rather than beside it.
 //!
 //! ## Three answers rather than two
 //!

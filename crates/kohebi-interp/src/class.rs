@@ -97,6 +97,17 @@ impl Class {
         &self.qualname
     }
 
+    /// The class this one was declared under, or nothing for a class that
+    /// named none.
+    ///
+    /// A class that named none is still below `object`, and that is known
+    /// rather than stored: there is no `object` to point at until the class
+    /// statement can take a real base, which it cannot yet.
+    #[must_use]
+    pub fn base(&self) -> Option<&Object> {
+        self.base.as_ref()
+    }
+
     /// An attribute of the class or of a class behind it.
     ///
     /// Iterative rather than recursive so that a base chain a program built to

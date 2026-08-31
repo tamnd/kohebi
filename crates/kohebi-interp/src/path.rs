@@ -50,9 +50,10 @@ use std::rc::Rc;
 
 use kohebi_core::{Error, Kind, Native, Object, Result, Str, hash};
 
-use crate::builtin::{Args, Builtin, Flavour};
+use crate::builtin::Args;
 use crate::class::Names;
 use crate::module::Module;
+use crate::types::Type;
 use crate::vm::{self, Vm};
 
 /// A filesystem path, taken apart.
@@ -442,10 +443,7 @@ pub const FLAVOUR: &str = if cfg!(windows) {
 #[must_use]
 pub fn module() -> Object {
     let mut names = Names::default();
-    names.insert(
-        "Path".into(),
-        Object::native(Builtin::function("Path", construct, Flavour::Class)),
-    );
+    names.insert("Path".into(), Object::native(Type::made("Path", construct)));
     Object::native(Module::new(
         "pathlib",
         None,

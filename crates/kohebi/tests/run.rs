@@ -885,3 +885,52 @@ except AttributeError as e:
          AttributeError: 'set' object has no attribute 'nosuchmethod'\n"
     );
 }
+
+/// The type of a value as a value, end to end. The identity is what a program
+/// tests when it writes `type(x) is int`, so the run has to hand back the same
+/// object every time and the same one the name is bound to.
+#[test]
+fn a_value_knows_what_type_it_is() {
+    let file = source(
+        "type-objects",
+        r#"class Animal:
+    pass
+
+
+class Dog(Animal):
+    pass
+
+
+print(type(1), type("a"), type(None), type(Dog()), type(type))
+print(type(1) is int, type(None) is type(None), type(Dog()) is Dog)
+print(type(1).__name__, Dog.__name__, ValueError.__name__)
+print(isinstance(True, int), isinstance(1, bool), isinstance(Dog(), Animal))
+print(issubclass(Dog, Animal), issubclass(ValueError, Exception), issubclass(int, object))
+try:
+    isinstance(1, 2)
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    int("5")
+except NotImplementedError as e:
+    print("NotImplementedError:", e)
+try:
+    int.nosuch
+except AttributeError as e:
+    print("AttributeError:", e)
+"#,
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "<class 'int'> <class 'str'> <class 'NoneType'> <class '__main__.Dog'> <class 'type'>\n\
+         True True True\n\
+         int Dog ValueError\n\
+         True False True\n\
+         True True True\n\
+         TypeError: isinstance() arg 2 must be a type, a tuple of types, or a union\n\
+         NotImplementedError: int() is not implemented yet\n\
+         AttributeError: type object 'int' has no attribute 'nosuch'\n"
+    );
+}
