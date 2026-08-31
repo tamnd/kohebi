@@ -617,3 +617,54 @@ fn a_return_from_a_finally_that_is_handling_one_says_it_is_not_any_more() {
     assert!(body[11].contains("handled"), "{listing}");
     assert!(body[12].contains("ret        r2"), "{listing}");
 }
+
+/// A failing assertion is a jump over a raise, and the class it raises comes
+/// from an instruction rather than from the name table.
+///
+/// The jump is `jumpt` rather than `jumpf`, because the raise is what a false
+/// test does and the branch is over it. Everything between the jump and its
+/// target is skipped by a passing assertion, which is what makes the message
+/// free when the assertion holds.
+#[test]
+fn a_failing_assertion_raises_a_class_that_is_not_a_name() {
+    assert_eq!(
+        bc("assert ok, 'unhappy'\n"),
+        "   0  getglobal  r1, ok\n\
+         \x20  1  truthy     r0, r1\n\
+         \x20  2  jumpt      r0, 7\n\
+         \x20  3  asserterr  r1\n\
+         \x20  4  const      r2, \"unhappy\"\n\
+         \x20  5  call       r0, r1(r2)\n\
+         \x20  6  raise      r0\n\
+         \x20  7  const      r0, None\n\
+         \x20  8  ret        r0"
+    );
+    // No message is no call. The class is what is raised, and `raise` on a class
+    // makes the instance, which is the same path `raise ValueError` takes.
+    assert_eq!(
+        bc("assert ok\n"),
+        "   0  getglobal  r1, ok\n\
+         \x20  1  truthy     r0, r1\n\
+         \x20  2  jumpt      r0, 5\n\
+         \x20  3  asserterr  r0\n\
+         \x20  4  raise      r0\n\
+         \x20  5  const      r0, None\n\
+         \x20  6  ret        r0"
+    );
+}
+
+/// The name table has no `AssertionError` in it, which is the whole claim.
+///
+/// A program that never writes the name compiles without one, so nothing a
+/// program binds to that name can be what a failing assertion finds.
+#[test]
+fn an_assert_puts_no_name_in_the_table_to_be_shadowed() {
+    // An assert on its own puts nothing in the table but the name it tests.
+    assert_eq!(module("assert ok\n").names, ["ok".into()]);
+    // And a program that does write the name gets one entry, which is its own
+    // global. The assert did not add a use of it.
+    assert_eq!(
+        module("AssertionError = 1\nassert ok\n").names,
+        ["AssertionError".into(), "ok".into()]
+    );
+}

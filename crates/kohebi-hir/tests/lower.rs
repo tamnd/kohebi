@@ -1023,3 +1023,40 @@ fn only_the_try_a_program_wrote_is_handling_what_reaches_its_finally() {
         [true, false, false]
     );
 }
+
+/// `assert` is a branch over a raise, and the class it raises is not a name a
+/// program can reach.
+///
+/// The branch is `not` the test rather than the test, because the raise is what
+/// a false assertion does. A test that already answers a question keeps its own
+/// shape, so `assert n > 0` is a comparison and a jump rather than a comparison,
+/// a truth test and a jump.
+#[test]
+fn an_assert_is_a_branch_over_a_raise_of_a_class_nothing_can_shadow() {
+    assert_eq!(
+        hir("assert ok\n"),
+        "if not truthy(ok):\n    raise <AssertionError>"
+    );
+    assert_eq!(
+        hir("assert n > 0, report(n)\n"),
+        "if not (n > 0):\n    raise <AssertionError>(report(n))"
+    );
+}
+
+/// The message is lowered inside the branch, so a passing assertion never
+/// evaluates it.
+///
+/// Reading the printed listing is the only way to be sure of that, because a
+/// message whose lowering emits statements is where it would go wrong: the
+/// statements would sit in the block around the `if` and run every time.
+#[test]
+fn the_message_of_an_assert_is_evaluated_only_when_the_assert_fails() {
+    assert_eq!(
+        hir("assert ok, msg or 'unhappy'\n"),
+        "if not truthy(ok):\n\
+        \x20   $0 = msg\n\
+        \x20   if not truthy($0):\n\
+        \x20       $0 = \"unhappy\"\n\
+        \x20   raise <AssertionError>($0)"
+    );
+}

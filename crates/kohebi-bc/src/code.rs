@@ -207,6 +207,15 @@ pub enum Instr {
     DeleteGlobal {
         name: NameId,
     },
+    /// The `AssertionError` class, without a name to shadow.
+    ///
+    /// Only a failing `assert` emits this. It carries no name because the class
+    /// it wants is fixed, which is exactly the difference between it and a
+    /// [`Instr::LoadGlobal`] of `AssertionError` and the reason CPython has
+    /// `LOAD_ASSERTION_ERROR` as its own opcode.
+    LoadAssertionError {
+        dst: Reg,
+    },
     /// `del x` where `x` is a slot, which leaves the slot empty rather than
     /// holding `None`. Reading it afterwards raises.
     DeleteLocal {

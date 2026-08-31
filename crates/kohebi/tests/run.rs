@@ -218,3 +218,23 @@ fn a_file_that_is_not_there_says_so() {
     assert_eq!(out, "");
     assert!(err.contains("cannot read"), "stderr was {err:?}");
 }
+
+/// A failed assertion reaching the top is an exception like any other, with its
+/// message after the colon and nothing after it when there is no message.
+#[test]
+fn a_failed_assertion_prints_and_fails() {
+    let file = source(
+        "asserting",
+        "print('checking')\nassert 1 == 2, 'they differ'\n",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(!ok);
+    assert_eq!(out, "checking\n");
+    assert_eq!(err, "AssertionError: they differ\n");
+
+    let bare = source("asserting-bare", "assert 1 == 2\n");
+    let (ok, out, err) = run(&["run", &bare]);
+    assert!(!ok);
+    assert_eq!(out, "");
+    assert_eq!(err, "AssertionError\n");
+}

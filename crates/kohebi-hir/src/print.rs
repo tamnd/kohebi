@@ -262,6 +262,10 @@ fn expr(body: &Body, value: &Expr) -> String {
         Expr::Const(value) => constant(value),
         Expr::Local(local) => slot(body, *local),
         Expr::Global(name) => name.to_string(),
+        // Angle brackets because there is no way to write this, which is the
+        // whole point of it. A bare `AssertionError` in the listing would read
+        // as the global a program can shadow.
+        Expr::AssertionError => "<AssertionError>".to_owned(),
         Expr::Binary { op, left, right } => format!(
             "{} {} {}",
             operand(body, left),

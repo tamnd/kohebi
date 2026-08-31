@@ -94,6 +94,9 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
             format!("{}, {}", module.name_at(*name), reg(*src)),
         ),
         Instr::DeleteGlobal { name } => ("delglobal", module.name_at(*name).to_owned()),
+        // Shortened to fit the column the operands line up in, and unambiguous
+        // at that length because it is the only instruction about assertions.
+        Instr::LoadAssertionError { dst } => ("asserterr", reg(*dst)),
         Instr::DeleteLocal { reg: target } => ("dellocal", reg(*target)),
         Instr::Cell { reg: target } => ("cell", reg(*target)),
         Instr::LoadCell { dst, cell } => ("loadcell", format!("{}, {}", reg(*dst), reg(*cell))),

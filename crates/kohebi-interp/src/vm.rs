@@ -98,6 +98,14 @@ const LIMIT: usize = 1000;
 pub struct Vm {
     globals: Names,
     builtins: Names,
+    /// The class a failed `assert` raises.
+    ///
+    /// Held rather than looked up, because the point of it is that no lookup
+    /// happens: a program that bound `AssertionError` to something of its own
+    /// still gets a real one. It is taken out of the builtins rather than built
+    /// here, so it is the same object the name finds in every program that did
+    /// not shadow it.
+    assertion_error: Object,
     output: Box<dyn Write>,
     /// How many calls are on the stack, against [`LIMIT`].
     depth: usize,
@@ -125,12 +133,17 @@ impl Vm {
     /// A machine writing to somewhere.
     #[must_use]
     pub fn new(output: Box<dyn Write>) -> Self {
+        let builtins: Names = table()
+            .into_iter()
+            .map(|(name, value)| (Box::from(name), value))
+            .collect();
         Vm {
             globals: Names::default(),
-            builtins: table()
-                .into_iter()
-                .map(|(name, value)| (Box::from(name), value))
-                .collect(),
+            assertion_error: builtins
+                .get("AssertionError")
+                .expect("every builtin exception class is in the table")
+                .clone(),
+            builtins,
             output,
             depth: 0,
             handled: Vec::new(),
@@ -290,6 +303,9 @@ impl Vm {
                     found.ok_or_else(|| undefined(name))?.clone()
                 };
                 frame.set(dst, value);
+            }
+            Instr::LoadAssertionError { dst } => {
+                frame.set(dst, self.assertion_error.clone());
             }
             Instr::StoreGlobal { name, src } => {
                 let value = frame.get(src)?.clone();

@@ -2274,3 +2274,149 @@ fn an_exception_raised_again_over_the_top_of_its_own_context_cuts_the_ring() {
          ValueError: a"
     );
 }
+
+// assert
+
+/// A passing assertion is nothing at all and a failing one raises.
+#[test]
+fn an_assertion_that_holds_does_nothing_and_one_that_does_not_raises() {
+    assert_eq!(
+        out("assert True\nassert 1\nassert 'x'\nprint('all fine')\n"),
+        "all fine\n"
+    );
+    assert_eq!(raises("assert False\n"), "AssertionError");
+    assert_eq!(
+        raises("assert 0, 'the message'\n"),
+        "AssertionError: the message"
+    );
+}
+
+/// The test goes through the truth protocol rather than being compared to
+/// `True`, so every empty container fails an assertion.
+#[test]
+fn an_assertion_asks_a_value_for_its_truth() {
+    // No empty set, because Python has no literal for one and `set` is not a
+    // builtin here yet.
+    let empties = ["()", "[]", "{}", "''", "0", "0.0", "None"];
+    for empty in empties {
+        assert_eq!(
+            raises(&format!("assert {empty}, 'empty'\n")),
+            "AssertionError: empty",
+            "expected {empty} to fail an assertion"
+        );
+    }
+    for full in ["(1,)", "[1]", "{1: 2}", "{1}", "'x'", "1", "0.5"] {
+        assert_eq!(out(&format!("assert {full}\nprint('ok')\n")), "ok\n");
+    }
+}
+
+/// The message is not evaluated when the assertion holds, which is why it is
+/// safe to put an expensive call in one.
+#[test]
+fn the_message_of_an_assertion_that_holds_is_never_evaluated() {
+    assert_eq!(
+        out("def report():\n\
+            \x20   print('evaluated')\n\
+            \x20   return 'boom'\n\
+             assert True, report()\n\
+             print('nothing was evaluated')\n\
+             try:\n\
+            \x20   assert False, report()\n\
+             except AssertionError as e:\n\
+            \x20   print('caught', e)\n"),
+        "nothing was evaluated\nevaluated\ncaught boom\n"
+    );
+}
+
+/// A message that raises on its way to being built raises that instead, because
+/// it is an ordinary expression evaluated where it is written.
+#[test]
+fn a_message_that_raises_raises_instead_of_the_assertion() {
+    assert_eq!(
+        raises("assert False, 1 / 0\n"),
+        "ZeroDivisionError: division by zero"
+    );
+}
+
+/// The class a failing assertion raises is the real one even in a program that
+/// bound the name to something else, which is what CPython's separate
+/// `LOAD_ASSERTION_ERROR` is for.
+#[test]
+fn a_failing_assertion_raises_a_class_a_program_cannot_shadow() {
+    assert_eq!(
+        out("AssertionError = ValueError\n\
+             try:\n\
+            \x20   assert False, 'still real'\n\
+             except ValueError:\n\
+            \x20   print('the shadow caught it, which is wrong')\n\
+             except Exception as e:\n\
+            \x20   print('caught', e)\n"),
+        "caught still real\n"
+    );
+    // And a shadowed name still catches nothing, because the clause reads the
+    // name and the name is now `ValueError`.
+    assert_eq!(
+        raises(
+            "AssertionError = KeyError\n\
+             try:\n\
+            \x20   assert False, 'not caught'\n\
+             except AssertionError:\n\
+            \x20   print('wrong')\n"
+        ),
+        "AssertionError: not caught"
+    );
+}
+
+/// An assertion is a statement like any other, so it works inside a function, a
+/// loop and a `try`, and what it raises is caught the ordinary way.
+#[test]
+fn an_assertion_is_an_ordinary_statement_wherever_it_is_written() {
+    assert_eq!(
+        out("def check(n):\n\
+            \x20   assert n > 0, 'n must be positive'\n\
+            \x20   return n * 2\n\
+             print(check(3))\n\
+             try:\n\
+            \x20   print(check(-1))\n\
+             except AssertionError as e:\n\
+            \x20   print('caught', e)\n"),
+        "6\ncaught n must be positive\n"
+    );
+    assert_eq!(
+        out("for i in range(4):\n\
+            \x20   try:\n\
+            \x20       assert i % 2 == 0, i\n\
+            \x20   except AssertionError as e:\n\
+            \x20       print('odd', e)\n"),
+        "odd 1\nodd 3\n"
+    );
+    // A `finally` still runs on the way out, and the assertion carries on past
+    // it to the clause outside.
+    assert_eq!(
+        out("try:\n\
+            \x20   try:\n\
+            \x20       assert False, 'inner'\n\
+            \x20   finally:\n\
+            \x20       print('cleaning up')\n\
+             except AssertionError as e:\n\
+            \x20   print('outer saw', e)\n"),
+        "cleaning up\nouter saw inner\n"
+    );
+}
+
+/// An assertion that fails inside a handler records what was being handled, the
+/// way any other raise in a handler does.
+#[test]
+fn an_assertion_that_fails_in_a_handler_prints_under_what_it_was_handling() {
+    assert_eq!(
+        raises(
+            "try:\n\
+            \x20   1 / 0\n\
+             except ZeroDivisionError:\n\
+            \x20   assert False, 'no good'\n"
+        ),
+        "ZeroDivisionError: division by zero\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         AssertionError: no good"
+    );
+}

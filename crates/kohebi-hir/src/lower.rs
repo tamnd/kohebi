@@ -953,6 +953,7 @@ impl Lower {
                 // a handler re-raises what that handler caught.
                 out.push(Stmt::Raise { exc, cause });
             }
+            StmtKind::Assert { test, msg } => self.lower_assert(test, msg.as_ref(), out)?,
             StmtKind::Try {
                 body,
                 handlers,
@@ -1397,6 +1398,44 @@ impl Lower {
             }
             self.declare(&name);
         }
+        Ok(())
+    }
+
+    /// `assert`, which is an `if` around a `raise` and is lowered to one.
+    ///
+    /// The branch is over the raise rather than into it, since the raise is what
+    /// a false test does, and the message is lowered inside the branch so that a
+    /// passing assertion never evaluates it. That second part is not a nicety.
+    /// `assert ok, report()` is written by somebody who expects `report` not to
+    /// be called when `ok` holds, and CPython does not call it.
+    ///
+    /// The class is [`Expr::AssertionError`] rather than the name, so a program
+    /// that bound `AssertionError` to something of its own still gets a real one
+    /// out of a failed assertion.
+    ///
+    /// `__debug__` is not consulted, because nothing can make it false yet.
+    /// CPython throws assertions away at compile time under `-O`, and when there
+    /// is a flag asking for that this is where it belongs.
+    fn lower_assert(&mut self, test: &AExpr, msg: Option<&AExpr>, out: &mut Block) -> Result<()> {
+        let test = self.lower_test(test, out)?;
+        let mut then = Block::new();
+        let exc = match msg {
+            None => Expr::AssertionError,
+            Some(msg) => Expr::Call {
+                callee: Expr::AssertionError.boxed(),
+                args: vec![self.lower_expr(msg, &mut then)?],
+                keywords: Vec::new(),
+            },
+        };
+        then.push(Stmt::Raise {
+            exc: Some(exc),
+            cause: None,
+        });
+        out.push(Stmt::If {
+            test: Expr::Not(test.boxed()),
+            then,
+            orelse: Block::new(),
+        });
         Ok(())
     }
 
@@ -1945,7 +1984,6 @@ fn statement_name(kind: &StmtKind) -> &'static str {
         StmtKind::AsyncWith { .. } => "an async with statement",
         StmtKind::Match { .. } => "a match statement",
         StmtKind::TryStar { .. } => "an except* clause",
-        StmtKind::Assert { .. } => "an assert statement",
         StmtKind::Import { .. } | StmtKind::ImportFrom { .. } => "an import",
         StmtKind::Nonlocal { .. } => "a nonlocal declaration",
         _ => "this statement",
