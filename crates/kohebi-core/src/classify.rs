@@ -29,7 +29,7 @@ use table::{ALPHABETIC, DECIMAL, DIGIT, NUMERIC, SPACE, XID_CONTINUE, XID_START}
 
 use crate::casing;
 use crate::printable::is_printable;
-use crate::ranges::among;
+use crate::ranges::{among, holding};
 
 /// `str.isalpha`.
 #[must_use]
@@ -49,6 +49,21 @@ pub fn is_alnum(points: &[u32]) -> bool {
 #[must_use]
 pub fn is_decimal(points: &[u32]) -> bool {
     every(points, |cp| among(&DECIMAL, cp))
+}
+
+/// What a single decimal digit is worth, or `None` for a code point that is
+/// not one.
+///
+/// `int()` and `float()` take digits from any script, so `int('١٢')` is 12.
+/// The table this reads is a list of ten-point runs, each starting at its own
+/// script's zero, so the answer is the distance from the low end and no second
+/// table is needed to say what each point means. A run that is not ten long
+/// would break that, and there is not one: the property this is generated from
+/// is defined in blocks of ten.
+#[must_use]
+pub fn decimal_value(cp: u32) -> Option<u32> {
+    let (zero, _) = holding(&DECIMAL, cp)?;
+    Some(cp - zero)
 }
 
 /// `str.isdigit`.

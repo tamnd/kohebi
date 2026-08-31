@@ -55,19 +55,26 @@
 //! only part of them here is the argument counting, which all three do before
 //! looking at anything.
 //!
-//! The types themselves are in the table too, and half of them are constructors
-//! that were already in this file under their own names. `bool`, `str`, `list`,
-//! `tuple`, `set`, `range`, `map` and `filter` are those. `int`, `float`,
+//! The types themselves are in the table too, and most of them are
+//! constructors that were already in this file under their own names. `bool`,
+//! `str`, `list`, `tuple`, `set`, `range`, `map` and `filter` are those.
 //! `dict`, `bytes` and `object` are bound to type objects with nothing behind
-//! them, because `type(1)` gives back `int` and the name a program writes after
-//! that has to find the same object rather than a `NameError`.
+//! them, because `type({})` gives back `dict` and the name a program writes
+//! after that has to find the same object rather than a `NameError`.
+//!
+//! `int` and `float` are the two that turned from a name into a constructor.
+//! Neither is much code here, because the reading of a string is
+//! the `number` module and the argument shapes are the interesting half: `int`
+//! takes a value positionally and a base either way, which is two arities and
+//! two different complaints about the count, and `float` takes no keyword at
+//! all. The rest is which check happens before which, and the order is not the
+//! order the arguments are written in.
 //!
 //! ## What is not here
 //!
-//! The five constructors above, which is the next piece of work. `int` and
-//! `float` are each a parser with more corners than they look like, `dict` is
-//! four argument shapes, and `object` needs a value with nothing in it that
-//! nothing else in the runtime has.
+//! The three constructors above. `dict` is four argument shapes, `bytes` is
+//! five, and `object` needs a value with nothing in it that nothing else in
+//! the runtime has.
 //!
 //! `frozenset` and `complex` are types this runtime has no value for at all,
 //! so neither is even a name. `enumerate`, `zip` and `reversed` are three more
@@ -92,6 +99,7 @@ use kohebi_core::{Compare, Error, Int, Kind, Native, Object, Result, exception, 
 
 use crate::iterate::{self, Range};
 use crate::lazy::Lazy;
+use crate::number;
 use crate::stream::{Stream, Which};
 use crate::types::{self, Type};
 use crate::view;
@@ -362,8 +370,8 @@ pub fn table() -> Vec<(&'static str, Object)> {
         ("bytes", None),
         ("dict", None),
         ("filter", Some(filter as Free)),
-        ("float", None),
-        ("int", None),
+        ("float", Some(float as Free)),
+        ("int", Some(int as Free)),
         ("list", Some(list as Free)),
         ("map", Some(map as Free)),
         ("object", None),
@@ -611,6 +619,160 @@ fn str(_vm: &mut Vm, mut args: Args) -> Result<Object> {
         )),
         other => Err(Error::type_error(format!(
             "decoding to str: need a bytes-like object, {} found",
+            other.type_name()
+        ))),
+    }
+}
+
+/// `int()`, `int(x)` and `int(x, base)`.
+///
+/// The value is positional only and the base may be given either way, which is
+/// two different arities and is why the counting below is not one call to
+/// [`Args::arity`]. CPython words the two differently as well: `int('1', 2, 3)`
+/// says "expected at most 2 arguments, got 3" and `int('1', base=2, x=3)` says
+/// "takes at most 2 arguments (3 given)", counting the keywords in.
+fn int(_vm: &mut Vm, mut args: Args) -> Result<Object> {
+    let given = args.positional.len() + args.named.len();
+    if !args.named.is_empty() && given > 2 {
+        return Err(Error::type_error(format!(
+            "int() takes at most 2 arguments ({given} given)"
+        )));
+    }
+    let base = args.take("base");
+    args.rest("int")?;
+    args.arity("int", 0, 2)?;
+    let mut positional = args.positional.into_iter();
+    let value = positional.next();
+    let base = positional.next().or(base);
+
+    let Some(base) = base else {
+        return match value {
+            None => Ok(Object::Int(Int::ZERO)),
+            Some(value) => whole(&value),
+        };
+    };
+    // Every check about the base happens before any check about the value, and
+    // in this order, which is why `int(None, 'x')` names the base and
+    // `int(None, 99)` names the range.
+    let Some(value) = value else {
+        return Err(Error::type_error("int() missing string argument"));
+    };
+    let radix = match &base {
+        Object::Int(number) => number.to_i64().unwrap_or(i64::MAX),
+        Object::Bool(yes) => i64::from(*yes),
+        other => {
+            return Err(Error::type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                other.type_name()
+            )));
+        }
+    };
+    if radix != 0 && !(2..=36).contains(&radix) {
+        return Err(Error::new(
+            Kind::ValueError,
+            "int() base must be >= 2 and <= 36, or 0",
+        ));
+    }
+    // The check above leaves 0 or 2 through 36 and every one of those fits.
+    let radix = u32::try_from(radix).unwrap_or(0);
+    match &value {
+        Object::Str(_) | Object::Bytes(_) => read(&value, radix),
+        _ => Err(Error::type_error(
+            "int() can't convert non-string with explicit base",
+        )),
+    }
+}
+
+/// `int(x)` with no base, which takes numbers as well as strings.
+fn whole(value: &Object) -> Result<Object> {
+    match value {
+        Object::Int(_) => Ok(value.clone()),
+        Object::Bool(yes) => Ok(Object::Int(Int::from_i64(i64::from(*yes)))),
+        Object::Float(number) => Int::truncate(*number).map(Object::Int).ok_or_else(|| {
+            // Two different exceptions for the two ways a double has no
+            // integer, and CPython spells "NaN" and "infinity" this way.
+            if number.is_nan() {
+                Error::new(Kind::ValueError, "cannot convert float NaN to integer")
+            } else {
+                Error::new(
+                    Kind::OverflowError,
+                    "cannot convert float infinity to integer",
+                )
+            }
+        }),
+        Object::Str(_) | Object::Bytes(_) => read(value, 10),
+        other => Err(Error::type_error(format!(
+            "int() argument must be a string, a bytes-like object or a real \
+             number, not '{}'",
+            other.type_name()
+        ))),
+    }
+}
+
+/// The digits of a string or a `bytes`, in a base that has already been
+/// checked.
+///
+/// The complaint quotes the original rather than whatever was parsed, so
+/// `int(b'abc')` shows `b'abc'` and `int(' abc ')` keeps the spaces. The base
+/// in it is the one that was asked for, so `int('z', 0)` says "base 0" even
+/// though 0 is not a base anything is read in.
+fn read(value: &Object, radix: u32) -> Result<Object> {
+    digits(value)
+        .as_deref()
+        .and_then(|text| number::integer(text, radix))
+        .map(Object::Int)
+        .ok_or_else(|| {
+            Error::new(
+                Kind::ValueError,
+                format!(
+                    "invalid literal for int() with base {radix}: {}",
+                    value.repr()
+                ),
+            )
+        })
+}
+
+/// What a number parser reads out of a string or a `bytes`.
+///
+/// A `bytes` is bytes rather than text, so a non-ASCII one has no digits in it
+/// whatever those bytes would decode to: `int('١'.encode())` is two bytes and
+/// not an Arabic-Indic one, and CPython refuses it. A `str` is handed over as
+/// it is, unicode digits and all.
+fn digits(value: &Object) -> Option<String> {
+    match value {
+        Object::Bytes(bytes) => bytes
+            .is_ascii()
+            .then(|| String::from_utf8_lossy(bytes).into_owned()),
+        other => Some(other.display()),
+    }
+}
+
+/// `float()` and `float(x)`.
+fn float(_vm: &mut Vm, args: Args) -> Result<Object> {
+    args.no_keywords("float")?;
+    args.arity("float", 0, 1)?;
+    let Some(value) = args.positional.first() else {
+        return Ok(Object::Float(0.0));
+    };
+    match value {
+        Object::Float(_) => Ok(value.clone()),
+        Object::Bool(yes) => Ok(Object::Float(f64::from(*yes))),
+        Object::Int(number) => number
+            .to_f64()
+            .map(Object::Float)
+            .ok_or_else(|| Error::new(Kind::OverflowError, "int too large to convert to float")),
+        Object::Str(_) | Object::Bytes(_) => digits(value)
+            .as_deref()
+            .and_then(number::real)
+            .map(Object::Float)
+            .ok_or_else(|| {
+                Error::new(
+                    Kind::ValueError,
+                    format!("could not convert string to float: {}", value.repr()),
+                )
+            }),
+        other => Err(Error::type_error(format!(
+            "float() argument must be a string or a real number, not '{}'",
             other.type_name()
         ))),
     }

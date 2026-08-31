@@ -911,7 +911,7 @@ try:
 except TypeError as e:
     print("TypeError:", e)
 try:
-    int("5")
+    dict()
 except NotImplementedError as e:
     print("NotImplementedError:", e)
 try:
@@ -930,7 +930,41 @@ except AttributeError as e:
          True False True\n\
          True True True\n\
          TypeError: isinstance() arg 2 must be a type, a tuple of types, or a union\n\
-         NotImplementedError: int() is not implemented yet\n\
+         NotImplementedError: dict() is not implemented yet\n\
          AttributeError: type object 'int' has no attribute 'nosuch'\n"
+    );
+}
+
+/// The two number constructors end to end, including the base a program gives
+/// by name and the digits a literal could not have been written with.
+#[test]
+fn a_string_becomes_a_number() {
+    let file = source(
+        "number-constructors",
+        r#"print(int(), int("12"), int(" -12 "), int("1_0"), int(b"7"), int(-1.9))
+print(int("ff", 16), int("0x_ff", 16), int("0o17", 0), int("1", base=2))
+print(int("١٢"), int("١٢", 16), int("9" * 25))
+print(float(), float("1.5"), float(".5"), float("-iNf"), float("1e1_0"))
+for work in (lambda: int("abc"), lambda: int("1", 1), lambda: int(1, 10),
+             lambda: float("abc"), lambda: float(None)):
+    try:
+        work()
+    except (TypeError, ValueError) as e:
+        print(type(e).__name__ + ":", e)
+"#,
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "0 12 -12 10 7 -1\n\
+         255 255 15 1\n\
+         12 18 9999999999999999999999999\n\
+         0.0 1.5 0.5 -inf 10000000000.0\n\
+         ValueError: invalid literal for int() with base 10: 'abc'\n\
+         ValueError: int() base must be >= 2 and <= 36, or 0\n\
+         TypeError: int() can't convert non-string with explicit base\n\
+         ValueError: could not convert string to float: 'abc'\n\
+         TypeError: float() argument must be a string or a real number, not 'NoneType'\n"
     );
 }
