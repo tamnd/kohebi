@@ -104,9 +104,12 @@ pub fn hash(object: &Object) -> Result<i64, Unhashable> {
         // could move out from under the slot it was filed in. A `frozenset`
         // is the way Python gives you a hashable one, and there is not one
         // of those yet.
-        Object::List(_) | Object::Dict(_) | Object::Set(_) => Err(Unhashable {
-            type_name: object.type_name(),
-        }),
+        // Spelled out rather than asked of the object, because the name here
+        // outlives the value it came from and only a class defined in Python has
+        // a name that does not. None of those reach this arm.
+        Object::List(_) => Err(Unhashable { type_name: "list" }),
+        Object::Dict(_) => Err(Unhashable { type_name: "dict" }),
+        Object::Set(_) => Err(Unhashable { type_name: "set" }),
     }
 }
 

@@ -49,7 +49,7 @@ use kohebi_core::{Dict, Error, Int, Kind, Native, Object, Result, Set, StrBuf};
 pub struct Done;
 
 impl Native for Done {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         "kohebi.exhausted"
     }
 
@@ -144,7 +144,7 @@ impl Range {
 }
 
 impl Native for Range {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         "range"
     }
 
@@ -306,7 +306,7 @@ impl Iter {
 }
 
 impl Native for Iter {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         // CPython gives each container its own iterator type, and the name
         // shows up in a `TypeError` and in a `repr`, so it is worth keeping
         // them apart.
@@ -532,7 +532,9 @@ mod tests {
     fn each_container_names_its_own_iterator_type() {
         // CPython reports these through `type()`, and it has a separate name
         // for a string that is all ASCII.
-        let name = |value: &Object| over(value).expect("iterable").type_name();
+        // Owned, because a type name is borrowed from the value it belongs to
+        // and the iterator here is a temporary.
+        let name = |value: &Object| over(value).expect("iterable").type_name().to_owned();
         assert_eq!(name(&Object::str("ab")), "str_ascii_iterator");
         assert_eq!(name(&Object::str("é")), "str_iterator");
         assert_eq!(name(&Object::Tuple(Rc::from([]))), "tuple_iterator");

@@ -120,6 +120,9 @@ impl Module {
 pub struct Code {
     /// What the frame is called in a traceback.
     pub name: Box<str>,
+    /// `__qualname__`: the name with the frames it is written inside in front,
+    /// as in `C.f` for a method. See [`Body::qualname`](kohebi_hir::Body).
+    pub qualname: Box<str>,
     /// The parameters, whose registers are the first [`Params::count`] of them.
     pub params: Params,
     /// How many registers a frame needs, which is the slots plus the deepest
@@ -215,6 +218,39 @@ pub enum Instr {
     /// `LOAD_ASSERTION_ERROR` as its own opcode.
     LoadAssertionError {
         dst: Reg,
+    },
+    /// The namespace, then globals, then builtins.
+    ///
+    /// Only a class body emits this. Its names live in a namespace that becomes
+    /// the class, so a read that finds nothing there is not an error the way an
+    /// empty slot would be, it just carries on outwards. CPython's `LOAD_NAME`
+    /// is the same instruction for the same reason.
+    LoadName {
+        dst: Reg,
+        name: NameId,
+    },
+    /// A closure variable read from inside a class body.
+    ///
+    /// The cell wins if it has a value, and otherwise this is a [`Instr::LoadName`]
+    /// of the same name. Both halves are needed because the two scopes overlap
+    /// here and nowhere else: the body has a namespace of its own *and* cells
+    /// handed down from the function around it. CPython calls it
+    /// `LOAD_CLASSDEREF` and splits it the same way.
+    ///
+    /// A name the body itself binds never gets this, only a [`Instr::LoadName`],
+    /// which is why `class C: x = x` reads the module's `x` and not the
+    /// enclosing function's.
+    LoadNameOrCell {
+        dst: Reg,
+        cell: Reg,
+        name: NameId,
+    },
+    StoreName {
+        name: NameId,
+        src: Reg,
+    },
+    DeleteName {
+        name: NameId,
     },
     /// `del x` where `x` is a slot, which leaves the slot empty rather than
     /// holding `None`. Reading it afterwards raises.
@@ -351,6 +387,24 @@ pub enum Instr {
         kw_defaults: Span,
         /// Registers of this frame holding the cells the new function closes
         /// over, into [`Code::regs`], in the order [`Code::free`] takes them.
+        captures: Span,
+    },
+    /// Run a class body and build the class out of what it left behind.
+    ///
+    /// One instruction rather than a `MakeFunction` and a `Call`, because a class
+    /// body is never a value a program can get hold of. Nothing can call it twice
+    /// or call it late, so there is nothing to gain from making the function
+    /// first, and quite a lot to lose: the namespace it fills would have to be
+    /// passed in and read back out instead of living for the length of one
+    /// instruction.
+    MakeClass {
+        dst: Reg,
+        func: FuncId,
+        /// The bases, already evaluated, into [`Code::regs`]. They go before the
+        /// body runs, which a base with a side effect can tell.
+        bases: Span,
+        /// The same as [`Instr::MakeFunction::captures`]. A class body reads
+        /// closure variables, so it is handed cells like a function is.
         captures: Span,
     },
     BuildTuple {

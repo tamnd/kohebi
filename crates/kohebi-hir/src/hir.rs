@@ -123,6 +123,14 @@ impl Params {
 pub struct Body {
     /// What the frame is called in a traceback.
     pub name: Name,
+    /// The same name with the frames it is written inside in front of it, which
+    /// is `__qualname__`: `C.f` for a method, `f.<locals>.g` for a nested
+    /// function, and the bare name for anything written at module level.
+    ///
+    /// Kept beside the bare one rather than instead of it, because the two are
+    /// asked for in different places. An error message about a call wants the
+    /// qualified one, and a class wants the bare one for `__name__`.
+    pub qualname: Name,
     /// The parameters, whose slots are the first [`Params::count`] of them.
     pub params: Params,
     /// Every slot, indexed by [`Local`].
@@ -171,6 +179,9 @@ pub enum Place {
     /// A name that is not a slot in this frame, which at module level is every
     /// name that was only ever read.
     Global(Name),
+    /// A name in the namespace this frame is filling, which only a class body
+    /// has. See [`Expr::Name`].
+    Name(Name),
     Attr {
         object: Expr,
         name: Name,
@@ -344,6 +355,35 @@ pub enum Expr {
     /// A name looked up in globals and then in builtins, the way a module level
     /// read that was never assigned has to be.
     Global(Name),
+    /// A name in the namespace this frame is filling, then globals, then
+    /// builtins.
+    ///
+    /// Only a class body has one of these, and it is the reason a class body is
+    /// not an ordinary frame. Its names go into a namespace that becomes the
+    /// class, so a read is a lookup rather than a slot, and a name that is not
+    /// in the namespace yet falls through to the module rather than being an
+    /// `UnboundLocalError`. That is what makes
+    ///
+    /// ```text
+    /// x = 'global'
+    /// class C:
+    ///     print(x)
+    ///     x = 'class'
+    /// ```
+    ///
+    /// print `global` and then bind `C.x`, which is what CPython does with
+    /// `LOAD_NAME` and is not what a frame of slots would do.
+    Name(Name),
+    /// The same, but with a cell from an enclosing function underneath it.
+    ///
+    /// A class body reads a closure variable, so `def f(): a = 1; class C: b = a`
+    /// works. What it must not do is find the cell before the namespace, since a
+    /// name the body has already bound is the one it means. CPython splits these
+    /// two apart the same way, as `LOAD_NAME` and `LOAD_CLASSDEREF`.
+    NameOrCell {
+        name: Name,
+        cell: Local,
+    },
     /// The `AssertionError` class, reached without going through a name.
     ///
     /// A failing `assert` raises this, and it has to be the real class even in a
@@ -477,6 +517,23 @@ pub enum Expr {
         /// a `def` in a loop close over the loop variable rather than over a
         /// copy of it, since every turn reads the same slot and finds the same
         /// cell in it.
+        captures: Vec<Local>,
+    },
+    /// The value a `class` statement produces, before anything binds it.
+    ///
+    /// The body is a [`Body::functions`] entry like a function's, because it is
+    /// a body: it runs top to bottom in a frame of its own. What it does not do
+    /// is return a value. It fills a namespace, and the namespace is what
+    /// becomes the class, which is why every name in it is an [`Expr::Name`].
+    ///
+    /// The bases are evaluated in the frame the `class` is written in and before
+    /// the body runs, which is the order CPython evaluates them in and is
+    /// visible to a base whose evaluation has a side effect.
+    Class {
+        id: FuncId,
+        bases: Vec<Expr>,
+        /// The same as [`Expr::Function::captures`]. A class body reads closure
+        /// variables, so it takes cells the way a nested function does.
         captures: Vec<Local>,
     },
 }

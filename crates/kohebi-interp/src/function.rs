@@ -94,6 +94,7 @@ impl Function {
     )]
     pub fn bind(
         &self,
+        bound: Option<Object>,
         positional_args: impl ExactSizeIterator<Item = Result<Object>>,
         by_name: Vec<(Box<str>, Object)>,
     ) -> Result<Vec<Option<Object>>> {
@@ -112,10 +113,23 @@ impl Function {
         // makes a keyword of the same name a second value rather than a first.
         // The overflow only gets a vector of its own when there is some, which
         // for almost every call there is not.
-        let count = positional_args.len();
+        // The receiver counts as an argument and is reported as one, which is
+        // why `x.f(1)` on a one parameter method says two were given rather
+        // than one. It is not written at the call site, so it is not in the
+        // iterator, and everything below it shifts along by one.
+        let offset = usize::from(bound.is_some());
+        let count = positional_args.len() + offset;
         let mut extra: Vec<Object> = Vec::new();
+        if let Some(value) = bound {
+            if positional > 0 {
+                registers[0] = Some(value);
+            } else {
+                extra.push(value);
+            }
+        }
         for (at, value) in positional_args.enumerate() {
             let value = value?;
+            let at = at + offset;
             if at < positional {
                 registers[at] = Some(value);
             } else {
@@ -263,7 +277,9 @@ impl Function {
 
     /// A `TypeError` about calling this function, which every one of them is.
     fn wrong(&self, complaint: &str) -> Error {
-        Error::type_error(format!("{}() {complaint}", self.code().name))
+        // The qualified name, so that a method complains as `C.f()` rather than
+        // as `f()`, which is what tells two `f`s in one program apart.
+        Error::type_error(format!("{}() {complaint}", self.code().qualname))
     }
 }
 
@@ -295,7 +311,7 @@ impl fmt::Debug for Function {
 }
 
 impl Native for Function {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         "function"
     }
 
@@ -305,7 +321,7 @@ impl Native for Function {
         // from the same `def` in a loop print differently on purpose.
         format!(
             "<function {} at {:#x}>",
-            self.code().name,
+            self.code().qualname,
             std::ptr::from_ref(self) as usize
         )
     }

@@ -94,6 +94,22 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
             format!("{}, {}", module.name_at(*name), reg(*src)),
         ),
         Instr::DeleteGlobal { name } => ("delglobal", module.name_at(*name).to_owned()),
+        Instr::LoadName { dst, name } => (
+            "getname",
+            format!("{}, {}", reg(*dst), module.name_at(*name)),
+        ),
+        // Named after what it does rather than after `getname`, because the
+        // pattern the other loads follow would give it eleven characters and the
+        // operand column is ten wide.
+        Instr::LoadNameOrCell { dst, cell, name } => (
+            "cellorname",
+            format!("{}, {}, {}", reg(*dst), reg(*cell), module.name_at(*name)),
+        ),
+        Instr::StoreName { name, src } => (
+            "setname",
+            format!("{}, {}", module.name_at(*name), reg(*src)),
+        ),
+        Instr::DeleteName { name } => ("delname", module.name_at(*name).to_owned()),
         // Shortened to fit the column the operands line up in, and unambiguous
         // at that length because it is the only instruction about assertions.
         Instr::LoadAssertionError { dst } => ("asserterr", reg(*dst)),
@@ -202,6 +218,23 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
                 parts.push(format!("over {}", regs(code, *captures)));
             }
             ("makefunc", parts.join(", "))
+        }
+        Instr::MakeClass {
+            dst,
+            func,
+            bases,
+            captures,
+        } => {
+            let named = code
+                .functions
+                .get(func.0 as usize)
+                .map_or_else(|| format!("?{}", func.0), |func| func.name.to_string());
+            let mut parts = vec![reg(*dst), named];
+            parts.extend(code.operands(*bases).iter().map(|r| reg(*r)));
+            if captures.len > 0 {
+                parts.push(format!("over {}", regs(code, *captures)));
+            }
+            ("makeclass", parts.join(", "))
         }
         Instr::Call {
             dst,

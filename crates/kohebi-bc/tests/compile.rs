@@ -668,3 +668,71 @@ fn an_assert_puts_no_name_in_the_table_to_be_shadowed() {
         ["AssertionError".into(), "ok".into()]
     );
 }
+
+/// A class body's names are namespace instructions, and the class itself is one
+/// instruction rather than a function and a call.
+///
+/// There is no `makefunc` here and no `call`, because a class body is never a
+/// value a program can reach: nothing can call it twice or call it late, so
+/// running it is the same instruction that builds the class.
+#[test]
+fn a_class_runs_its_body_and_keeps_the_namespace() {
+    assert_eq!(
+        bc("class C:\n    x = 1\n    y = x + 1\n"),
+        "   0  makeclass  r0, C\n\
+         \x20  1  setglobal  C, r0\n\
+         \x20  2  const      r0, None\n\
+         \x20  3  ret        r0\n\
+         code C: 3 registers\n\
+         \x20  0  const      r0, 1\n\
+         \x20  1  setname    x, r0\n\
+         \x20  2  getname    r1, x\n\
+         \x20  3  const      r2, 1\n\
+         \x20  4  binary     r0, r1 + r2\n\
+         \x20  5  setname    y, r0\n\
+         \x20  6  const      r0, None\n\
+         \x20  7  ret        r0"
+    );
+}
+
+/// A base is evaluated in the frame the class is written in, and lands in the
+/// `makeclass` rather than in the body.
+#[test]
+fn a_base_is_an_operand_of_the_instruction_that_builds_the_class() {
+    assert_eq!(
+        bc("class C(B):\n    pass\n"),
+        "   0  getglobal  r1, B\n\
+         \x20  1  makeclass  r0, C, r1\n\
+         \x20  2  setglobal  C, r0\n\
+         \x20  3  const      r0, None\n\
+         \x20  4  ret        r0\n\
+         code C: 1 registers\n\
+         \x20  0  const      r0, None\n\
+         \x20  1  ret        r0"
+    );
+}
+
+/// A closure variable a class body never binds is read through the cell first
+/// and by name second, which is one instruction rather than two.
+#[test]
+fn a_class_body_reads_a_captured_name_through_the_cell_and_then_the_namespace() {
+    assert_eq!(
+        bc("def f():\n    n = 1\n    class C:\n        k = n\n"),
+        "   0  makefunc   r0, f\n\
+         \x20  1  setglobal  f, r0\n\
+         \x20  2  const      r0, None\n\
+         \x20  3  ret        r0\n\
+         code f: 3 registers\n\
+         \x20  0  cell       r0\n\
+         \x20  1  const      r2, 1\n\
+         \x20  2  storecell  r0, r2\n\
+         \x20  3  makeclass  r1, C, over r0\n\
+         \x20  4  const      r2, None\n\
+         \x20  5  ret        r2\n\
+         code C: 2 registers, over r0\n\
+         \x20  0  cellorname r1, r0, n\n\
+         \x20  1  setname    k, r1\n\
+         \x20  2  const      r1, None\n\
+         \x20  3  ret        r1"
+    );
+}

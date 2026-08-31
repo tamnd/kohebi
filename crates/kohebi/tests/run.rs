@@ -181,11 +181,33 @@ fn a_file_that_does_not_parse_reports_the_syntax_error() {
 /// than running the half of the program that came before it.
 #[test]
 fn a_construct_that_does_not_lower_yet_stops_before_running() {
-    let file = source("classy", "print('before')\nclass C:\n    pass\n");
+    let file = source(
+        "matchy",
+        "print('before')\nmatch 1:\n    case 1:\n        pass\n",
+    );
     let (ok, out, err) = run(&["run", &file]);
     assert!(!ok);
     assert_eq!(out, "");
-    assert!(err.contains("class"), "stderr was {err:?}");
+    assert!(err.contains("match"), "stderr was {err:?}");
+}
+
+#[test]
+fn a_class_runs_end_to_end() {
+    let file = source(
+        "shapes",
+        "class Point:\n\
+         \x20   kind = 'point'\n\
+         \x20   def __init__(self, x, y):\n\
+         \x20       self.x = x\n\
+         \x20       self.y = y\n\
+         \x20   def total(self):\n\
+         \x20       return self.x + self.y\n\
+         p = Point(1, 2)\n\
+         print(p.total(), p.kind, Point.kind)\n",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(out, "3 point point\n");
 }
 
 #[test]

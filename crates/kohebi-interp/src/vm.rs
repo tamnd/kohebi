@@ -41,9 +41,17 @@
 //!
 //! ## What is not implemented
 //!
-//! Attributes, which raise a `NotImplementedError` naming themselves rather
-//! than being skipped or guessed at, so a program that needs one stops on it
-//! and says so.
+//! An attribute of anything that is not a class or an instance of one, which
+//! raises a `NotImplementedError` naming itself rather than being skipped or
+//! guessed at, so a program that needs one stops on it and says so. What is
+//! missing under that is the type object: every builtin type needs one before
+//! `''.upper()` can be a lookup rather than a special case.
+//!
+//! Dunder methods, for the same reason from the other side. A class can define
+//! `__init__` and it runs, because construction has to put the arguments
+//! somewhere. `__repr__`, `__eq__`, `__len__` and `__bool__` do not, because
+//! each of them is user code called from inside an operation that has no way to
+//! call anything yet.
 //!
 //! ## Exceptions
 //!
@@ -68,7 +76,7 @@ use std::fmt;
 use std::io::{self, Write};
 use std::rc::Rc;
 
-use kohebi_bc::code::{Code, Instr, Module, NameId, Offset, Reg, Span};
+use kohebi_bc::code::{Code, FuncId, Instr, Module, NameId, Offset, Reg, Span};
 use kohebi_core::dict::{Dict, Set};
 use kohebi_core::{Error, Kind, Object, Result, Slice, exception, ops};
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
@@ -76,6 +84,7 @@ use rustc_hash::FxHashMap;
 
 use crate::builtin::{Args, Builtin, table};
 use crate::cell::Cell;
+use crate::class::{Class, Instance, Method};
 use crate::function::Function;
 use crate::iterate;
 use crate::ready::Ready;
@@ -176,8 +185,8 @@ impl Vm {
         // here is one shallower than the limit rather than exactly it.
         let ready = Ready::new(module);
         let outcome = self.enter().and_then(|()| {
-            let frame = Frame::new(ready.code());
-            let outcome = self.execute(&ready, &mut globals, frame);
+            let mut frame = Frame::new(ready.code());
+            let outcome = self.execute(&ready, &mut globals, &mut frame);
             self.depth -= 1;
             outcome
         });
@@ -192,7 +201,7 @@ impl Vm {
         &mut self,
         ready: &Ready,
         globals: &mut Globals<'_>,
-        mut frame: Frame<'_>,
+        frame: &mut Frame<'_>,
     ) -> Result<Object> {
         let code = ready.code();
         // What the handled stack owes whoever called this. A `finally` that
@@ -204,7 +213,7 @@ impl Vm {
 
         while let Some(&instr) = code.instrs.get(frame.pc) {
             frame.pc += 1;
-            match self.step(instr, ready, globals, &mut frame) {
+            match self.step(instr, ready, globals, frame) {
                 Ok(Flow::Next) => {}
                 Ok(Flow::Done(value)) => return Ok(value),
                 // The only place an exception is caught, which is what lets
@@ -319,6 +328,36 @@ impl Vm {
                     return Err(undefined(globals.name(name)));
                 }
             }
+            Instr::LoadName { dst, name } => {
+                let value = self.by_name(globals, frame, name)?;
+                frame.set(dst, value);
+            }
+            Instr::LoadNameOrCell { dst, cell, name } => {
+                // The cell is asked first and only its emptiness falls through,
+                // which is the case a `del` on the enclosing variable makes and
+                // the reason this is not simply a `loadcell`.
+                let held = frame.get(cell)?.downcast::<Cell>().and_then(Cell::get);
+                let value = match held {
+                    Some(value) => value,
+                    None => self.by_name(globals, frame, name)?,
+                };
+                frame.set(dst, value);
+            }
+            Instr::StoreName { name, src } => {
+                let value = frame.get(src)?.clone();
+                let name = Box::from(globals.name(name));
+                frame.namespace.insert(name, value);
+            }
+            Instr::DeleteName { name } => {
+                // Only the namespace, never the globals behind it. `del x` in a
+                // class body that never bound `x` is a `NameError` even where
+                // the module has one, because what it would be deleting is the
+                // module's and a class body does not reach that far to write.
+                let name = globals.name(name);
+                if frame.namespace.remove(name).is_none() {
+                    return Err(undefined(name));
+                }
+            }
             Instr::Cell { reg } => {
                 // Whatever the register held goes into the cell, which for
                 // a parameter is the argument and for everything else is
@@ -417,6 +456,15 @@ impl Vm {
                 let function = Function::new(Rc::clone(body), defaults, optional, captures);
                 frame.set(dst, Object::native(function));
             }
+            Instr::MakeClass {
+                dst,
+                func,
+                bases,
+                captures,
+            } => {
+                let value = self.build_class(ready, globals, frame, func, bases, captures)?;
+                frame.set(dst, value);
+            }
             Instr::BuildTuple { dst, items } => {
                 let items = operands(code, frame, items)?;
                 frame.set(dst, Object::tuple(items));
@@ -450,8 +498,45 @@ impl Vm {
             }
             Instr::Return { src } => return Ok(Flow::Done(frame.get(src)?.clone())),
 
-            Instr::LoadAttr { .. } | Instr::StoreAttr { .. } | Instr::DeleteAttr { .. } => {
-                return Err(later("attribute access"));
+            Instr::LoadAttr { dst, object, name } => {
+                let value = attribute(frame.get(object)?, globals.name(name))?;
+                frame.set(dst, value);
+            }
+            Instr::StoreAttr { object, name, src } => {
+                // The value is read out before the object is, so that `a.b = a`
+                // is a write rather than an overlapping borrow.
+                let value = frame.get(src)?.clone();
+                let name = globals.name(name);
+                let object = frame.get(object)?;
+                if let Some(instance) = object.downcast::<Instance>() {
+                    instance.set(Box::from(name), value);
+                } else if let Some(class) = object.downcast::<Class>() {
+                    class.set(Box::from(name), value);
+                } else {
+                    return Err(later("attribute access"));
+                }
+            }
+            Instr::DeleteAttr { object, name } => {
+                let name = globals.name(name);
+                let object = frame.get(object)?;
+                // The two kinds word the failure differently, so each says its
+                // own rather than sharing one that would have to guess.
+                let gone = if let Some(instance) = object.downcast::<Instance>() {
+                    instance
+                        .delete(name)
+                        .then_some(())
+                        .ok_or_else(|| format!("'{}' object", object.type_name()))
+                } else if let Some(class) = object.downcast::<Class>() {
+                    class
+                        .delete(name)
+                        .then_some(())
+                        .ok_or_else(|| format!("type object '{}'", class.name()))
+                } else {
+                    return Err(later("attribute access"));
+                };
+                if let Err(whose) = gone {
+                    return Err(no_attribute(&whose, name));
+                }
             }
             Instr::LoadItem { dst, object, index } => {
                 let value = ops::get_item(frame.get(object)?, frame.get(index)?)?;
@@ -620,13 +705,36 @@ impl Vm {
         // gathered, because that is the order the messages come out in: a
         // number called with a bad keyword complains about being a number.
         let builtin = callee.downcast::<Builtin>();
-        let defined = callee.downcast::<Function>();
         let class = callee.downcast::<exception::Class>();
-        let function: &str = match (builtin, defined, class) {
-            (Some(builtin), _, _) => builtin.name(),
-            (None, Some(function), _) => &function.code().name,
-            (None, None, Some(class)) => class.kind().name(),
-            (None, None, None) => {
+        let defined_class = callee.downcast::<Class>();
+        let method = callee.downcast::<Method>();
+        // A method is its function with the receiver in front, so the two share
+        // everything below this line except the extra argument.
+        let receiver = method.map(|method| method.receiver().clone());
+        let defined = match method {
+            Some(method) => method.function().downcast::<Function>(),
+            None => callee.downcast::<Function>(),
+        };
+        // A class called is its `__init__` called on a fresh instance, so the
+        // function this call runs is that one and the value it gives back is
+        // the instance rather than what the call returned.
+        let mut instance = None;
+        let mut init = None;
+        if let Some(defined_class) = defined_class {
+            instance = Some(Object::native(Instance::new(callee.clone())));
+            init = defined_class.lookup("__init__");
+        }
+        let init = init;
+        let defined = match (&init, defined) {
+            (Some(init), _) => init.downcast::<Function>(),
+            (None, defined) => defined,
+        };
+        let function: &str = match (builtin, defined, class, defined_class) {
+            (Some(builtin), _, _, _) => builtin.name(),
+            (None, Some(function), _, _) => &function.code().qualname,
+            (None, None, Some(class), _) => class.kind().name(),
+            (None, None, None, Some(defined_class)) => defined_class.name(),
+            (None, None, None, None) => {
                 return Err(Error::type_error(format!(
                     "'{}' object is not callable",
                     callee.type_name()
@@ -660,23 +768,119 @@ impl Vm {
             return Ok(class.instance(taken.take_positional()));
         }
         let Some(function) = defined else {
-            unreachable!("the callee was one of the three kinds a moment ago")
+            // A class with no `__init__` anywhere behind it, which takes
+            // nothing because there is nothing to take the arguments.
+            let Some(instance) = instance else {
+                unreachable!("the callee was one of the kinds a moment ago")
+            };
+            if args.len > 0 || !named.is_empty() {
+                return Err(Error::type_error(format!(
+                    "{function}() takes no arguments"
+                )));
+            }
+            return Ok(instance);
         };
         // The body is taken by hand rather than borrowed through the callee,
         // because it runs with the machine borrowed mutably and the function
         // object it came from is only a register away from being rebound by the
         // very call about to happen.
         let body = Rc::clone(function.ready());
+        // A method's receiver and a constructor's instance are the same thing
+        // seen from two sides: an argument the call site did not write, in front
+        // of the ones it did.
+        let bound = receiver.or_else(|| instance.clone());
         let registers = function.bind(
+            bound,
             code.operands(args)
                 .iter()
                 .map(|reg| frame.get(*reg).cloned()),
             named,
         )?;
         self.enter()?;
-        let outcome = self.execute(&body, globals, Frame::with(body.code(), registers));
+        let mut inner = Frame::with(body.code(), registers);
+        let outcome = self.execute(&body, globals, &mut inner);
         self.depth -= 1;
-        outcome
+        // What `__init__` returned is thrown away. CPython insists it be `None`
+        // and there is no reason to be stricter here than the check that is
+        // coming when `__init__` is a dunder like the rest of them.
+        match instance {
+            Some(instance) => outcome.map(|_| instance),
+            None => outcome,
+        }
+    }
+
+    /// A name in a class body: the namespace, then the globals, then the builtins.
+    ///
+    /// The same three the module scope has, with the namespace in front, which
+    /// is what makes a read of a name the body has not bound yet find the
+    /// module's rather than being the `UnboundLocalError` the same read in a
+    /// function would be.
+    fn by_name(&self, globals: &Globals<'_>, frame: &Frame<'_>, name: NameId) -> Result<Object> {
+        let text = globals.name(name);
+        if let Some(value) = frame.namespace.get(text) {
+            return Ok(value.clone());
+        }
+        if let Some(value) = globals.get(name) {
+            return Ok(value.clone());
+        }
+        self.builtins
+            .get(text)
+            .cloned()
+            .ok_or_else(|| undefined(text))
+    }
+
+    /// Run a class body and make a class out of the namespace it filled.
+    fn build_class(
+        &mut self,
+        ready: &Ready,
+        globals: &mut Globals<'_>,
+        frame: &Frame<'_>,
+        func: FuncId,
+        bases: Span,
+        captures: Span,
+    ) -> Result<Object> {
+        let code = ready.code();
+        let Some(body) = ready.function(func) else {
+            unreachable!("a class is numbered into the body that holds it")
+        };
+        // Before the body runs, because a base is written before the body is
+        // and an expression with a side effect in it can tell.
+        let bases = operands(code, frame, bases)?;
+        let base = match bases.into_iter().next() {
+            None => None,
+            Some(base) => {
+                if base.downcast::<Class>().is_none() {
+                    return Err(Error::type_error(format!(
+                        "cannot create a class from '{}', which is not a class",
+                        base.type_name()
+                    )));
+                }
+                Some(base)
+            }
+        };
+        let captures = operands(code, frame, captures)?;
+        let body = Rc::clone(body);
+        let mut inner = Frame::new(body.code());
+        // A class body takes cells the way a function does, and for the same
+        // reason: a name it reads from the function around it is a binding
+        // rather than a value, and the two frames share it.
+        for (reg, cell) in body.code().free.iter().zip(&captures) {
+            inner.set(*reg, cell.clone());
+        }
+        self.enter()?;
+        let outcome = self.execute(&body, globals, &mut inner);
+        self.depth -= 1;
+        // Dropped rather than kept, because a class body has nothing to return
+        // and the compiler ends it with a `ret None` only so that every body
+        // ends the same way.
+        outcome?;
+        let code = body.code();
+        Ok(Object::native(Class::new(
+            Box::from(&*code.name),
+            Box::from(&*code.qualname),
+            base,
+            inner.namespace,
+        )))
     }
 
     /// Take a step down, refusing one that goes deeper than [`LIMIT`].
@@ -778,6 +982,14 @@ struct Handler {
 /// One call's frame.
 struct Frame<'a> {
     registers: Vec<Option<Object>>,
+    /// The names a class body binds, which is empty in every other frame.
+    ///
+    /// A class body is the one kind of frame whose names are not slots, so it
+    /// is the one kind that needs somewhere to put them. Carried on every frame
+    /// rather than on a second kind of frame because an empty map costs an empty
+    /// map: `FxHashMap` does not allocate until something is put in it, and
+    /// nothing ever is except here.
+    namespace: Names,
     pc: usize,
     /// The `try` statements this frame is inside, innermost last.
     handlers: Vec<Handler>,
@@ -796,6 +1008,7 @@ impl<'a> Frame<'a> {
     fn with(code: &'a Code, registers: Vec<Option<Object>>) -> Self {
         Frame {
             registers,
+            namespace: Names::default(),
             pc: 0,
             // Nothing until a `try` is reached, and most frames never reach
             // one, so this stays an empty vector that never allocates.
@@ -1164,6 +1377,66 @@ fn unpack(value: &Object, before: u32, star: bool, after: u32) -> Result<Object>
 /// A name nothing is bound to.
 fn undefined(name: &str) -> Error {
     Error::new(Kind::NameError, format!("name '{name}' is not defined"))
+}
+
+/// An attribute of a class or of an instance of one.
+///
+/// Everything else still says it is not implemented, because everything else
+/// needs the attributes a builtin type has and there are none of those yet.
+fn attribute(object: &Object, name: &str) -> Result<Object> {
+    if let Some(instance) = object.downcast::<Instance>() {
+        if let Some(value) = instance.own(name) {
+            return Ok(value);
+        }
+        // The one attribute an instance has without anything binding it. The
+        // rest of them arrive with the type object.
+        if name == "__class__" {
+            return Ok(instance.class().clone());
+        }
+        let found = instance
+            .class()
+            .downcast::<Class>()
+            .and_then(|class| class.lookup(name));
+        return match found {
+            // A function found on the class rather than on the instance is
+            // where `self` comes from. Found on the instance it is just a
+            // function, which is what makes `x.f = f` different from `C.f = f`.
+            Some(value) => Ok(bind(object, value)),
+            None => Err(no_attribute(
+                &format!("'{}' object", object.type_name()),
+                name,
+            )),
+        };
+    }
+    if let Some(class) = object.downcast::<Class>() {
+        // Before the namespace, because the name belongs to the class rather
+        // than being an entry in it: `class C: __name__ = 'shadow'` still has
+        // `C.__name__` be `C`.
+        if name == "__name__" {
+            return Ok(Object::str(class.name()));
+        }
+        return class
+            .lookup(name)
+            .ok_or_else(|| no_attribute(&format!("type object '{}'", class.name()), name));
+    }
+    Err(later("attribute access"))
+}
+
+/// What an attribute lookup gives back, which for a function is a method.
+fn bind(receiver: &Object, value: Object) -> Object {
+    if value.downcast::<Function>().is_none() {
+        return value;
+    }
+    Object::native(Method::new(receiver.clone(), value))
+}
+
+/// `'C' object has no attribute 'x'`, with the description in front already
+/// worded for whichever of the two kinds was asked.
+fn no_attribute(whose: &str, name: &str) -> Error {
+    Error::new(
+        Kind::AttributeError,
+        format!("{whose} has no attribute '{name}'"),
+    )
 }
 
 /// Something this tier does not do yet.

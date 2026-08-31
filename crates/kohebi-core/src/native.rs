@@ -36,7 +36,11 @@ use std::fmt;
 /// rest to themselves.
 pub trait Native: fmt::Debug {
     /// What `type(x).__name__` says, which is what error messages need.
-    fn type_name(&self) -> &'static str;
+    ///
+    /// Borrowed from the value rather than `&'static str`, because an instance
+    /// of a class defined in Python has to name that class and the name belongs
+    /// to the class object.
+    fn type_name(&self) -> &str;
 
     /// What `repr` prints.
     ///

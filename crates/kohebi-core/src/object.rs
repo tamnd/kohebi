@@ -143,8 +143,12 @@ impl Object {
     }
 
     /// What `type(x).__name__` says, which is what every error message needs.
+    ///
+    /// Borrowed rather than `&'static str`, because a class defined in Python
+    /// names itself and that name is owned by the class object. Everything
+    /// built in still hands back a literal.
     #[must_use]
-    pub fn type_name(&self) -> &'static str {
+    pub fn type_name(&self) -> &str {
         match self {
             Object::None => "NoneType",
             Object::NotImplemented => "NotImplementedType",
@@ -650,7 +654,7 @@ mod tests {
     #[test]
     fn a_dict_and_a_set_are_not_hashable() {
         for value in [Object::dict(Dict::new()), Object::set(Set::new())] {
-            let name = value.type_name();
+            let name = value.type_name().to_owned();
             let refused = Key::new(value).expect_err("expected this to be refused");
             assert_eq!(refused.message(), format!("unhashable type: '{name}'"));
         }
@@ -714,7 +718,7 @@ mod tests {
     struct Thing(&'static str);
 
     impl crate::native::Native for Thing {
-        fn type_name(&self) -> &'static str {
+        fn type_name(&self) -> &str {
             "thing"
         }
 

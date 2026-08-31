@@ -15,16 +15,22 @@
 //!
 //! Assignment, arithmetic, comparison, the boolean operators, `if`, `while` and
 //! `for`, subscripting and slicing, tuple, list, set and dict displays,
-//! unpacking, and calls: to the builtins there are, which are `print`, `len`,
-//! `iter`, `next` and `range`, and to functions the program defined with `def`
-//! or `lambda`. What it does not run yet is anything needing attributes or
-//! `raise`, and each of those raises a `NotImplementedError` naming itself
-//! rather than doing something almost right.
+//! unpacking, `try` and `raise`, `assert`, classes, and calls: to the builtins
+//! there are, which are `print`, `len`, `iter`, `next` and `range`, to functions
+//! the program defined with `def` or `lambda`, and to classes it defined with
+//! `class`.
+//!
+//! Attributes work on a class and on an instance of one, and nowhere else. Every
+//! builtin type is still without them, because none of them has a type object to
+//! hang one on, so `''.upper()` raises a `NotImplementedError` naming attribute
+//! access rather than doing something almost right. Generators, `with`, `match`
+//! and imports are the same: named, not guessed at.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-interp/0.0.0")]
 
 pub mod builtin;
 pub mod cell;
+pub mod class;
 pub mod function;
 pub mod iterate;
 pub mod ready;
@@ -32,6 +38,7 @@ pub mod vm;
 
 pub use builtin::{Args, Builtin, Flavour};
 pub use cell::Cell;
+pub use class::{Class, Instance, Method};
 pub use function::Function;
 pub use iterate::{Iter, Range};
 pub use ready::Ready;

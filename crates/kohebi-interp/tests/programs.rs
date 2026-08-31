@@ -2420,3 +2420,195 @@ fn an_assertion_that_fails_in_a_handler_prints_under_what_it_was_handling() {
          AssertionError: no good"
     );
 }
+
+#[test]
+fn a_class_binds_its_body_as_attributes() {
+    assert_eq!(
+        out("class C:\n    x = 1\n    y = x + 1\nprint(C.x, C.y, C.__name__)\n"),
+        "1 2 C\n"
+    );
+    // Set and deleted after the fact, because a class namespace stays open.
+    assert_eq!(
+        raises("class C:\n    pass\nC.x = 3\nprint(C.x)\ndel C.x\nC.x\n"),
+        "AttributeError: type object 'C' has no attribute 'x'"
+    );
+}
+
+#[test]
+fn calling_a_class_makes_an_instance_and_runs_its_init() {
+    assert_eq!(
+        out("class P:\n\
+             \x20   def __init__(self, x):\n\
+             \x20       self.x = x\n\
+             \x20   def twice(self):\n\
+             \x20       return self.x * 2\n\
+             print(P(4).twice())\n"),
+        "8\n"
+    );
+    // The instance is what comes back, whatever `__init__` returned.
+    assert_eq!(
+        out("class P:\n\
+             \x20   def __init__(self):\n\
+             \x20       self.tag = 'p'\n\
+             \x20       return None\n\
+             print(P().tag)\n"),
+        "p\n"
+    );
+}
+
+#[test]
+fn a_class_with_no_init_takes_no_arguments() {
+    assert_eq!(
+        raises("class D:\n    pass\nD(1)\n"),
+        "TypeError: D() takes no arguments"
+    );
+    assert_eq!(
+        raises("class D:\n    pass\nD(x=1)\n"),
+        "TypeError: D() takes no arguments"
+    );
+}
+
+#[test]
+fn a_method_is_called_with_the_receiver_in_front_of_the_arguments() {
+    // Which is why the count in the complaint is one more than the call wrote,
+    // and why the name in it is qualified.
+    assert_eq!(
+        raises("class C:\n    def f(self):\n        pass\nC().f(1)\n"),
+        "TypeError: C.f() takes 1 positional argument but 2 were given"
+    );
+    // Reached through the class rather than through an instance, nothing binds
+    // it, so the same function is one argument short.
+    assert_eq!(
+        raises("class C:\n    def f(self):\n        pass\nC.f()\n"),
+        "TypeError: C.f() missing 1 required positional argument: 'self'"
+    );
+}
+
+#[test]
+fn an_attribute_is_the_instance_first_and_the_class_second() {
+    assert_eq!(
+        out("class C:\n\
+             \x20   tag = 'class'\n\
+             c = C()\n\
+             print(c.tag)\n\
+             c.tag = 'own'\n\
+             print(c.tag, C.tag)\n\
+             del c.tag\n\
+             print(c.tag)\n"),
+        "class\nown class\nclass\n"
+    );
+}
+
+#[test]
+fn a_base_supplies_what_the_class_does_not() {
+    assert_eq!(
+        out("class A:\n\
+             \x20   def greet(self):\n\
+             \x20       return 'a'\n\
+             \x20   def both(self):\n\
+             \x20       return self.greet() + '!'\n\
+             class B(A):\n\
+             \x20   def greet(self):\n\
+             \x20       return 'b'\n\
+             print(A().both(), B().both())\n"),
+        "a! b!\n"
+    );
+    // `self` is the instance rather than the class the method was found on,
+    // which is the whole of what overriding is.
+    assert_eq!(
+        out("class A:\n\
+             \x20   def __init__(self):\n\
+             \x20       self.tag = 'a'\n\
+             class B(A):\n\
+             \x20   pass\n\
+             print(B().tag)\n"),
+        "a\n"
+    );
+}
+
+#[test]
+fn a_missing_attribute_says_which_of_the_two_kinds_was_asked() {
+    assert_eq!(
+        raises("class D:\n    pass\nD().missing\n"),
+        "AttributeError: 'D' object has no attribute 'missing'"
+    );
+    assert_eq!(
+        raises("class D:\n    pass\nD.missing\n"),
+        "AttributeError: type object 'D' has no attribute 'missing'"
+    );
+    assert_eq!(
+        raises("class D:\n    pass\ndel D().missing\n"),
+        "AttributeError: 'D' object has no attribute 'missing'"
+    );
+    assert_eq!(
+        raises("class D:\n    pass\ndel D.missing\n"),
+        "AttributeError: type object 'D' has no attribute 'missing'"
+    );
+}
+
+#[test]
+fn a_class_body_reads_the_module_for_a_name_it_has_not_bound_yet() {
+    // Rather than being the `UnboundLocalError` the same read in a function
+    // would be, because the body's names are a namespace and a miss in one
+    // carries on outwards.
+    assert_eq!(
+        out("a = 'module'\nclass C:\n    print(a)\n    a = 'class'\n    print(a)\n"),
+        "module\nclass\n"
+    );
+    // A name the body never binds comes from the function around it, through
+    // the cell, which is `LOAD_CLASSDEREF` in CPython.
+    assert_eq!(
+        out("a = 'module'\n\
+             def f():\n\
+             \x20   a = 'enclosing'\n\
+             \x20   class C:\n\
+             \x20       k = a\n\
+             \x20   return C.k\n\
+             print(f())\n"),
+        "enclosing\n"
+    );
+    // A name it does bind is its own, so the enclosing one stops being
+    // reachable at all and the read that comes first finds the module's.
+    assert_eq!(
+        out("a = 'module'\n\
+             def f():\n\
+             \x20   a = 'enclosing'\n\
+             \x20   class C:\n\
+             \x20       k = a\n\
+             \x20       a = 'class'\n\
+             \x20   return C.k\n\
+             print(f())\n"),
+        "module\n"
+    );
+}
+
+#[test]
+fn a_class_body_is_not_an_enclosing_scope_for_its_methods() {
+    assert_eq!(
+        raises("class C:\n    x = 1\n    def get(self):\n        return x\nC().get()\n"),
+        "NameError: name 'x' is not defined"
+    );
+}
+
+#[test]
+fn a_class_body_that_raises_builds_no_class() {
+    assert_eq!(
+        raises("class C:\n    raise ValueError('in the body')\n"),
+        "ValueError: in the body"
+    );
+    assert_eq!(
+        raises("class C:\n    raise ValueError('nope')\n"),
+        "ValueError: nope"
+    );
+}
+
+#[test]
+fn a_base_that_is_not_a_class_is_refused() {
+    // CPython gets to this through the metaclass protocol and says something
+    // about `int` taking two arguments. There is no metaclass here, so this
+    // says what actually went wrong instead.
+    assert_eq!(
+        raises("class C(1):\n    pass\n"),
+        "TypeError: cannot create a class from 'int', which is not a class"
+    );
+}
