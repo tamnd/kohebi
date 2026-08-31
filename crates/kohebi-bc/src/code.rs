@@ -101,7 +101,11 @@ pub type Entry = (Option<Reg>, Reg);
 pub struct Module {
     /// Every name any body mentions: globals, attributes and keyword arguments
     /// alike. One table, because there is nothing to gain from three.
-    pub names: Vec<Box<str>>,
+    ///
+    /// Shared rather than owned so that the interpreter can lay the module's
+    /// globals out by index and keep that layout on the machine, where a
+    /// builtin can reach it, instead of on the stack of the call that opened it.
+    pub names: Rc<[Box<str>]>,
     /// Shared for the same reason a function's code is: something that wants to
     /// hold on to a body past the call that ran it should not have to copy it.
     pub body: Rc<Code>,

@@ -34,10 +34,16 @@
 //! namespace outlives it.
 //!
 //! The table belongs to the module rather than to a body, which is what lets
-//! the slots be opened once and handed down through every call inside it. A
-//! table per body would make the `total` a function reads and the `total` the
-//! module writes two unrelated indices, and the only way back from that is to
-//! hash a string on every global access.
+//! the slots be opened once for a whole run. A table per body would make the
+//! `total` a function reads and the `total` the module writes two unrelated
+//! indices, and the only way back from that is to hash a string on every global
+//! access.
+//!
+//! The slots sit on the machine rather than on the stack of the call that opened
+//! them, so that anything holding the machine can reach them. A builtin is
+//! handed the machine and nothing else, and a builtin that has to run Python
+//! code, which is most of the interesting ones, needs the globals that code
+//! reads.
 //!
 //! ## What is not implemented
 //!
@@ -106,6 +112,11 @@ const LIMIT: usize = 1000;
 /// One running program.
 pub struct Vm {
     globals: Names,
+    /// The same namespace laid out by index, for as long as a module is running.
+    ///
+    /// Empty between runs, which is when `globals` is the one that holds
+    /// everything. See [`Globals`].
+    open: Globals,
     builtins: Names,
     /// The class a failed `assert` raises.
     ///
@@ -148,6 +159,7 @@ impl Vm {
             .collect();
         Vm {
             globals: Names::default(),
+            open: Globals::default(),
             assertion_error: builtins
                 .get("AssertionError")
                 .expect("every builtin exception class is in the table")
@@ -179,30 +191,25 @@ impl Vm {
         // Opened once for the whole run rather than once per body. Every
         // function in the module reads globals through these same slots, so a
         // call is a Rust call and not also a namespace rebuild.
-        let mut globals = Globals::open(&module.names, &mut self.globals);
+        self.open = Globals::open(&module.names, &mut self.globals);
         // The module body is a frame like any other and counts against the
         // limit like any other, which is why the deepest recursion that works
         // here is one shallower than the limit rather than exactly it.
         let ready = Ready::new(module);
         let outcome = self.enter().and_then(|()| {
             let mut frame = Frame::new(ready.code());
-            let outcome = self.execute(&ready, &mut globals, &mut frame);
+            let outcome = self.execute(&ready, &mut frame);
             self.depth -= 1;
             outcome
         });
         // Whatever the body bound goes back into the namespace even when it
         // raised, because a program that fails halfway has still run the half
         // before the failure and the next run has to see it.
-        globals.close(&mut self.globals);
+        std::mem::take(&mut self.open).close(&mut self.globals);
         outcome
     }
 
-    fn execute(
-        &mut self,
-        ready: &Ready,
-        globals: &mut Globals<'_>,
-        frame: &mut Frame<'_>,
-    ) -> Result<Object> {
+    fn execute(&mut self, ready: &Ready, frame: &mut Frame<'_>) -> Result<Object> {
         let code = ready.code();
         // What the handled stack owes whoever called this. A `finally` that
         // raised while it was interrupting another exception leaves its own
@@ -213,7 +220,7 @@ impl Vm {
 
         while let Some(&instr) = code.instrs.get(frame.pc) {
             frame.pc += 1;
-            match self.step(instr, ready, globals, frame) {
+            match self.step(instr, ready, frame) {
                 Ok(Flow::Next) => {}
                 Ok(Flow::Done(value)) => return Ok(value),
                 // The only place an exception is caught, which is what lets
@@ -283,13 +290,7 @@ impl Vm {
                   and the work in another, which is harder to read rather than \
                   easier and is not how any interpreter worth copying is written"
     )]
-    fn step(
-        &mut self,
-        instr: Instr,
-        ready: &Ready,
-        globals: &mut Globals<'_>,
-        frame: &mut Frame<'_>,
-    ) -> Result<Flow> {
+    fn step(&mut self, instr: Instr, ready: &Ready, frame: &mut Frame<'_>) -> Result<Flow> {
         let code = ready.code();
         match instr {
             Instr::Move { dst, src } => {
@@ -304,10 +305,10 @@ impl Vm {
             Instr::LoadGlobal { dst, name } => {
                 // A hit is an index. Only a miss pays for the name, and a
                 // miss at module scope is a builtin or a `NameError`.
-                let value = if let Some(value) = globals.get(name) {
+                let value = if let Some(value) = self.open.get(name) {
                     value.clone()
                 } else {
-                    let name = globals.name(name);
+                    let name = self.open.name(name);
                     let found = self.builtins.get(name);
                     found.ok_or_else(|| undefined(name))?.clone()
                 };
@@ -318,18 +319,18 @@ impl Vm {
             }
             Instr::StoreGlobal { name, src } => {
                 let value = frame.get(src)?.clone();
-                globals.set(name, value);
+                self.open.set(name, value);
             }
             Instr::DeleteGlobal { name } => {
                 // Builtins are not deleted by `del`, which is why this only
                 // looks at the globals: `del print` before anything has
                 // shadowed it is a `NameError`.
-                if globals.take(name).is_none() {
-                    return Err(undefined(globals.name(name)));
+                if self.open.take(name).is_none() {
+                    return Err(undefined(self.open.name(name)));
                 }
             }
             Instr::LoadName { dst, name } => {
-                let value = self.by_name(globals, frame, name)?;
+                let value = self.by_name(frame, name)?;
                 frame.set(dst, value);
             }
             Instr::LoadNameOrCell { dst, cell, name } => {
@@ -339,13 +340,13 @@ impl Vm {
                 let held = frame.get(cell)?.downcast::<Cell>().and_then(Cell::get);
                 let value = match held {
                     Some(value) => value,
-                    None => self.by_name(globals, frame, name)?,
+                    None => self.by_name(frame, name)?,
                 };
                 frame.set(dst, value);
             }
             Instr::StoreName { name, src } => {
                 let value = frame.get(src)?.clone();
-                let name = Box::from(globals.name(name));
+                let name = Box::from(self.open.name(name));
                 frame.namespace.insert(name, value);
             }
             Instr::DeleteName { name } => {
@@ -353,7 +354,7 @@ impl Vm {
                 // class body that never bound `x` is a `NameError` even where
                 // the module has one, because what it would be deleting is the
                 // module's and a class body does not reach that far to write.
-                let name = globals.name(name);
+                let name = self.open.name(name);
                 if frame.namespace.remove(name).is_none() {
                     return Err(undefined(name));
                 }
@@ -425,7 +426,7 @@ impl Vm {
                 args,
                 keywords,
             } => {
-                let value = self.call(code, frame, globals, callee, args, keywords)?;
+                let value = self.call(code, frame, callee, args, keywords)?;
                 frame.set(dst, value);
             }
             Instr::MakeFunction {
@@ -462,7 +463,7 @@ impl Vm {
                 bases,
                 captures,
             } => {
-                let value = self.build_class(ready, globals, frame, func, bases, captures)?;
+                let value = self.build_class(ready, frame, func, bases, captures)?;
                 frame.set(dst, value);
             }
             Instr::BuildTuple { dst, items } => {
@@ -499,14 +500,14 @@ impl Vm {
             Instr::Return { src } => return Ok(Flow::Done(frame.get(src)?.clone())),
 
             Instr::LoadAttr { dst, object, name } => {
-                let value = attribute(frame.get(object)?, globals.name(name))?;
+                let value = attribute(frame.get(object)?, self.open.name(name))?;
                 frame.set(dst, value);
             }
             Instr::StoreAttr { object, name, src } => {
                 // The value is read out before the object is, so that `a.b = a`
                 // is a write rather than an overlapping borrow.
                 let value = frame.get(src)?.clone();
-                let name = globals.name(name);
+                let name = self.open.name(name);
                 let object = frame.get(object)?;
                 if let Some(instance) = object.downcast::<Instance>() {
                     instance.set(Box::from(name), value);
@@ -517,7 +518,7 @@ impl Vm {
                 }
             }
             Instr::DeleteAttr { object, name } => {
-                let name = globals.name(name);
+                let name = self.open.name(name);
                 let object = frame.get(object)?;
                 // The two kinds word the failure differently, so each says its
                 // own rather than sharing one that would have to guess.
@@ -693,7 +694,6 @@ impl Vm {
         &mut self,
         code: &Code,
         frame: &Frame<'_>,
-        globals: &mut Globals<'_>,
         callee: Reg,
         args: Span,
         keywords: Span,
@@ -747,7 +747,7 @@ impl Vm {
             let value = frame.get(*reg)?;
             match name {
                 Some(name) => {
-                    let name = Box::from(globals.name(*name));
+                    let name = Box::from(self.open.name(*name));
                     push_keyword(&mut named, name, value, function)?;
                 }
                 None => spread(&mut named, value, function)?,
@@ -798,7 +798,7 @@ impl Vm {
         )?;
         self.enter()?;
         let mut inner = Frame::with(body.code(), registers);
-        let outcome = self.execute(&body, globals, &mut inner);
+        let outcome = self.execute(&body, &mut inner);
         self.depth -= 1;
         // What `__init__` returned is thrown away. CPython insists it be `None`
         // and there is no reason to be stricter here than the check that is
@@ -815,12 +815,12 @@ impl Vm {
     /// is what makes a read of a name the body has not bound yet find the
     /// module's rather than being the `UnboundLocalError` the same read in a
     /// function would be.
-    fn by_name(&self, globals: &Globals<'_>, frame: &Frame<'_>, name: NameId) -> Result<Object> {
-        let text = globals.name(name);
+    fn by_name(&self, frame: &Frame<'_>, name: NameId) -> Result<Object> {
+        let text = self.open.name(name);
         if let Some(value) = frame.namespace.get(text) {
             return Ok(value.clone());
         }
-        if let Some(value) = globals.get(name) {
+        if let Some(value) = self.open.get(name) {
             return Ok(value.clone());
         }
         self.builtins
@@ -833,7 +833,6 @@ impl Vm {
     fn build_class(
         &mut self,
         ready: &Ready,
-        globals: &mut Globals<'_>,
         frame: &Frame<'_>,
         func: FuncId,
         bases: Span,
@@ -868,7 +867,7 @@ impl Vm {
             inner.set(*reg, cell.clone());
         }
         self.enter()?;
-        let outcome = self.execute(&body, globals, &mut inner);
+        let outcome = self.execute(&body, &mut inner);
         self.depth -= 1;
         // Dropped rather than kept, because a class body has nothing to return
         // and the compiler ends it with a `ret None` only so that every body
@@ -900,25 +899,35 @@ impl Vm {
     }
 }
 
-/// The module namespace for as long as one body is running.
+/// The module namespace for as long as one module is running.
 ///
-/// One slot per name in that body's table, so reading or writing a global is an
-/// index rather than a hash, a probe and a `memcmp`. A body that never mentions
-/// a name has no slot for it, which is why the namespace it came from keeps
-/// whatever this body does not name.
-struct Globals<'a> {
-    names: &'a [Box<str>],
+/// One slot per name in the module's table, so reading or writing a global is an
+/// index rather than a hash, a probe and a `memcmp`. A name the module never
+/// mentions has no slot here, which is why the namespace it came from keeps
+/// whatever this module does not name.
+///
+/// Lives on the [`Vm`] rather than on the stack of the call that opened it. It
+/// used to be a local threaded through every function that could reach an
+/// instruction, which was tighter and was also a dead end: a builtin is handed
+/// the machine and nothing else, so it could not reach the globals, and a
+/// builtin that has to run Python code cannot work without them.
+#[derive(Default)]
+struct Globals {
+    names: Rc<[Box<str>]>,
     slots: Vec<Option<Object>>,
 }
 
-impl<'a> Globals<'a> {
-    /// Take the names this body uses out of a namespace and lay them out.
-    fn open(names: &'a [Box<str>], from: &mut Names) -> Self {
+impl Globals {
+    /// Take the names this module uses out of a namespace and lay them out.
+    fn open(names: &Rc<[Box<str>]>, from: &mut Names) -> Self {
         let slots = names.iter().map(|name| from.remove(&**name)).collect();
-        Globals { names, slots }
+        Globals {
+            names: Rc::clone(names),
+            slots,
+        }
     }
 
-    /// Put them back, so the next body sees what this one bound.
+    /// Put them back, so the next run sees what this one bound.
     ///
     /// A name the body deleted is left out rather than written back as an empty
     /// slot, which is what makes `del x` in one body a `NameError` in the next.
