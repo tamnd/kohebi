@@ -501,20 +501,30 @@ fn a_try_is_two_regions_with_the_clauses_in_between() {
     let listing =
         bc("try:\n    f()\nexcept ValueError:\n    g()\nelse:\n    h()\nfinally:\n    k()\n");
     let lines: Vec<&str> = listing.lines().collect();
-    assert!(lines[0].contains("try        19, r1"), "{listing}");
+    assert!(lines[0].contains("try        26, r1"), "{listing}");
     assert!(lines[1].contains("try        8, r0"), "{listing}");
     // The body, then the handlers stop guarding, then the `else`.
     assert!(lines[4].contains("endtry"), "{listing}");
     assert!(lines[5].contains("getglobal  r3, h"), "{listing}");
-    // The handlers, which test the class and re-raise what nothing matched.
-    assert!(lines[9].contains("matches    r2, r0, r3"), "{listing}");
-    assert!(lines[14].contains("raise      r0"), "{listing}");
+    // The handlers. The exception is being handled from before the first test
+    // rather than from inside the clause that matches, since a test that
+    // raises has raised while handling it, and it stops being handled in a
+    // region of its own so that a clause which leaves early still says so.
+    assert!(lines[8].contains("handling   r0"), "{listing}");
+    assert!(lines[11].contains("matches    r3, r0, r4"), "{listing}");
+    // What nothing matched carries on out, as the same exception rather than
+    // as a fresh raise of it.
+    assert!(lines[16].contains("reraise    r0"), "{listing}");
+    assert!(lines[18].contains("handled"), "{listing}");
     // The `finally`, once on the way out that worked and once on the one that
-    // did not, which is where the second copy raises what it was carrying.
-    assert!(lines[15].contains("endtry"), "{listing}");
-    assert!(lines[17].contains("call       r2, r3()"), "{listing}");
-    assert!(lines[19].contains("getglobal  r3, k"), "{listing}");
-    assert!(lines[21].contains("raise      r1"), "{listing}");
+    // did not. The second copy is interrupting an exception, so that exception
+    // is the one being handled for as long as the clause runs.
+    assert!(lines[22].contains("endtry"), "{listing}");
+    assert!(lines[24].contains("call       r2, r3()"), "{listing}");
+    assert!(lines[26].contains("handling   r1"), "{listing}");
+    assert!(lines[27].contains("getglobal  r3, k"), "{listing}");
+    assert!(lines[29].contains("handled"), "{listing}");
+    assert!(lines[30].contains("reraise    r1"), "{listing}");
 }
 
 /// A `try` with no `except` pushes one region rather than two, since there is
@@ -553,10 +563,57 @@ fn a_break_leaves_the_regions_it_is_inside() {
     assert!(lines[6].contains("try  "), "{listing}");
     assert!(lines[7].contains("endtry"), "{listing}");
     assert!(lines[9].contains("call       r3, r4()"), "{listing}");
-    assert_eq!(target(lines[10]), 19, "{listing}");
+    assert_eq!(target(lines[10]), 21, "{listing}");
     // And a `break` in a loop that is not inside the `try` leaves nothing,
     // because it is not leaving anything.
     let listing = bc("try:\n    for i in xs:\n        break\nfinally:\n    g()\n");
     let lines: Vec<&str> = listing.lines().collect();
     assert!(!lines[6].contains("endtry"), "{listing}");
+}
+
+/// The `finally` a clause was compiled into for the exception path is the one
+/// that says the exception is being handled, and the copy on the ordinary path
+/// is not, because on that path there is no exception to handle.
+#[test]
+fn only_the_finally_an_exception_reached_is_handling_one() {
+    let listing = bc("try:\n    f()\nfinally:\n    g()\n");
+    assert_eq!(listing.matches("handling").count(), 1, "{listing}");
+    assert_eq!(listing.matches("handled").count(), 1, "{listing}");
+    let lines: Vec<&str> = listing.lines().collect();
+    // The way out that worked, then the way out that did not.
+    assert!(lines[3].contains("endtry"), "{listing}");
+    assert!(!lines[4].contains("handling"), "{listing}");
+    assert!(lines[7].contains("handling   r0"), "{listing}");
+    assert!(lines[10].contains("handled"), "{listing}");
+    assert!(lines[11].contains("reraise    r0"), "{listing}");
+}
+
+/// The `finally` lowering wraps an `except` clause in to take the `as` name
+/// away again is not a clause anybody wrote, so neither copy of it says the
+/// exception is being handled: the chain around it already said so.
+#[test]
+fn the_cleanup_a_clause_needs_does_not_say_it_is_handling_anything() {
+    let listing = bc("try:\n    f()\nexcept ValueError as e:\n    g()\n");
+    assert_eq!(listing.matches("handling").count(), 1, "{listing}");
+    assert_eq!(listing.matches("handled").count(), 2, "{listing}");
+    // The one `handling` is in front of the tests rather than inside the clause
+    // that matched, since a test that raises has raised while handling it.
+    let lines: Vec<&str> = listing.lines().collect();
+    assert!(lines[5].contains("handling   r0"), "{listing}");
+    assert!(lines[8].contains("matches"), "{listing}");
+}
+
+/// A `return` written inside a `finally` an exception reached leaves without
+/// running the rest of the clause, so the pop it is walking past is emitted
+/// again in front of it.
+#[test]
+fn a_return_from_a_finally_that_is_handling_one_says_it_is_not_any_more() {
+    let listing = bc("def f():\n    try:\n        g()\n    finally:\n        return 1\n");
+    let body: Vec<&str> = listing
+        .lines()
+        .skip_while(|line| !line.starts_with("code f"))
+        .collect();
+    assert!(body[8].contains("handling   r0"), "{listing}");
+    assert!(body[11].contains("handled"), "{listing}");
+    assert!(body[12].contains("ret        r2"), "{listing}");
 }

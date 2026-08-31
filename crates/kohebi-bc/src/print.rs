@@ -287,6 +287,9 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
             "matches",
             format!("{}, {}, {}", reg(*dst), reg(*exc), reg(*test)),
         ),
+        Instr::Reraise { exc } => ("reraise", reg(*exc)),
+        Instr::PushHandled { exc } => ("handling", reg(*exc)),
+        Instr::PopHandled => ("handled", String::new()),
     }
 }
 

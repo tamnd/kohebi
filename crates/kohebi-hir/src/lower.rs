@@ -615,14 +615,6 @@ struct Scope {
     declared: HashSet<Name>,
     /// The functions defined directly in this frame.
     functions: Vec<Body>,
-    /// The slots holding what the `except` clauses being lowered right now
-    /// caught, innermost last.
-    ///
-    /// This is what a bare `raise` re-raises. It is per frame rather than per
-    /// module because a `def` inside an `except` clause is a different frame,
-    /// and a bare `raise` in it re-raises whatever is being handled when it is
-    /// called rather than what was being handled where it was written.
-    handling: Vec<Local>,
     /// The names this frame took from an enclosing one, and their slots here.
     free: HashMap<Name, Local>,
     /// Those slots in the order they were taken, which is the order a call
@@ -641,7 +633,6 @@ impl Scope {
             locals: HashMap::new(),
             declared: HashSet::new(),
             functions: Vec::new(),
-            handling: Vec::new(),
             free: HashMap::new(),
             order: Vec::new(),
             from: Vec::new(),
@@ -956,11 +947,10 @@ impl Lower {
                     .as_ref()
                     .map(|e| self.lower_expr(e, out))
                     .transpose()?;
-                // A bare `raise` written inside an `except` re-raises what that
-                // clause caught, and the slot holding it is right here, so it
-                // is named rather than looked for at run time. See
-                // [`Scope::handling`].
-                let exc = exc.or_else(|| self.handling().map(Expr::Local));
+                // A bare `raise` stays bare. What it re-raises is whatever
+                // is being handled when it runs, which is not something
+                // lowering can know: a bare `raise` in a function called from
+                // a handler re-raises what that handler caught.
                 out.push(Stmt::Raise { exc, cause });
             }
             StmtKind::Try {
@@ -1410,12 +1400,6 @@ impl Lower {
         Ok(())
     }
 
-    /// What the innermost `except` clause being lowered caught, if there is
-    /// one in this frame.
-    fn handling(&self) -> Option<Local> {
-        self.scope().handling.last().copied()
-    }
-
     /// `try: body except ...: ... else: orelse finally: finalbody`.
     ///
     /// The `except` clauses become a chain of ifs over one slot, so that the
@@ -1441,6 +1425,7 @@ impl Lower {
             catch,
             orelse: self.lower_block(orelse)?,
             finally: self.lower_block(finalbody)?,
+            handles: true,
         });
         Ok(())
     }
@@ -1452,10 +1437,7 @@ impl Lower {
     /// lets an exception nothing matched keep going.
     fn lower_handlers(&mut self, handlers: &[ExceptHandler]) -> Result<Catch> {
         let caught = self.temp();
-        let mut chain = Block::from([Stmt::Raise {
-            exc: Some(Expr::Local(caught)),
-            cause: None,
-        }]);
+        let mut chain = Block::from([Stmt::Reraise(caught)]);
         for handler in handlers.iter().rev() {
             let body = self.lower_handler(caught, handler)?;
             let Some(test) = &handler.type_ else {
@@ -1481,28 +1463,37 @@ impl Lower {
             });
             chain = clause;
         }
-        Ok(Catch {
-            caught,
-            block: chain,
-        })
+        // The exception is the one being handled for the whole of the chain
+        // rather than only inside the clause that matches, because trying the
+        // clauses is part of handling it: `except 5` raises a `TypeError`, and
+        // the exception it was trying to catch prints above that one. It stops
+        // being handled in a `finally`, so a clause that raises or returns
+        // leaves that behind it just the same.
+        let block = Block::from([
+            Stmt::Handling(caught),
+            Stmt::Try {
+                body: chain,
+                catch: None,
+                orelse: Block::new(),
+                finally: Block::from([Stmt::Handled]),
+                handles: false,
+            },
+        ]);
+        Ok(Catch { caught, block })
     }
 
-    /// One `except` clause's body, with whatever its `as` clause asks for
-    /// around it.
+    /// One `except` clause's body, with the name an `as` bound taken away again
+    /// on the way out.
     ///
-    /// `except E as e` binds the exception on the way in and takes the name
-    /// away again on the way out, which is why an `e` left over from a handler
-    /// is a `NameError` and not the exception. The taking away is a `finally`
-    /// so that it happens even when the handler raises, and it assigns `None`
-    /// before the `del` so that a handler which deleted the name itself does
-    /// not turn the cleanup into a second exception. That is the shape CPython
-    /// compiles it into, for the same reasons.
+    /// An `e` left over from a handler is a `NameError` and not the exception,
+    /// which is the whole reason the taking away happens, and it is in a
+    /// `finally` so that a clause which raises or returns does it anyway. The
+    /// assignment of `None` in front of the `del` is there so that a handler
+    /// which deleted the name itself does not turn the cleanup into a second
+    /// exception. That is the shape CPython compiles it into, for the same
+    /// reasons.
     fn lower_handler(&mut self, caught: Local, handler: &ExceptHandler) -> Result<Block> {
-        self.scope_mut().handling.push(caught);
-        let body = self.lower_block(&handler.body);
-        self.scope_mut().handling.pop();
-        let body = body?;
-
+        let body = self.lower_block(&handler.body)?;
         let Some(name) = &handler.name else {
             return Ok(body);
         };
@@ -1523,6 +1514,7 @@ impl Lower {
                     },
                     Stmt::Delete(place),
                 ]),
+                handles: false,
             },
         ]))
     }

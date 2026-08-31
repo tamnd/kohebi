@@ -85,6 +85,25 @@ fn a_raise_that_nothing_catches_prints_the_chain_it_came_from() {
     );
 }
 
+/// A mistake inside a handler prints under the exception the handler was
+/// written for, which is most of what makes one readable.
+#[test]
+fn a_mistake_in_a_handler_prints_under_what_it_was_handling() {
+    let file = source(
+        "handling",
+        "try:\n    1 / 0\nexcept ZeroDivisionError:\n    print('trying to recover')\n\
+         \x20   {}['k']\n",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(!ok);
+    assert_eq!(out, "trying to recover\n");
+    assert_eq!(
+        err,
+        "ZeroDivisionError: division by zero\n\nDuring handling of the above \
+         exception, another exception occurred:\n\nKeyError: 'k'\n"
+    );
+}
+
 /// A caught exception is not a failure, which is the whole point of catching
 /// it, so the program prints what it meant to print and leaves with a zero.
 #[test]

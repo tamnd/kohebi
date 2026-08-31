@@ -45,11 +45,6 @@
 //! than being skipped or guessed at, so a program that needs one stops on it
 //! and says so.
 //!
-//! `__context__`, which is the exception a handler was already handling when it
-//! raised another one. CPython prints it above the new one under "During
-//! handling of the above exception, another exception occurred", and nothing
-//! here records it yet, so the second exception prints on its own.
-//!
 //! ## Exceptions
 //!
 //! A frame keeps a stack of the `try` regions it is inside. Every instruction
@@ -61,6 +56,12 @@
 //! twice, once for the way out that worked and once for the way out that did
 //! not, so the interpreter never has to remember what it was in the middle of
 //! doing when the clause interrupted it.
+//!
+//! What a handler is handling is a stack too, and that one belongs to the
+//! machine rather than to a frame, because a function called from an `except`
+//! clause is still inside that clause: a bare `raise` in it re-raises what the
+//! clause caught, and anything it raises records what the clause caught as its
+//! `__context__`.
 
 use std::cell::RefCell;
 use std::fmt;
@@ -100,6 +101,14 @@ pub struct Vm {
     output: Box<dyn Write>,
     /// How many calls are on the stack, against [`LIMIT`].
     depth: usize,
+    /// The exceptions being handled right now, innermost last.
+    ///
+    /// One stack for the whole machine rather than one per frame, because a
+    /// function called from an `except` clause is still inside that clause: a
+    /// bare `raise` in it re-raises what the clause caught, and anything it
+    /// raises records what the clause caught as its `__context__`. Almost every
+    /// program leaves this empty, so it is a vector that never allocates.
+    handled: Vec<Object>,
 }
 
 impl fmt::Debug for Vm {
@@ -124,6 +133,7 @@ impl Vm {
                 .collect(),
             output,
             depth: 0,
+            handled: Vec::new(),
         }
     }
 
@@ -172,6 +182,12 @@ impl Vm {
         mut frame: Frame<'_>,
     ) -> Result<Object> {
         let code = ready.code();
+        // What the handled stack owes whoever called this. A `finally` that
+        // raised while it was interrupting another exception leaves its own
+        // entry behind, and the call it happened in is over, so the entry goes
+        // with it rather than staying to be read as the context of whatever the
+        // caller raises next.
+        let outer = self.handled.len();
 
         while let Some(&instr) = code.instrs.get(frame.pc) {
             frame.pc += 1;
@@ -184,9 +200,12 @@ impl Vm {
                 // exception to whoever called it, and the same thing happens
                 // there.
                 Err(error) => {
+                    let error = self.in_context(error);
                     let Some(handler) = frame.handlers.pop() else {
+                        self.handled.truncate(outer);
                         return Err(error);
                     };
+                    self.handled.truncate(handler.handled);
                     frame.set(handler.exc, error.instance());
                     frame.pc = handler.to.0 as usize;
                 }
@@ -195,6 +214,38 @@ impl Vm {
         // A body the compiler ended without a `ret`, which a module body is
         // not, so this is only reachable from a hand-written `Code`.
         Ok(Object::None)
+    }
+
+    /// Record what was being handled when this exception was raised, for the
+    /// exceptions that were not raised by a `raise`.
+    ///
+    /// Most of them are not. A division by zero comes out of Rust and has no
+    /// object at all until something asks for one, so there is nowhere earlier
+    /// to write this. Here is the first moment every failure passes through,
+    /// whatever made it, and nothing has come off the handled stack yet when it
+    /// does.
+    ///
+    /// The first answer wins, which is what makes it safe to run on every
+    /// failure rather than only on the ones being raised. An exception passes
+    /// through here again at every frame it leaves and at the end of every
+    /// `finally` it was carried through, and by then the handled stack has
+    /// moved on, so a later look would replace a right answer with a wrong one.
+    ///
+    /// Nothing happens at all when no clause is being handled, which is almost
+    /// always, so an exception on its way out of a program that has no `try` in
+    /// it still never builds an object.
+    fn in_context(&self, error: Error) -> Error {
+        let Some(handled) = self.handled.last() else {
+            return error;
+        };
+        let raised = error.instance();
+        if raised
+            .exception()
+            .is_none_or(|raised| raised.context().is_none())
+        {
+            exception::raised_while_handling(&raised, handled);
+        }
+        error.with_value(raised)
     }
 
     /// One instruction.
@@ -466,10 +517,34 @@ impl Vm {
                     Some(reg) => Some(frame.get(reg)?.clone()),
                     None => None,
                 };
-                return Err(exception::raise(raised.as_ref(), from.as_ref()));
+                // A bare `raise` re-raises what is being handled, which is
+                // known here and nowhere earlier: one written in a function
+                // called from a handler re-raises what that handler caught.
+                let raised = raised.or_else(|| self.handled.last().cloned());
+                let error = exception::raise(raised.as_ref(), from.as_ref());
+                // A written `raise` decides afresh what it was raised while
+                // handling, replacing whatever the instance recorded the last
+                // time it was raised, which is what CPython does and is visible
+                // whenever a program keeps an exception and raises it twice.
+                // The reading in `in_context` cannot do this, since it also
+                // sees the exceptions that are only passing through and those
+                // must not overturn a decision already made.
+                if let (Some(value), Some(handled)) = (error.value(), self.handled.last()) {
+                    exception::raised_while_handling(value, handled);
+                }
+                return Err(error);
             }
 
-            Instr::PushHandler { to, exc } => frame.handlers.push(Handler { to, exc }),
+            Instr::Reraise { exc } => return Err(exception::reraise(frame.get(exc)?)),
+            Instr::PushHandled { exc } => self.handled.push(frame.get(exc)?.clone()),
+            Instr::PopHandled => {
+                self.handled.pop();
+            }
+            Instr::PushHandler { to, exc } => frame.handlers.push(Handler {
+                to,
+                exc,
+                handled: self.handled.len(),
+            }),
             Instr::PopHandler => {
                 frame.handlers.pop();
             }
@@ -674,6 +749,14 @@ struct Handler {
     to: Offset,
     /// Where to put the exception on the way there.
     exc: Reg,
+    /// How deep the handled stack was when the region opened.
+    ///
+    /// An exception leaving this region takes with it whatever the region put
+    /// on that stack and did not take off, which is what a `finally` inside it
+    /// that raised on its way through leaves behind. Recorded per region rather
+    /// than per frame because a region can open inside an `except` clause,
+    /// where the stack is already one deep and has to stay that way.
+    handled: usize,
 }
 
 /// One call's frame.

@@ -31,7 +31,7 @@
 //! fixing before the attributes those arguments would be stored in exist.
 
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use crate::error::{Error, Kind, Result};
 use crate::native::Native;
@@ -94,10 +94,20 @@ pub struct Exception {
     ///
     /// A cell because `raise x from y` sets it on an instance that already
     /// exists and may already be bound to a name, which is what CPython does
-    /// too. `__suppress_context__` is not here, because context is set by an
-    /// `except` and there is no `except` yet, so there is nothing for a
-    /// suppressed one to hide.
+    /// too.
     cause: RefCell<Option<Object>>,
+    /// What was being handled when this was raised, which is `__context__`.
+    ///
+    /// Nobody writes this. The runtime sets it whenever an exception is raised
+    /// inside an `except` clause, which is how a mistake in a handler prints
+    /// with the exception it was handling above it rather than on its own.
+    context: RefCell<Option<Object>>,
+    /// Whether to print the context, which is `__suppress_context__`.
+    ///
+    /// A written `from` sets this, including `raise x from None`. That is the
+    /// whole of what `from None` means: the context is still recorded and is
+    /// still readable, and the traceback stops printing it.
+    suppress: Cell<bool>,
 }
 
 impl Exception {
@@ -108,6 +118,8 @@ impl Exception {
             kind,
             args: args.into_boxed_slice(),
             cause: RefCell::new(None),
+            context: RefCell::new(None),
+            suppress: Cell::new(false),
         }
     }
 
@@ -134,8 +146,28 @@ impl Exception {
     }
 
     /// Record what this was raised from, which is the `from` in a `raise`.
+    ///
+    /// Writing a `from` at all is what suppresses the context, so `raise x from
+    /// None` says "this one, and do not print whatever I happened to be
+    /// handling", which is the only way to write that sentence.
     pub fn raised_from(&self, cause: Option<Object>) {
         *self.cause.borrow_mut() = cause;
+        self.suppress.set(true);
+    }
+
+    /// What was being handled when this was raised, if anything was.
+    ///
+    /// Cloned out for the same reason [`Exception::cause`] is: the cell cannot
+    /// stay borrowed across the walk up a chain of them.
+    #[must_use]
+    pub fn context(&self) -> Option<Object> {
+        self.context.borrow().clone()
+    }
+
+    /// Whether a traceback should stop before printing the context.
+    #[must_use]
+    pub fn suppresses_context(&self) -> bool {
+        self.suppress.get()
     }
 
     /// What `str(e)` says, which is the half of a traceback's last line after
@@ -300,6 +332,71 @@ pub fn uncaught(error: &Error) -> Exit {
 /// operating system wraps it: `-1` is the 255 that `echo $?` prints.
 fn status(code: i64) -> u8 {
     u8::try_from(code.rem_euclid(256)).unwrap_or(255)
+}
+
+/// Record that `raised` happened while `handled` was being handled.
+///
+/// This is what puts the exception a handler was working on above the one the
+/// handler went on to raise. Nothing a program writes reaches it: `__context__`
+/// is set by the runtime at the moment of the raise, and `raise x from y` only
+/// decides whether it is printed.
+///
+/// Two things it will not do, both of which are CPython's rules and both of
+/// which exist to keep the chain a chain. A bare `raise` inside a handler
+/// re-raises the exception being handled, and an exception is not raised while
+/// handling itself, so that one is left alone. And an exception that is already
+/// somewhere above `raised` in the chain has its link cut before the new one is
+/// made, because a ring here is a traceback that never finishes printing.
+pub fn raised_while_handling(raised: &Object, handled: &Object) {
+    let (Some(new), Some(old)) = (raised.exception(), handled.exception()) else {
+        return;
+    };
+    if std::ptr::eq(new, old) {
+        return;
+    }
+    // Terminates because this is the only thing that ever writes a context and
+    // it refuses to close a ring, so what it is walking is a chain.
+    let mut at = handled.clone();
+    loop {
+        let next = {
+            let Some(exception) = at.exception() else {
+                break;
+            };
+            let Some(context) = exception.context() else {
+                break;
+            };
+            if context
+                .exception()
+                .is_some_and(|link| std::ptr::eq(link, new))
+            {
+                *exception.context.borrow_mut() = None;
+                break;
+            }
+            context
+        };
+        at = next;
+    }
+    *new.context.borrow_mut() = Some(handled.clone());
+}
+
+/// The same exception, put back on its way out.
+///
+/// Not [`raise`], although it fails the same way. What is put back was raised
+/// once already and settled then what it was raised while handling, so none of
+/// that is settled again: an `except` chain that matched nothing and the end of
+/// a `finally` an exception reached are both the middle of one exception
+/// leaving rather than the start of another.
+///
+/// The register this reads is one the interpreter filled at a handler, so what
+/// is in it is always an exception. The other answer is there because
+/// hand-written bytecode could put anything anywhere, and a `TypeError` is a
+/// better thing to say about that than a panic.
+#[must_use]
+pub fn reraise(exc: &Object) -> Error {
+    let Some(exception) = exc.exception() else {
+        return Error::type_error("exceptions must derive from BaseException");
+    };
+    Error::new(exception.kind(), exception.message()).with_value(exc.clone())
 }
 
 /// What a `raise` statement raises.
@@ -595,6 +692,89 @@ mod tests {
         assert_eq!(
             uncaught(&raise(Some(&pair), None)),
             Exit::Report("('a', 'b')".to_owned())
+        );
+    }
+
+    /// The context is the exception the handler was already working on, and it
+    /// prints above the new one under its own sentence rather than a cause's.
+    #[test]
+    fn what_was_being_handled_prints_above_what_was_raised_while_handling_it() {
+        let handled = Object::native(exception(Kind::ValueError, vec![Object::str("a")]));
+        let raised = Object::native(exception(Kind::KeyError, vec![Object::str("b")]));
+        raised_while_handling(&raised, &handled);
+        assert_eq!(
+            raise(Some(&raised), None).to_string(),
+            "ValueError: a\n\nDuring handling of the above exception, another \
+             exception occurred:\n\nKeyError: 'b'"
+        );
+    }
+
+    /// A `from` clause wins over a context, and writing one at all is what
+    /// stops the context being printed, which is the whole of what `from None`
+    /// means.
+    #[test]
+    fn a_cause_is_printed_instead_of_a_context_and_from_none_prints_neither() {
+        let handled = Object::native(exception(Kind::ValueError, vec![Object::str("a")]));
+        let cause = Object::native(exception(Kind::IndexError, vec![Object::str("i")]));
+        let raised = Object::native(exception(Kind::KeyError, vec![Object::str("b")]));
+        raised_while_handling(&raised, &handled);
+        assert_eq!(
+            raise(Some(&raised), Some(&cause)).to_string(),
+            "IndexError: i\n\nThe above exception was the direct cause of the \
+             following exception:\n\nKeyError: 'b'"
+        );
+        // The context is still there and still readable. What `from None` takes
+        // away is the printing of it.
+        assert_eq!(
+            raise(Some(&raised), Some(&Object::None)).to_string(),
+            "KeyError: 'b'"
+        );
+    }
+
+    /// Nothing is raised while handling itself, which is what a bare `raise`
+    /// and a `raise` of what a clause just caught both are.
+    #[test]
+    fn an_exception_is_not_the_context_of_itself() {
+        let raised = Object::native(exception(Kind::ValueError, vec![Object::str("a")]));
+        raised_while_handling(&raised, &raised);
+        assert_eq!(raise(Some(&raised), None).to_string(), "ValueError: a");
+    }
+
+    /// An exception put back over the top of something that already records it
+    /// would close a ring, so the older link is cut on the way past, however
+    /// far up it is.
+    #[test]
+    fn making_a_context_cuts_whatever_link_would_close_a_ring() {
+        let a = Object::native(exception(Kind::ValueError, vec![Object::str("a")]));
+        let b = Object::native(exception(Kind::KeyError, vec![Object::str("b")]));
+        let c = Object::native(exception(Kind::IndexError, vec![Object::str("c")]));
+        raised_while_handling(&b, &a);
+        raised_while_handling(&c, &b);
+        // `c` has `b` which has `a`, and now `a` is raised while `c` is being
+        // handled, so `b` loses its `a` and the chain is `b`, `c`, `a`.
+        raised_while_handling(&a, &c);
+        assert_eq!(
+            raise(Some(&a), None).to_string(),
+            "KeyError: 'b'\n\nDuring handling of the above exception, another \
+             exception occurred:\n\nIndexError: c\n\nDuring handling of the \
+             above exception, another exception occurred:\n\nValueError: a"
+        );
+    }
+
+    /// Putting an exception back says the same thing raising it does, and
+    /// leaves what it was raised while handling alone rather than settling it
+    /// again.
+    #[test]
+    fn a_reraise_says_the_same_thing_and_settles_nothing_again() {
+        let handled = Object::native(exception(Kind::ValueError, vec![Object::str("a")]));
+        let raised = Object::native(exception(Kind::KeyError, vec![Object::str("b")]));
+        raised_while_handling(&raised, &handled);
+        let put_back = reraise(&raised);
+        assert!(put_back.instance().is(&raised));
+        assert_eq!(
+            put_back.to_string(),
+            "ValueError: a\n\nDuring handling of the above exception, another \
+             exception occurred:\n\nKeyError: 'b'"
         );
     }
 

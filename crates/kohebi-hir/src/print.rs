@@ -133,9 +133,22 @@ fn block(out: &mut String, body: &Body, block: &Block, depth: usize) {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per statement, which is what a printer is. Splitting it \
+              by some category would put half the shapes somewhere else and \
+              leave a reader looking for the other half"
+)]
 fn statement(out: &mut String, body: &Body, stmt: &Stmt, depth: usize) {
     indent(out, depth);
     match stmt {
+        Stmt::Reraise(caught) => {
+            let _ = writeln!(out, "reraise {}", slot(body, *caught));
+        }
+        Stmt::Handling(caught) => {
+            let _ = writeln!(out, "handling {}", slot(body, *caught));
+        }
+        Stmt::Handled => out.push_str("handled\n"),
         Stmt::Nop => out.push_str("nop\n"),
         Stmt::Break => out.push_str("break\n"),
         Stmt::Continue => out.push_str("continue\n"),
@@ -179,6 +192,8 @@ fn statement(out: &mut String, body: &Body, stmt: &Stmt, depth: usize) {
             catch,
             orelse,
             finally,
+            // Not printed. It follows from which shape this is.
+            handles: _,
         } => {
             out.push_str("try:\n");
             block(out, body, guarded, depth + 1);
