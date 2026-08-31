@@ -16,6 +16,12 @@
 //! hanging off it by the same index the code uses. A `def` picks its child out
 //! by that index and the function object carries it, so a call has nothing left
 //! to build.
+//!
+//! A body also carries which module it came from, as the name table its globals
+//! are numbered against and the namespace those names live in between runs. A
+//! function is defined in one module and can be called from another, and when
+//! that happens the two things it needs are exactly these, so they travel with
+//! the body rather than being looked up from wherever the call happened to be.
 
 use std::fmt;
 use std::rc::Rc;
@@ -25,6 +31,7 @@ use kohebi_parse::Value;
 
 use kohebi_core::{Object, Result};
 
+use crate::module::Namespace;
 use crate::vm::later;
 
 /// One body, ready to run.
@@ -34,21 +41,45 @@ pub struct Ready {
     /// One per entry of `code.functions`, in the same order, so a [`FuncId`]
     /// indexes both.
     functions: Vec<Rc<Ready>>,
+    /// Every global name the module this body came from mentions, which is what
+    /// the [`NameId`](kohebi_bc::code::NameId)s in its instructions index.
+    names: Rc<[Box<str>]>,
+    /// Where those names live while that module is not the one running.
+    home: Namespace,
 }
 
 impl Ready {
-    /// Prepare a module and every body in it.
+    /// Prepare a module and every body in it, against the namespace its globals
+    /// belong to.
     #[must_use]
-    pub fn new(module: &Module) -> Rc<Self> {
-        Ready::body(&module.body)
+    pub fn new(module: &Module, home: &Namespace) -> Rc<Self> {
+        Ready::body(&module.body, &module.names, home)
     }
 
-    fn body(code: &Rc<Code>) -> Rc<Self> {
+    fn body(code: &Rc<Code>, names: &Rc<[Box<str>]>, home: &Namespace) -> Rc<Self> {
         Rc::new(Ready {
             code: Rc::clone(code),
             consts: code.consts.iter().map(convert).collect(),
-            functions: code.functions.iter().map(Ready::body).collect(),
+            functions: code
+                .functions
+                .iter()
+                .map(|inner| Ready::body(inner, names, home))
+                .collect(),
+            names: Rc::clone(names),
+            home: Rc::clone(home),
         })
+    }
+
+    /// The name table this body's globals are numbered against.
+    #[must_use]
+    pub fn names(&self) -> &Rc<[Box<str>]> {
+        &self.names
+    }
+
+    /// The namespace this body's globals belong to.
+    #[must_use]
+    pub fn home(&self) -> &Namespace {
+        &self.home
     }
 
     /// The instructions and everything the compiler wrote alongside them.

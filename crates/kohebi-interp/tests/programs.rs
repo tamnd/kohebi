@@ -399,7 +399,7 @@ fn a_module_body_answers_none() {
     let value = vm.run(&compile(&body)).expect("expected this not to raise");
     assert_eq!(value.repr(), "None");
     assert_eq!(
-        vm.global("x").map(kohebi_core::Object::repr),
+        vm.global("x").map(|value| value.repr()),
         Some("1".to_owned())
     );
 }
@@ -417,12 +417,12 @@ fn what_one_body_binds_the_next_one_sees() {
         vm.run(&compile(&body)).expect("expected this not to raise");
     }
     assert_eq!(
-        vm.global("x").map(kohebi_core::Object::repr).as_deref(),
+        vm.global("x").map(|value| value.repr()).as_deref(),
         Some("42")
     );
     // A name the second body never mentions is still there afterwards.
     assert_eq!(
-        vm.global("y").map(kohebi_core::Object::repr).as_deref(),
+        vm.global("y").map(|value| value.repr()).as_deref(),
         Some("'kept'")
     );
 }
@@ -436,7 +436,7 @@ fn a_body_that_raises_keeps_what_it_bound_first() {
     let mut vm = Vm::new(Box::new(io::sink()));
     vm.run(&compile(&body)).expect_err("expected this to raise");
     assert_eq!(
-        vm.global("a").map(kohebi_core::Object::repr).as_deref(),
+        vm.global("a").map(|value| value.repr()).as_deref(),
         Some("1")
     );
     assert!(vm.global("b").is_none());

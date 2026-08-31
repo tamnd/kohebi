@@ -20,8 +20,6 @@ kohebi-core.workspace = true
 kohebi-bc.workspace = true
 kohebi-cir.workspace = true
 kohebi-parse.workspace = true
+kohebi-hir.workspace = true
 rustc-hash.workspace = true
 tracing.workspace = true
-
-[dev-dependencies]
-kohebi-hir.workspace = true

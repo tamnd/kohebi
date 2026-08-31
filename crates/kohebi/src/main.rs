@@ -12,7 +12,7 @@
 
 use std::fmt::Write as _;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{self, Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -259,16 +259,15 @@ fn run(args: &RunArgs) -> ExitCode {
         (args.gc_stress, "--gc-stress"),
         (args.deopt_stress, "--deopt-stress"),
         (args.deopt_stats, "--deopt-stats"),
-        (!args.argv.is_empty(), "arguments for the program"),
     ]
     .into_iter()
     .filter_map(|(given, name)| given.then_some(name))
     .collect();
     if !refused.is_empty() {
         eprintln!(
-            "kohebi: {} needs machinery that is not built yet. Everything runs in \
-             tier zero today, and there is no `sys` module for a program to read \
-             its arguments out of.",
+            "kohebi: {} needs machinery that is not built yet. Everything runs \
+             in tier zero today, so there is no compiler to profile, no \
+             collector to stress and nothing to deoptimise.",
             refused.join(", ")
         );
         return ExitCode::FAILURE;
@@ -283,6 +282,12 @@ fn run(args: &RunArgs) -> ExitCode {
         }
     };
 
+    let script = args.script.clone();
+    // `sys.argv[0]` is the script as it was written on the command line, not as
+    // it was resolved, which is what a program printing its own usage wants.
+    let mut passed = vec![name.clone()];
+    passed.extend(args.argv.iter().cloned());
+
     // Everything from here down happens on a thread we asked for the stack of.
     // A Python call is a Rust call, so the recursion limit the interpreter
     // enforces is only worth anything if there is stack behind it, and the
@@ -292,7 +297,7 @@ fn run(args: &RunArgs) -> ExitCode {
     let started = std::thread::Builder::new()
         .name("kohebi".to_owned())
         .stack_size(STACK)
-        .spawn(move || interpret(&source, &name));
+        .spawn(move || interpret(&source, &name, &script, &passed));
     let handle = match started {
         Ok(handle) => handle,
         Err(error) => {
@@ -315,7 +320,25 @@ fn run(args: &RunArgs) -> ExitCode {
 const STACK: usize = 256 * 1024 * 1024;
 
 /// Parse, lower, compile and run one program, on the thread that has the stack.
-fn interpret(source: &str, name: &str) -> ExitCode {
+/// The directory `sys.path[0]` is, which is the one the script is in.
+///
+/// A module beside the script is found before one anywhere else, which is the
+/// order CPython searches in and programs rely on. Absolute, so that a program
+/// which changes directory can still import its own neighbours, and so that
+/// `sys.path[0]` reads as the answer to a question rather than as a dot. A
+/// script named with no directory at all is in the working directory, which is
+/// where CPython looks in that case too.
+fn beside(script: &Path) -> String {
+    let full = path::absolute(script);
+    let path = full.as_deref().unwrap_or(script);
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .display()
+        .to_string()
+}
+
+fn interpret(source: &str, name: &str, script: &Path, argv: &[String]) -> ExitCode {
     let tree = match kohebi_parse::parse_module(source) {
         Ok(tree) => tree,
         Err(error) => {
@@ -333,6 +356,9 @@ fn interpret(source: &str, name: &str) -> ExitCode {
 
     let module = kohebi_bc::compile(&body);
     let mut vm = kohebi_interp::Vm::stdout();
+    vm.set_file(script);
+    vm.add_path(&beside(script));
+    vm.set_argv(argv);
     let outcome = vm.run(&module);
     // Whatever the program printed goes out before whatever it raised, the same
     // way it would if the two shared a terminal.
