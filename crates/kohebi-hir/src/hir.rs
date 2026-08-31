@@ -256,7 +256,47 @@ pub enum Stmt {
         /// The `finally` clause, which runs on the way out however the way out
         /// was reached.
         finally: Block,
+        /// Whether an exception that reaches `finally` is being handled while
+        /// the clause runs.
+        ///
+        /// True for a `try` a program wrote. `finally` interrupts an exception
+        /// on its way out, and for as long as it does that exception is the one
+        /// being handled: a bare `raise` in the clause puts it back, and
+        /// anything else the clause raises records it as its `__context__`.
+        ///
+        /// False for the `try` lowering wraps an `except` clause in to take the
+        /// `as` name away again. That `finally` is not a clause anybody wrote,
+        /// and the exception passing through it is already being handled by the
+        /// clause around it, so saying so a second time would put the same
+        /// answer on the stack twice.
+        handles: bool,
     },
+    /// Put an exception back on its way out.
+    ///
+    /// Not a `raise`, although it fails the same way. A `raise` a program wrote
+    /// decides afresh what the exception was raised while handling; this one is
+    /// the same exception still leaving, so it keeps the `__context__` it
+    /// already has. Lowering emits it where an `except` chain matched nothing,
+    /// and the compiler emits it at the end of a `finally` that was reached by
+    /// an exception.
+    Reraise(Local),
+    /// This exception is the one being handled from here on.
+    ///
+    /// What it changes is `__context__`: anything raised while it is in force
+    /// records it, so a mistake inside a handler prints under the exception the
+    /// handler was written for. It is also what a bare `raise` re-raises.
+    ///
+    /// A statement rather than a fact about a block, because what it is in
+    /// force for is not a block. A function called from a handler is still
+    /// inside the handler as far as this is concerned, and so is the `except`
+    /// clause's own test: `except 5` raises a `TypeError` while the exception
+    /// it was trying to catch is what that `TypeError` happened during.
+    Handling(Local),
+    /// It is not any more.
+    ///
+    /// Always reached, because lowering puts it in a `finally`, so a handler
+    /// that raises or returns leaves this behind it just the same.
+    Handled,
     /// A statement with nothing in it, which a `pass` at the end of a block
     /// leaves behind and which lowering never has to special case.
     Nop,

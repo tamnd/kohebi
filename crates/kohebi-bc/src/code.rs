@@ -452,4 +452,26 @@ pub enum Instr {
         exc: Reg,
         test: Reg,
     },
+    /// Put an exception back on its way out, which is not the same as raising
+    /// it.
+    ///
+    /// An exception records what was being handled when it was raised, and it
+    /// was raised once. This is what the two places that resume one use: an
+    /// `except` chain that matched nothing, and the end of a `finally` an
+    /// exception reached.
+    Reraise {
+        exc: Reg,
+    },
+    /// The exception in this register is the one being handled from here on.
+    ///
+    /// The interpreter keeps a stack of these, and it is one stack for the
+    /// whole interpreter rather than one per frame, because a function called
+    /// from an `except` clause is still inside that clause: a bare `raise` in
+    /// it re-raises what the clause caught, and anything it raises records what
+    /// the clause caught as its `__context__`.
+    PushHandled {
+        exc: Reg,
+    },
+    /// It is not any more.
+    PopHandled,
 }

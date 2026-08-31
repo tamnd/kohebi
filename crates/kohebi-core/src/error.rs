@@ -281,9 +281,14 @@ impl Error {
         Object::native(Exception::new(self.kind, args))
     }
 
-    /// The `raise ... from ...` chain, oldest first, which is the order a
-    /// traceback prints it in.
-    fn causes(&self) -> Vec<String> {
+    /// Everything printed above this exception, oldest first, each with the
+    /// sentence that goes under it.
+    ///
+    /// Two chains rather than one, because Python has two relationships and
+    /// prints a different sentence for each. They interleave: an exception can
+    /// have a cause that has a context, so the walk asks the same question at
+    /// every step rather than following one kind of link the whole way.
+    fn chain(&self) -> Vec<(String, &'static str)> {
         let mut chain = Vec::new();
         // `raise e from e` is a ring, and printing one until the heap runs out
         // is worse than printing it once. The exception being printed counts as
@@ -294,8 +299,8 @@ impl Error {
         if let Some(head) = head {
             seen.push(head);
         }
-        let mut next = head.and_then(Exception::cause);
-        while let Some(value) = next {
+        let mut next = head.and_then(printed_above);
+        while let Some((value, sentence)) = next {
             let Some(exception) = value.exception() else {
                 break;
             };
@@ -304,12 +309,34 @@ impl Error {
                 break;
             }
             seen.push(address);
-            chain.push(last_line(exception.kind(), &exception.message()));
-            next = exception.cause();
+            chain.push((last_line(exception.kind(), &exception.message()), sentence));
+            next = printed_above(exception);
         }
         chain.reverse();
         chain
     }
+}
+
+/// What a traceback prints above an exception, and the sentence in between.
+///
+/// A cause wins over a context, because `raise x from y` is a sentence somebody
+/// wrote and a context is something that happened to be going on. Writing a
+/// `from` at all is also what sets `__suppress_context__`, so `raise x from
+/// None` is how a program says that what it was handling is nobody's business.
+fn printed_above(exception: &Exception) -> Option<(Object, &'static str)> {
+    if let Some(cause) = exception.cause() {
+        return Some((
+            cause,
+            "The above exception was the direct cause of the following exception:",
+        ));
+    }
+    if exception.suppresses_context() {
+        return None;
+    }
+    Some((
+        exception.context()?,
+        "During handling of the above exception, another exception occurred:",
+    ))
 }
 
 /// The last line of a traceback for one exception, which is the class name and
@@ -326,19 +353,15 @@ fn last_line(kind: Kind, message: &str) -> String {
 }
 
 impl fmt::Display for Error {
-    /// The tail of a traceback: every exception this one was raised from,
-    /// oldest first, and then this one.
+    /// The tail of a traceback: every exception that led to this one, oldest
+    /// first, and then this one.
     ///
     /// There are no `File "x", line n` lines in between because there is no
     /// line table yet, so what comes out is the part of a traceback that says
     /// what happened without the part that says where.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for cause in self.causes() {
-            writeln!(
-                f,
-                "{cause}\n\nThe above exception was the direct cause of the \
-                 following exception:\n"
-            )?;
+        for (line, sentence) in self.chain() {
+            writeln!(f, "{line}\n\n{sentence}\n")?;
         }
         f.write_str(&last_line(self.kind, &self.message))
     }

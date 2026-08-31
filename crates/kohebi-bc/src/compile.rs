@@ -127,6 +127,9 @@ struct Guard {
     /// compiled, which is two inside the body of a `try`/`except`/`finally`,
     /// one inside its clauses and none once it is over.
     live: u32,
+    /// How many exceptions this statement has put on the handled stack, which
+    /// is one inside a `finally` an exception reached and none anywhere else.
+    handled: u32,
     /// The `finally` clause, emitted again at every exit that leaves the
     /// statement. Shared rather than borrowed because the compiler is holding
     /// itself mutably while it writes another copy of it.
@@ -193,6 +196,9 @@ impl Compiler<'_> {
             for _ in 0..guard.live {
                 self.emit(Instr::PopHandler);
             }
+            for _ in 0..guard.handled {
+                self.emit(Instr::PopHandled);
+            }
             if let Some(finally) = &guard.finally {
                 let finally = Rc::clone(finally);
                 self.block(&finally);
@@ -257,6 +263,19 @@ impl Compiler<'_> {
             // A `pass` is a statement with nothing in it, and the honest
             // translation of nothing is no instructions.
             Stmt::Nop => {}
+            Stmt::Reraise(caught) => {
+                self.emit(Instr::Reraise {
+                    exc: register(*caught),
+                });
+            }
+            Stmt::Handling(caught) => {
+                self.emit(Instr::PushHandled {
+                    exc: register(*caught),
+                });
+            }
+            Stmt::Handled => {
+                self.emit(Instr::PopHandled);
+            }
             Stmt::Eval(value) => {
                 self.operand(value);
             }
@@ -308,7 +327,8 @@ impl Compiler<'_> {
                 catch,
                 orelse,
                 finally,
-            } => self.compile_try(body, catch.as_ref(), orelse, finally),
+                handles,
+            } => self.compile_try(body, catch.as_ref(), orelse, finally, *handles),
         }
     }
 
@@ -325,8 +345,10 @@ impl Compiler<'_> {
     /// done:     endtry               if there is a finally
     ///           <finally>
     ///           jump end
-    /// fin:      <finally, again>
-    ///           raise pending
+    /// fin:      handling pending     if the clause is one a program wrote
+    ///           <finally, again>
+    ///           handled              likewise
+    ///           reraise pending
     /// end:
     /// ```
     ///
@@ -342,6 +364,7 @@ impl Compiler<'_> {
         catch: Option<&Catch>,
         orelse: &Block,
         finally: &Block,
+        handles: bool,
     ) {
         // Allocated before the body so that nothing the body needs lands on it,
         // and only when there is a `finally`, since without one there is no
@@ -361,6 +384,7 @@ impl Compiler<'_> {
         });
         self.guards.push(Guard {
             live: u32::from(to_finally.is_some()) + u32::from(to_handler.is_some()),
+            handled: 0,
             finally: (!finally.is_empty()).then(|| Rc::new(finally.clone())),
         });
 
@@ -381,7 +405,9 @@ impl Compiler<'_> {
             self.block(orelse);
         }
 
-        let Some(to_finally) = to_finally else {
+        // Both or neither, since both came from there being a `finally`, and
+        // taking them apart together is what saves the tail below an unwrap.
+        let (Some(to_finally), Some(pending)) = (to_finally, pending) else {
             self.guards.pop();
             return;
         };
@@ -392,11 +418,28 @@ impl Compiler<'_> {
         self.block(finally);
         let over = self.emit(Instr::Jump { to: Offset::UNSET });
         self.patch(to_finally);
+        // For as long as the clause interrupts the exception, the exception is
+        // the one being handled. A guard for it because a `return` written in a
+        // `finally` walks out of here without reaching the pop, and there is
+        // nothing else for that guard to carry: the handlers came off before
+        // the clause started, and the clause is the one already running.
+        if handles {
+            self.emit(Instr::PushHandled { exc: pending });
+            self.guards.push(Guard {
+                live: 0,
+                handled: 1,
+                finally: None,
+            });
+        }
         self.block(finally);
-        self.emit(Instr::Raise {
-            exc: pending,
-            cause: None,
-        });
+        if handles {
+            self.guards.pop();
+            self.emit(Instr::PopHandled);
+        }
+        // A reraise rather than a raise: the exception is the one that was
+        // already leaving, and it decided what it was raised while handling
+        // when it was raised.
+        self.emit(Instr::Reraise { exc: pending });
         self.patch(over);
     }
 

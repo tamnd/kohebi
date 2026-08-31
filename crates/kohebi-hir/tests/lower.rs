@@ -8,6 +8,7 @@
 //! The claims themselves were checked against a live CPython 3.14 rather than
 //! written from what the grammar looks like it should do.
 
+use kohebi_hir::hir::Stmt;
 use kohebi_hir::{lower_module, print};
 use kohebi_parse::parse_module;
 
@@ -814,8 +815,15 @@ fn a_walrus_a_comprehension_could_not_place_is_a_syntax_error() {
 // Exceptions
 
 /// The `except` clauses become a chain of ifs over one slot, ending in a
-/// `raise` of that slot, so the order they are tried in and the fact that an
+/// re-raise of that slot, so the order they are tried in and the fact that an
 /// unmatched exception keeps going are both there to read.
+///
+/// The chain sits inside `handling`, because the tests are part of handling the
+/// exception rather than something that happens before it starts: a clause
+/// whose class is not a class raises a `TypeError`, and that `TypeError` is one
+/// that happened while this exception was being handled. The `handled` that
+/// ends it is in a `finally` so that a clause which raises or returns still
+/// gets there.
 #[test]
 fn the_except_clauses_become_a_chain_of_ifs_over_one_slot() {
     assert_eq!(
@@ -823,13 +831,17 @@ fn the_except_clauses_become_a_chain_of_ifs_over_one_slot() {
         "try:\n\
         \x20   eval f()\n\
          except $0:\n\
-        \x20   if matches($0, ValueError):\n\
-        \x20       eval g()\n\
-        \x20   else:\n\
-        \x20       if matches($0, KeyError):\n\
-        \x20           eval h()\n\
+        \x20   handling $0\n\
+        \x20   try:\n\
+        \x20       if matches($0, ValueError):\n\
+        \x20           eval g()\n\
         \x20       else:\n\
-        \x20           raise $0"
+        \x20           if matches($0, KeyError):\n\
+        \x20               eval h()\n\
+        \x20           else:\n\
+        \x20               reraise $0\n\
+        \x20   finally:\n\
+        \x20       handled"
     );
 }
 
@@ -842,7 +854,11 @@ fn a_bare_except_ends_the_chain() {
         "try:\n\
         \x20   eval f()\n\
          except $0:\n\
-        \x20   eval g()"
+        \x20   handling $0\n\
+        \x20   try:\n\
+        \x20       eval g()\n\
+        \x20   finally:\n\
+        \x20       handled"
     );
 }
 
@@ -857,15 +873,19 @@ fn an_as_clause_binds_the_name_and_then_takes_it_away() {
         "try:\n\
         \x20   eval f()\n\
          except $0:\n\
-        \x20   if matches($0, ValueError):\n\
-        \x20       e = $0\n\
-        \x20       try:\n\
-        \x20           eval g(e)\n\
-        \x20       finally:\n\
-        \x20           e = None\n\
-        \x20           delete e\n\
-        \x20   else:\n\
-        \x20       raise $0"
+        \x20   handling $0\n\
+        \x20   try:\n\
+        \x20       if matches($0, ValueError):\n\
+        \x20           e = $0\n\
+        \x20           try:\n\
+        \x20               eval g(e)\n\
+        \x20           finally:\n\
+        \x20               e = None\n\
+        \x20               delete e\n\
+        \x20       else:\n\
+        \x20           reraise $0\n\
+        \x20   finally:\n\
+        \x20       handled"
     );
 }
 
@@ -882,34 +902,47 @@ fn a_try_with_only_a_finally_has_no_slot_for_an_exception() {
     );
 }
 
-/// A bare `raise` written inside a handler names the slot that handler caught
-/// into, so re-raising is reading a slot rather than asking the interpreter
-/// what it was in the middle of.
+/// A bare `raise` stays bare, because what it puts back is not something
+/// lowering can work out.
+///
+/// It is whatever is being handled when it runs, which the `handling` around
+/// the clause is what says. Naming the slot instead would be right for the one
+/// written in the clause itself and wrong for every other place a bare `raise`
+/// is legal.
 #[test]
-fn a_bare_raise_in_a_handler_names_what_it_caught() {
+fn a_bare_raise_puts_back_whatever_is_being_handled() {
     assert_eq!(
         hir("try:\n    f()\nexcept ValueError:\n    raise\n"),
         "try:\n\
         \x20   eval f()\n\
          except $0:\n\
-        \x20   if matches($0, ValueError):\n\
-        \x20       raise $0\n\
-        \x20   else:\n\
-        \x20       raise $0"
+        \x20   handling $0\n\
+        \x20   try:\n\
+        \x20       if matches($0, ValueError):\n\
+        \x20           raise\n\
+        \x20       else:\n\
+        \x20           reraise $0\n\
+        \x20   finally:\n\
+        \x20       handled"
     );
-    // A `def` inside a handler is a different frame, so a bare `raise` in it
-    // re-raises whatever is being handled when it is called rather than what
-    // was being handled where it was written.
+    // A `def` inside a handler is a different frame, and the bare `raise` in it
+    // is the same statement it would be anywhere else: it re-raises whatever is
+    // being handled when the function is called, which need not be what was
+    // being handled where it was written.
     assert_eq!(
         whole("try:\n    f()\nexcept ValueError:\n    def again():\n        raise\n"),
         "body <test>:\n\
         \x20   try:\n\
         \x20       eval f()\n\
         \x20   except $0:\n\
-        \x20       if matches($0, ValueError):\n\
-        \x20           again = function again()\n\
-        \x20       else:\n\
-        \x20           raise $0\n\
+        \x20       handling $0\n\
+        \x20       try:\n\
+        \x20           if matches($0, ValueError):\n\
+        \x20               again = function again()\n\
+        \x20           else:\n\
+        \x20               reraise $0\n\
+        \x20       finally:\n\
+        \x20           handled\n\
          body again():\n\
         \x20   raise"
     );
@@ -938,5 +971,55 @@ fn an_unlowered_construct_says_what_it_was_and_where() {
     assert_eq!(
         refused("try:\n    f()\nexcept* ValueError:\n    pass\n"),
         "line 1: an except* clause is not lowered yet"
+    );
+}
+
+/// A `try` a program wrote says that an exception reaching its `finally` is
+/// being handled while the clause runs, and the one lowering makes to take an
+/// `as` name away again does not, because the chain around it already said so.
+#[test]
+fn only_the_try_a_program_wrote_is_handling_what_reaches_its_finally() {
+    fn collect(block: &[Stmt], found: &mut Vec<bool>) {
+        for stmt in block {
+            match stmt {
+                Stmt::Try {
+                    body,
+                    catch,
+                    orelse,
+                    finally,
+                    handles,
+                } => {
+                    found.push(*handles);
+                    collect(body, found);
+                    if let Some(catch) = catch {
+                        collect(&catch.block, found);
+                    }
+                    collect(orelse, found);
+                    collect(finally, found);
+                }
+                // The chain the clauses became, which is where the cleanup for
+                // an `as` name lives.
+                Stmt::If { then, orelse, .. } => {
+                    collect(then, found);
+                    collect(orelse, found);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let handles = |source| {
+        let tree = parse_module(source).expect("expected this to parse");
+        let body = lower_module(&tree, "<test>").expect("expected this to lower");
+        let mut found = Vec::new();
+        collect(&body.block, &mut found);
+        found
+    };
+    assert_eq!(handles("try:\n    f()\nfinally:\n    g()\n"), [true]);
+    // The outer one is the program's, then the one the chain sits in, then the
+    // one the `as` name's cleanup sits in.
+    assert_eq!(
+        handles("try:\n    f()\nexcept ValueError as e:\n    g()\n"),
+        [true, false, false]
     );
 }

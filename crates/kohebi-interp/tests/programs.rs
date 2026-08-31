@@ -1788,10 +1788,17 @@ fn an_exception_nothing_matched_carries_on() {
 
 /// An `except` clause naming something that is not an exception class is a
 /// mistake in the handler, which is reported instead of what it was trying to
-/// catch.
+/// catch, and reported under what it was trying to catch.
+///
+/// Trying the clauses is already handling the exception, so a clause that
+/// raises has raised while handling it. This is the shortest program there is
+/// where that matters, since nothing in it is inside a handler's body.
 #[test]
 fn a_clause_that_names_something_that_is_not_a_class_says_so() {
-    let complaint = "TypeError: catching classes that do not inherit from \
+    let complaint = "ZeroDivisionError: division by zero\n\n\
+                     During handling of the above exception, another exception \
+                     occurred:\n\n\
+                     TypeError: catching classes that do not inherit from \
                      BaseException is not allowed";
     assert_eq!(raises("try:\n    1 / 0\nexcept 5:\n    pass\n"), complaint);
     assert_eq!(
@@ -2038,5 +2045,232 @@ fn the_class_a_clause_names_is_evaluated_when_the_clause_is_reached() {
         out("def which():\n    print('asked')\n    return ValueError\n\
              try:\n    raise ValueError('v')\nexcept which() as e:\n    print('caught', e)\n"),
         "asked\ncaught v\n"
+    );
+}
+
+// What was being handled at the time
+
+/// An exception raised inside a handler prints under the one the handler was
+/// written for, which is what `__context__` is for.
+#[test]
+fn an_exception_raised_in_a_handler_prints_under_the_one_it_was_handling() {
+    assert_eq!(
+        raises("try:\n    raise ValueError('a')\nexcept ValueError:\n    raise KeyError('b')\n"),
+        "ValueError: a\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         KeyError: 'b'"
+    );
+    // Including one the runtime raised, which had no object at all until the
+    // handler caught it and no `raise` anywhere near it afterwards.
+    assert_eq!(
+        raises("try:\n    1 / 0\nexcept ZeroDivisionError:\n    {}['k']\n"),
+        "ZeroDivisionError: division by zero\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         KeyError: 'k'"
+    );
+}
+
+/// The two chains interleave, because an exception can have a cause that has a
+/// context, and each link prints the sentence that belongs to it.
+#[test]
+fn a_cause_and_a_context_print_the_sentence_that_belongs_to_each() {
+    assert_eq!(
+        raises(
+            "try:\n    raise ValueError('a')\n\
+             except ValueError:\n    raise KeyError('b') from IndexError('i')\n"
+        ),
+        "IndexError: i\n\n\
+         The above exception was the direct cause of the following exception:\n\n\
+         KeyError: 'b'"
+    );
+    // `from None` is the only way to say that what was being handled is
+    // nobody's business, and it does not stop the context being recorded.
+    assert_eq!(
+        raises(
+            "try:\n    raise ValueError('a')\n\
+             except ValueError:\n    raise KeyError('b') from None\n"
+        ),
+        "KeyError: 'b'"
+    );
+}
+
+/// Three deep, printed oldest first, because each one recorded what was going
+/// on when it was raised and the printer walks back up.
+#[test]
+fn a_handler_inside_a_handler_chains_in_the_order_it_happened() {
+    assert_eq!(
+        raises(
+            "try:\n    raise ValueError('a')\n\
+             except ValueError:\n\
+             \x20   try:\n        raise KeyError('b')\n\
+             \x20   except KeyError:\n        raise TypeError('c')\n"
+        ),
+        "ValueError: a\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         KeyError: 'b'\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         TypeError: c"
+    );
+}
+
+/// What is being handled belongs to the machine rather than to a frame, so a
+/// function called from a handler is inside that handler too.
+#[test]
+fn a_function_called_from_a_handler_is_still_inside_it() {
+    // A bare `raise` in it puts back what the handler caught.
+    assert_eq!(
+        out("def again():\n    raise\n\
+             try:\n    raise ValueError('a')\n\
+             except ValueError:\n\
+             \x20   try:\n        again()\n\
+             \x20   except ValueError as e:\n        print('back', e)\n"),
+        "back a\n"
+    );
+    // And anything else it raises records what the handler caught.
+    assert_eq!(
+        raises(
+            "def other():\n    raise KeyError('b')\n\
+                try:\n    raise ValueError('a')\nexcept ValueError:\n    other()\n"
+        ),
+        "ValueError: a\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         KeyError: 'b'"
+    );
+}
+
+/// A `finally` interrupts an exception on its way out, and for as long as it
+/// does that exception is the one being handled.
+#[test]
+fn a_finally_an_exception_reached_is_handling_it() {
+    assert_eq!(
+        raises("try:\n    raise ValueError('a')\nfinally:\n    raise KeyError('b')\n"),
+        "ValueError: a\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         KeyError: 'b'"
+    );
+    // So a bare `raise` in one puts that exception back, which is the only
+    // thing a bare `raise` outside an `except` clause can mean.
+    assert_eq!(
+        raises("try:\n    raise ValueError('a')\nfinally:\n    raise\n"),
+        "ValueError: a"
+    );
+    // And a `finally` reached the ordinary way is handling nothing.
+    assert_eq!(
+        raises("try:\n    pass\nfinally:\n    raise KeyError('b')\n"),
+        "KeyError: 'b'"
+    );
+}
+
+/// An exception stops being handled once it is out of the clause that was
+/// handling it, however it left.
+#[test]
+fn what_was_being_handled_is_forgotten_at_every_way_out() {
+    // Off the end of the clause.
+    assert_eq!(
+        raises(
+            "try:\n    raise ValueError('a')\nexcept ValueError:\n    pass\nraise KeyError('b')\n"
+        ),
+        "KeyError: 'b'"
+    );
+    // Out of the function the clause was in.
+    assert_eq!(
+        raises(
+            "def f():\n\
+                \x20   try:\n        raise ValueError('a')\n\
+                \x20   except ValueError:\n        return 1\n\
+                f()\nraise KeyError('b')\n"
+        ),
+        "KeyError: 'b'"
+    );
+    // Out of a `finally` that was interrupting one, by a `return`.
+    assert_eq!(
+        raises(
+            "def f():\n\
+                \x20   try:\n        raise ValueError('a')\n\
+                \x20   finally:\n        return 1\n\
+                f()\nraise KeyError('b')\n"
+        ),
+        "KeyError: 'b'"
+    );
+    // And out of one by another exception, which is the way that leaves the
+    // frame rather than walking out of it.
+    assert_eq!(
+        raises(
+            "def f():\n\
+                \x20   try:\n        raise ValueError('a')\n\
+                \x20   finally:\n        raise KeyError('b')\n\
+                try:\n    f()\nexcept KeyError:\n    pass\nraise IndexError('c')\n"
+        ),
+        "IndexError: c"
+    );
+}
+
+/// A `raise` a program wrote settles this afresh every time it runs, so an
+/// exception kept in a variable and raised twice records what was going on the
+/// second time rather than the first.
+#[test]
+fn raising_the_same_exception_again_records_what_is_going_on_now() {
+    assert_eq!(
+        raises(
+            "try:\n    raise ValueError('a')\nexcept ValueError as e:\n    kept = e\n\
+                raise kept\n"
+        ),
+        "ValueError: a"
+    );
+    assert_eq!(
+        raises(
+            "try:\n    raise ValueError('a')\nexcept ValueError as e:\n    kept = e\n\
+                try:\n    raise TypeError('t')\nexcept TypeError:\n    raise kept\n"
+        ),
+        "TypeError: t\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         ValueError: a"
+    );
+}
+
+/// Nothing is raised while handling itself, which is what a bare `raise` and a
+/// `raise` of what a clause just caught both are.
+#[test]
+fn an_exception_is_not_the_context_of_itself() {
+    assert_eq!(
+        raises("try:\n    raise ValueError('a')\nexcept ValueError:\n    raise\n"),
+        "ValueError: a"
+    );
+    assert_eq!(
+        raises("try:\n    raise ValueError('a')\nexcept ValueError as e:\n    raise e\n"),
+        "ValueError: a"
+    );
+}
+
+/// Re-raising an exception that something further down already recorded as its
+/// context would make a ring, and a printer that followed one would not come
+/// back, so the older link is cut before the new one is made.
+#[test]
+fn an_exception_raised_again_over_the_top_of_its_own_context_cuts_the_ring() {
+    assert_eq!(
+        raises(
+            "try:\n    raise ValueError('a')\nexcept ValueError as a:\n\
+                \x20   try:\n        raise KeyError('b')\n\
+                \x20   except KeyError:\n        raise a\n"
+        ),
+        "KeyError: 'b'\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         ValueError: a"
+    );
+    // The link to cut can be further up than the exception being handled, so
+    // the walk keeps going rather than looking once.
+    assert_eq!(
+        raises(
+            "try:\n    raise ValueError('a')\nexcept ValueError as a:\n\
+                \x20   try:\n        raise KeyError('b')\n\
+                \x20   except KeyError:\n\
+                \x20       try:\n            raise IndexError('c')\n\
+                \x20       except IndexError:\n            raise a\n"
+        ),
+        "KeyError: 'b'\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         IndexError: c\n\n\
+         During handling of the above exception, another exception occurred:\n\n\
+         ValueError: a"
     );
 }
