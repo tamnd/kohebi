@@ -123,12 +123,16 @@ jobs:
     needs: publish
     runs-on: ubuntu-24.04
     # The first release publishes fourteen crates that do not exist yet, and
-    # crates.io allows five of those at once and then one every ten minutes. So
-    # the first run of this job takes an hour and a half and every run after it
-    # takes a couple of minutes.
-    timeout-minutes: 180
-    # A protected environment, so publishing to a registry is a thing somebody
-    # approves rather than a thing a pushed tag does on its own.
+    # crates.io holds five of those in an account's bucket and refills one every
+    # ten minutes. So the first run of this job is a long sleep, a little over
+    # two hours if the bucket starts empty, and every run after it takes a couple
+    # of minutes, because a new version of a crate that exists is a different and
+    # much larger allowance. The script is safe to run again, so a job that runs
+    # out of time here is re-run rather than restarted.
+    timeout-minutes: 350
+    # An environment rather than a repository secret, so the token is reachable
+    # only from a job that names this environment, and only from a `v*.*.*` tag,
+    # which is the deployment branch policy set on it. A branch cannot get at it.
     environment: crates-io
     permissions:
       contents: read

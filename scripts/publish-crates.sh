@@ -4,12 +4,14 @@
 #
 # Two things make this more than one `cargo publish --workspace`.
 #
-# The first is the rate limit. crates.io lets an account publish five brand new
-# crates at once and then one every ten minutes, and this workspace is fourteen
-# crates, so the first release cannot go out in a single command however it is
-# written. The tenth attempt is not a failure, it is the shape of the limit.
+# The first is the rate limit. crates.io lets an account hold five brand new
+# crates in its bucket and refills one every ten minutes, and this workspace is
+# fourteen crates, so the first release cannot go out in a single command
+# however it is written. From a full bucket that is about ninety minutes and
+# from an empty one it is a little over two hours. The tenth attempt is not a
+# failure, it is the shape of the limit.
 #
-# The second follows from the first. A command that gets halfway and stops has
+# The second follows from the first. A command that gets partway and stops has
 # to be resumable, so every attempt starts by asking crates.io what is already
 # there and excluding it. That means a re-run after any failure, a rate limit or
 # a network blip or a cancelled job, picks up exactly where it left off, and a
@@ -47,10 +49,10 @@ for package in json.load(sys.stdin)["packages"]:
     print(package["name"])
 ' <<<"$metadata")
 
-# The delay between attempts, which is the ten minutes the limit refills in.
-# Overridable so a test can watch the loop work without waiting for it.
-sleep_for=${PUBLISH_RETRY_SECONDS:-600}
-attempts=${PUBLISH_ATTEMPTS:-20}
+attempts=${PUBLISH_ATTEMPTS:-30}
+# What to wait when the registry says to come back but does not say when. Ten
+# minutes is the refill interval, so it is the longest that can be useful.
+fallback_wait=${PUBLISH_RETRY_SECONDS:-600}
 
 # Whether crates.io already has this exact version.
 #
@@ -59,6 +61,9 @@ attempts=${PUBLISH_ATTEMPTS:-20}
 # else, a 500 or a timeout, is not an answer, and treating it as "not there"
 # would turn a bad minute at the registry into a duplicate upload attempt. So an
 # unknown answer stops the run.
+#
+# The user agent matters. crates.io answers 403 to a request that does not name
+# itself, so a default curl looks exactly like a crate that is already taken.
 published() {
   local name=$1 code
   code=$(curl --silent --show-error --location --retry 3 --max-time 30 \
@@ -75,11 +80,42 @@ published() {
   esac
 }
 
+# How long to wait, given what cargo printed.
+#
+# A 429 from crates.io carries the time to come back at, and honouring it is the
+# difference between a release that finishes and one that either hammers the
+# registry or sleeps far longer than it needs to. Nothing is guessed here: no
+# 429 means the failure is a real one and this prints nothing, which is what the
+# caller reads as "stop".
+wait_for() {
+  local output=$1 when
+  grep -q '429 Too Many Requests' <<<"$output" || return 0
+  when=$(sed -n 's/.*Please try again after \(.*\) and see.*/\1/p' <<<"$output" | head -1)
+  if [ -z "$when" ]; then
+    echo "$fallback_wait"
+    return 0
+  fi
+  # Clamped at both ends. The floor is there because the registry hands back the
+  # next refill tick, which can be seconds away and can still be too early, and
+  # a run that took it literally would sit in a tight loop against crates.io.
+  # The ceiling is there because a time far in the future is more likely two
+  # clocks disagreeing than a real wait.
+  python3 -c '
+import datetime, sys
+from email.utils import parsedate_to_datetime
+
+when, fallback = sys.argv[1], int(sys.argv[2])
+try:
+    at = parsedate_to_datetime(when)
+except (TypeError, ValueError):
+    print(fallback)
+    raise SystemExit
+now = datetime.datetime.now(datetime.timezone.utc)
+print(min(max(int((at - now).total_seconds()) + 5, 30), 900))
+' "$when" "$fallback_wait"
+}
+
 echo "publishing ${#members[@]} crates at ${version}"
-stalled=0
-# Not the number of crates, because the first attempt has not tried anything yet
-# and would otherwise count as having made no progress.
-left=-1
 
 for attempt in $(seq 1 "$attempts"); do
   exclude=()
@@ -97,29 +133,25 @@ for attempt in $(seq 1 "$attempts"); do
     exit 0
   fi
 
-  # An attempt that publishes nothing at all is the difference between a rate
-  # limit and a real failure. Once the burst is spent every attempt gets exactly
-  # one crate through before the limit stops it, so no progress twice running
-  # means waiting longer is not going to help and the error is worth looking at.
-  if [ "${#waiting[@]}" -eq "$left" ]; then
-    stalled=$((stalled + 1))
-  else
-    stalled=0
-  fi
-  if [ "$stalled" -ge 2 ]; then
-    echo "two attempts in a row published nothing, so this is not the rate limit" >&2
+  echo "attempt ${attempt}: ${#waiting[@]} left (${waiting[*]})"
+
+  # Kept rather than streamed, because the reason it stopped is in there and
+  # this has to read it. `tee` puts it on the log as well so a watcher sees the
+  # upload happen rather than a silent gap.
+  output=$(cargo publish --workspace --locked ${exclude[@]+"${exclude[@]}"} 2>&1 | tee /dev/stderr) && continue
+
+  # A rate limit is the one failure worth waiting out. Everything else, a crate
+  # name taken or a bad token or a crate that will not package, is not going to
+  # come right on its own, and sleeping through it wastes an hour and then says
+  # the same thing.
+  sleep_for=$(wait_for "$output")
+  if [ -z "$sleep_for" ]; then
+    echo "this is not the rate limit, so waiting will not help" >&2
     exit 1
   fi
-  left=${#waiting[@]}
-
-  echo "attempt ${attempt}: ${#waiting[@]} left (${waiting[*]})"
-  if cargo publish --workspace --locked ${exclude[@]+"${exclude[@]}"}; then
-    continue
-  fi
-
-  echo "attempt ${attempt} stopped, waiting ${sleep_for}s for the rate limit to refill"
+  echo "rate limited, waiting ${sleep_for}s"
   sleep "$sleep_for"
 done
 
-echo "gave up after ${attempts} attempts" >&2
+echo "gave up after ${attempts} attempts, re-run this job to carry on" >&2
 exit 1
