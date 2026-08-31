@@ -6,6 +6,16 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+Dictionaries have their ten methods: `get`, `setdefault`, `pop`, `popitem`, `clear`, `copy`, `update`, `keys`, `values` and `items`. The eleventh, `fromkeys`, is called on the type rather than on a dictionary and there is no type object for a builtin type to hang it on yet, so it is named and refused rather than written in the wrong place.
+
+The three views are views and not lists, which is the whole difference between Python 2 and Python 3 here. `ks = d.keys()` holds the dictionary rather than a copy of its keys, so an entry put in afterwards is in `ks`, and a program that stashes a view early and reads it late gets the current answer. They can be walked, measured with `len`, asked with `in`, printed and sorted, and `for k in d` and `for k in d.keys()` are the same walk rather than two that happen to agree.
+
+What they cannot do yet is behave like sets. `d.keys() & other` is an intersection in CPython and two views compare with `<=` as subsets, and none of that is written. It is refused by name: the message says the operation is unwritten rather than borrowing the numeric complaint about unsupported operand types, which would say it is impossible. An operand that is not iterable is impossible, though, and gets the message CPython gives it.
+
+An unhashable key is an error rather than a `False`, in the views as much as in the dictionary, because the question went to a hash table and never reached a comparison. `[] in d.keys()` raises where `[] in [1]` does not, and the wording names what was handed over and then what inside it refused, which for `d.get(([], 1))` are two different types.
+
+With this the last of the five micro benchmarks runs, and all five now print byte for byte what CPython 3.14.7 prints.
+
 `sys.stdout` and `sys.stderr` exist, and they go to two different places. That second half is the point: a program writes to standard error precisely so that whoever is running it can send the two somewhere separate, and a runtime with one sink would quietly make `2>/dev/null` do nothing. Output stays buffered because a program that prints in a loop should not spend its time in `write`; errors are not buffered, because a diagnostic still sitting in a buffer when the process dies is a diagnostic nobody reads.
 
 `write` puts text out and gives back how many characters went, which is not how many bytes went as soon as anything is outside ASCII. `writelines` writes a sequence with nothing added between the elements, and writes as it goes, so a sequence whose fourth element is not a string leaves the first three on the stream before it raises. `flush`, `writable` and `readable` answer. `name`, `mode`, `encoding`, `errors`, `closed`, `line_buffering`, `write_through` and `newlines` are attributes read off the stream, and each says what is actually true of it rather than what CPython would say about a terminal.

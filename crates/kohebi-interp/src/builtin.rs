@@ -80,6 +80,7 @@ use kohebi_core::{Compare, Error, Int, Kind, Native, Object, Result, exception, 
 use crate::iterate::{self, Range};
 use crate::lazy::Lazy;
 use crate::stream::{Stream, Which};
+use crate::view;
 use crate::vm::{Step, Vm};
 
 /// What a builtin does when it is called.
@@ -428,7 +429,7 @@ fn print(vm: &mut Vm, mut args: Args) -> Result<Object> {
 /// `len(x)`.
 fn len(_vm: &mut Vm, args: Args) -> Result<Object> {
     let value = only(&args, "len")?;
-    if let Some(size) = ops::len(value) {
+    if let Some(size) = ops::len(value).or_else(|| view::len(value)) {
         return Ok(Object::int(i64::try_from(size).unwrap_or(i64::MAX)));
     }
     if let Some(range) = downcast::<Range>(value) {

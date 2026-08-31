@@ -655,3 +655,156 @@ except NotImplementedError as e:
          which is not written yet\n"
     );
 }
+
+/// The three views end to end, including the one the string benchmark stops
+/// on: a dict comprehension, `items`, and `sorted` over the pairs.
+#[test]
+fn a_dictionary_hands_out_three_views_of_itself() {
+    let file = source(
+        "dict-views",
+        r#"words = ["b", "a", "c"]
+counts = {w: len(w) + words.index(w) for w in words}
+print(counts)
+print(counts.keys(), counts.values(), counts.items())
+print(sorted(counts.items()))
+print(len(counts.keys()), "a" in counts.keys(), ("b", 1) in counts.items())
+for key, value in counts.items():
+    print(key, value)
+total = 0
+for value in counts.values():
+    total += value
+print(total)
+"#,
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "{'b': 1, 'a': 2, 'c': 3}\n\
+         dict_keys(['b', 'a', 'c']) dict_values([1, 2, 3]) dict_items([('b', 1), ('a', 2), ('c', 3)])\n\
+         [('a', 2), ('b', 1), ('c', 3)]\n\
+         3 True True\n\
+         b 1\n\
+         a 2\n\
+         c 3\n\
+         6\n"
+    );
+}
+
+/// A set operation on a view is unwritten and says so, rather than borrowing
+/// the numeric complaint about unsupported operands, which would say the
+/// operation is impossible. A non iterable operand really is impossible and
+/// gets the message CPython gives it.
+#[test]
+fn a_view_refuses_set_work_by_name() {
+    let file = source(
+        "dict-view-sets",
+        r#"d = {"a": 1}
+try:
+    d.keys() & {"a"}
+except NotImplementedError as e:
+    print("NotImplementedError:", e)
+try:
+    {"a"} - d.keys()
+except NotImplementedError as e:
+    print("NotImplementedError:", e)
+try:
+    d.keys() == d.keys()
+except NotImplementedError as e:
+    print("NotImplementedError:", e)
+try:
+    d.keys().isdisjoint({"z"})
+except NotImplementedError as e:
+    print("NotImplementedError:", e)
+try:
+    d.keys() & 1
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    d.values() & {1}
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    d.values().isdisjoint({1})
+except AttributeError as e:
+    print("AttributeError:", e)
+print(d.keys() == 1, d.values() == d.values())
+"#,
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "NotImplementedError: dict_keys & set is not implemented yet\n\
+         NotImplementedError: set - dict_keys is not implemented yet\n\
+         NotImplementedError: comparing a dict_keys with a dict_keys as sets is not implemented yet\n\
+         NotImplementedError: dict_keys.isdisjoint is not implemented yet\n\
+         TypeError: 'int' object is not iterable\n\
+         TypeError: unsupported operand type(s) for &: 'dict_values' and 'set'\n\
+         AttributeError: 'dict_values' object has no attribute 'isdisjoint'\n\
+         False False\n"
+    );
+}
+
+/// The ten methods a dict has, and the wordings CPython uses when they are
+/// called wrongly. The two halves of its C source do not agree about whether to
+/// name the type, and a program can see the disagreement.
+#[test]
+fn a_dictionary_complains_the_way_cpython_complains() {
+    let file = source(
+        "dict-methods",
+        r#"d = {"a": 1, "b": 2}
+print(d.get("a"), d.get("z"), d.get("z", 0))
+print(d.setdefault("a", 9), d.setdefault("z", 9))
+print(d.copy(), d.popitem(), d)
+try:
+    d.get()
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    d.get(1, 2, 3)
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    d.copy(1)
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    d.get(([], 1))
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    d.update({}, {})
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    d.update([("a", 1, 2)])
+except ValueError as e:
+    print("ValueError:", e)
+try:
+    d.update([1, 2])
+except TypeError as e:
+    print("TypeError:", e)
+try:
+    d.fromkeys(["a"])
+except NotImplementedError as e:
+    print("NotImplementedError:", e)
+"#,
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "1 None 0\n\
+         1 9\n\
+         {'a': 1, 'b': 2, 'z': 9} ('z', 9) {'a': 1, 'b': 2}\n\
+         TypeError: get expected at least 1 argument, got 0\n\
+         TypeError: get expected at most 2 arguments, got 3\n\
+         TypeError: dict.copy() takes no arguments (1 given)\n\
+         TypeError: cannot use 'tuple' as a dict key (unhashable type: 'list')\n\
+         TypeError: update expected at most 1 argument, got 2\n\
+         ValueError: dictionary update sequence element #0 has length 3; 2 is required\n\
+         TypeError: object is not iterable\n\
+         NotImplementedError: dict.fromkeys is not implemented yet\n"
+    );
+}
