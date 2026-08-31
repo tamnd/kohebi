@@ -6,6 +6,20 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+`import` reads files now. A module named in an import is looked for as `<directory>/<name>.py` on `sys.path`, and `sys.path[0]` is the directory the script is in, so a module beside the script is found first. The file is read, compiled and run, and the namespace its body left behind is the module. That is the whole of it: a program split across several files runs.
+
+The interesting part was not the loader, it was what a module's globals are. Until now the machine laid one module's names out as a vector of slots for the whole run, on the reasoning that a call should be a Rust call and not also a namespace rebuild. That reasoning stops holding the moment a function defined in one module is called while another one is running, because the numbers in its instructions are indices into its own module's name table and mean something else in anybody else's.
+
+So a body now carries the module it came from, and entering a frame compares that against the module already laid out. Same module, which is very nearly every call a program makes, and it is one pointer comparison. Different module, and the two namespaces change places. A program that imports and then stays put pays nothing for having imported; one that calls back and forth pays a rebuild per crossing, which is what the dense table costs and it is charged only where it is earned.
+
+A module's namespace and the globals its own code runs against are one thing rather than two, so `m.x` from outside and `x` from inside are the same binding. Two copies would have been easier to write and would have drifted the first time either side wrote to one, and the drift would have shown up as a stale value rather than as an error.
+
+`sys.argv` is the script and then whatever came after it on the command line, not this process's own arguments, so a program counting them gets the number a person would expect. `sys.path` is a real list a program can append to before importing. `__name__` is `__main__` for the script and its own name for anything imported, which is what `if __name__ == '__main__'` is asking, and `__main__` is in `sys.modules` like any other module. `__file__` is absolute for both, made so by joining the working directory rather than by resolving, which is CPython's answer too: `kohebi run ./f.py` reports a `__file__` with the `./` still in it, and a module reached through a symbolic link reports the link rather than what it points at.
+
+Two modules that import each other terminate rather than recurse, because a module goes into `sys.modules` before its body runs and the second import finds it there half filled. A name it has not bound yet says `partially initialized module 'a' from '...' has no attribute 'VALUE' (most likely due to a circular import)`, which is CPython's wording and is the difference between a puzzle and an answer. A module whose body raises is taken back out of `sys.modules`, so the next import runs the file again rather than being handed something that never finished, and the exception that comes out is the module's own rather than an `ImportError` wrapping it.
+
+Packages are still not done. A directory with an `__init__.py` needs a `__path__` of its own for its submodules to resolve against, so `import a.b` refuses, and it says `'a' is not a package` when the head is a plain file and `No module named 'a'` when it is not there, because those are two different mistakes. Relative imports and star imports still refuse by name.
+
 ## 0.0.20
 
 Two merged pull requests, and the release that actually reaches crates.io. `cargo install kohebi` works from here rather than from 0.0.19, which built its binaries and published no crates.

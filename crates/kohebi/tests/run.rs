@@ -44,6 +44,27 @@ fn source(name: &str, text: &str) -> String {
     path.to_str().expect("scratch path is not UTF-8").to_owned()
 }
 
+/// Several files in a directory of their own, and the path of the first.
+///
+/// A directory each, because an import searches the directory the script is in
+/// and two tests sharing one would be able to import each other's modules. The
+/// name is the test's, so a failure leaves something readable behind.
+fn program(name: &str, files: &[(&str, &str)]) -> String {
+    let dir = std::env::temp_dir().join("kohebi-run-cli").join(name);
+    fs::create_dir_all(&dir).expect("could not make a scratch directory");
+    let mut first = None;
+    for (file, text) in files {
+        let path = dir.join(file);
+        fs::write(&path, text).expect("could not write a test file");
+        first.get_or_insert(path);
+    }
+    first
+        .expect("a program has at least one file")
+        .to_str()
+        .expect("scratch path is not UTF-8")
+        .to_owned()
+}
+
 #[test]
 fn a_program_that_finishes_prints_what_it_printed_and_succeeds() {
     let file = source("hello", "print('hello', 1 + 1)\n");
@@ -223,14 +244,197 @@ fn the_flags_for_machinery_that_is_not_built_are_refused() {
     assert!(err.contains("--profile-out"), "stderr was {err:?}");
 }
 
-/// There is no `sys` module yet, so a program cannot see arguments and being
-/// handed some is an error rather than a thing that silently does not happen.
+/// `sys.argv` is the script and then what came after it on the command line.
+/// The runtime's own name and its flags are not in there, which is what makes a
+/// program that counts its arguments get the number a person would expect.
 #[test]
-fn arguments_for_the_program_are_refused_while_there_is_no_sys() {
-    let file = source("argv", "pass\n");
-    let (ok, _, err) = run(&["run", &file, "--", "one"]);
+fn the_program_sees_its_own_arguments_and_not_the_runtimes() {
+    // The script itself is printed separately from the rest, because a Windows
+    // path has backslashes in it and a repr escapes them, so comparing against
+    // the path as this test wrote it would be comparing two different strings.
+    let file = source("argv", "import sys\nprint(len(sys.argv), sys.argv[1:])\n");
+    let (ok, out, err) = run(&["run", &file, "--", "one", "two"]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(out, "3 ['one', 'two']\n");
+}
+
+/// A module beside the script is found and run, and what its body bound is
+/// reachable through it. This is the whole of an import from the outside.
+#[test]
+fn a_module_beside_the_script_is_imported_and_run() {
+    let file = program(
+        "importing",
+        &[
+            ("main.py", "import helper\nprint(helper.shout('abc'))\n"),
+            (
+                "helper.py",
+                "def shout(word):\n    return word.upper() + '!'\n",
+            ),
+        ],
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(out, "ABC!\n");
+    assert_eq!(err, "");
+}
+
+/// A function defined in one module and called from another reads its own
+/// module's globals, not those of whoever called it. This is the thing that
+/// makes an import worth having, and it is the one a slot layout per module
+/// makes easy to get wrong.
+#[test]
+fn a_function_reads_the_globals_of_the_module_it_was_defined_in() {
+    let file = program(
+        "globals",
+        &[
+            (
+                "main.py",
+                // The same name in both modules, bound to different things, and
+                // at a different index in each module's name table.
+                "WHO = 'main'\nimport helper\nprint(helper.whose(), WHO)\n",
+            ),
+            (
+                "helper.py",
+                "WHO = 'helper'\n\ndef whose():\n    return WHO\n",
+            ),
+        ],
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(out, "helper main\n");
+}
+
+/// `__name__` is `__main__` for the script and its own name for anything
+/// imported, which is what `if __name__ == '__main__'` is asking. `__file__` is
+/// absolute for both.
+#[test]
+fn the_script_is_main_and_an_imported_module_is_itself() {
+    let file = program(
+        "naming",
+        &[
+            (
+                "main.py",
+                "import helper\nprint(__name__, helper.__name__)\n",
+            ),
+            ("helper.py", "print(__name__)\n"),
+        ],
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(out, "helper\n__main__ helper\n");
+}
+
+/// A module whose body raises does not stay in `sys.modules`, so importing it
+/// again runs it again and raises again rather than handing over something half
+/// built. The exception is the module's own, not an `ImportError` wrapping it.
+#[test]
+fn a_module_that_raises_is_not_left_behind_for_the_next_import() {
+    let file = program(
+        "failing",
+        &[
+            (
+                "main.py",
+                r"import sys
+for attempt in [1, 2]:
+    try:
+        import boom
+    except ValueError as caught:
+        print(attempt, caught)
+print('boom' in sys.modules)
+",
+            ),
+            ("boom.py", "raise ValueError('no')\n"),
+        ],
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(out, "1 no\n2 no\nFalse\n");
+}
+
+/// Two modules that import each other terminate, because a module is in
+/// `sys.modules` before its body runs and the second import finds it there. A
+/// name it has not bound yet says why it is missing rather than only that it is.
+#[test]
+fn two_modules_that_import_each_other_stop_rather_than_recurse() {
+    let file = program(
+        "circular",
+        &[
+            ("main.py", "import a\nprint(a.VALUE, a.b.VALUE)\n"),
+            ("a.py", "import b\nVALUE = 'from a'\n"),
+            (
+                "b.py",
+                r"import a
+try:
+    a.VALUE
+except AttributeError as caught:
+    print(caught)
+VALUE = 'from b'
+",
+            ),
+        ],
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    let (complaint, rest) = out.split_once('\n').expect("two lines");
+    assert!(
+        complaint.starts_with("partially initialized module 'a' from '")
+            && complaint
+                .ends_with("a.py' has no attribute 'VALUE' (most likely due to a circular import)"),
+        "complaint was {complaint:?}"
+    );
+    assert_eq!(rest, "from a from b\n");
+}
+
+/// A name a module has not got is an `ImportError` naming the file when it is
+/// asked for by `from x import y`, and an `AttributeError` when it is asked for
+/// as `x.y`. CPython words the two differently because they are asked in
+/// different places.
+#[test]
+fn a_name_a_module_has_not_got_says_so_differently_each_way_round() {
+    let file = program(
+        "absent",
+        &[
+            (
+                "main.py",
+                r"import helper
+try:
+    helper.nope
+except AttributeError as caught:
+    print(caught)
+try:
+    from helper import nope
+except ImportError as caught:
+    print(caught)
+",
+            ),
+            ("helper.py", "HERE = 1\n"),
+        ],
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    let mut lines = out.lines();
+    assert_eq!(
+        lines.next(),
+        Some("module 'helper' has no attribute 'nope'")
+    );
+    let second = lines.next().expect("two lines");
+    assert!(
+        second.starts_with("cannot import name 'nope' from 'helper' (")
+            && second.ends_with("helper.py)"),
+        "complaint was {second:?}"
+    );
+}
+
+/// A module nothing answers to is a `ModuleNotFoundError` in CPython's words,
+/// and a dotted name is complained about by its head, because that is where the
+/// search stops while there are no packages.
+#[test]
+fn a_module_that_is_not_there_says_so_in_cpythons_words() {
+    let file = source("nosuch", "import nosuchmodule\n");
+    let (ok, out, err) = run(&["run", &file]);
     assert!(!ok);
-    assert!(err.contains("sys"), "stderr was {err:?}");
+    assert_eq!(out, "");
+    assert_eq!(err, "ModuleNotFoundError: No module named 'nosuchmodule'\n");
 }
 
 #[test]

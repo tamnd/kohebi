@@ -20,8 +20,9 @@
 //!
 //! Globals first, then builtins, which is the lookup order at module level and
 //! the reason a program can shadow `print` and then get it back with `del`.
-//! There is one namespace because there is one module. Imports bring the
-//! second one and the map from module name to namespace with it.
+//! There is one namespace per module, and it is the module's own `__dict__`
+//! rather than a copy of it, so `m.x` from outside and `x` from inside are one
+//! binding.
 //!
 //! While a module runs its globals are a vector of slots rather than a map, one
 //! slot per name in the module's name table. Every name at module scope is a
@@ -29,15 +30,25 @@
 //! that loop, and through a map each of those costs a string hash, a probe, a
 //! `memcmp` and, on a write, a fresh allocation for a key that was already
 //! there. The compiler has already interned every name into a dense table, so
-//! the interpreter indexes that table and none of it happens. The map is what
-//! holds the namespace between runs, since a run owns the slots and the
-//! namespace outlives it.
+//! the interpreter indexes that table and none of it happens. The map is where
+//! the namespace sits the rest of the time, which is between runs and while
+//! some other module is the one running, and it is the map a module hands out
+//! as its own `__dict__`.
 //!
 //! The table belongs to the module rather than to a body, which is what lets
 //! the slots be opened once for a whole run. A table per body would make the
 //! `total` a function reads and the `total` the module writes two unrelated
 //! indices, and the only way back from that is to hash a string on every global
 //! access.
+//!
+//! Only one module's namespace is laid out at a time, because a name table
+//! belongs to a module and the same name is a different slot in two of them. A
+//! body carries the module it came from, so entering a frame is a pointer
+//! comparison, and the swap only happens on a call that actually crosses a
+//! module boundary. A program that imports and then stays put pays nothing for
+//! having imported, and one that calls back and forth pays a namespace rebuild
+//! per crossing, which is the price of the dense table and is charged only
+//! where it is earned.
 //!
 //! The slots sit on the machine rather than on the stack of the call that opened
 //! them, so that anything holding the machine can reach them. A builtin is
@@ -80,14 +91,18 @@
 //! `__context__`.
 
 use std::cell::RefCell;
-use std::fmt;
 use std::io::{self, Write};
+use std::path::{self, Path};
 use std::rc::Rc;
+use std::{fmt, fs, mem};
 
 use kohebi_bc::code::{Code, FuncId, Instr, Module, NameId, Offset, Reg, Span};
+use kohebi_bc::compile;
 use kohebi_core::dict::{Dict, Set};
 use kohebi_core::{Error, Kind, Object, Result, Slice, exception, ops};
+use kohebi_hir::lower_module;
 use kohebi_parse::ast::{CmpOp, Operator, UnaryOp};
+use kohebi_parse::parse_module;
 use rustc_hash::FxHashMap;
 
 use crate::builtin::{Args, Builtin, table};
@@ -100,11 +115,14 @@ use crate::lazy::Lazy;
 use crate::method;
 // `Module` in this file is the compiled one that came out of the bytecode, so
 // the one a program imports is reached through its own module name.
-use crate::module::{self, Modules};
+use crate::module::{self, Found, Modules};
 use crate::ready::Ready;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
 type Names = FxHashMap<Box<str>, Object>;
+
+/// A module's namespace, shared with the module object it belongs to.
+type Namespace = module::Namespace;
 
 /// How many Python calls may be on the stack at once.
 ///
@@ -119,11 +137,13 @@ const LIMIT: usize = 1000;
 
 /// One running program.
 pub struct Vm {
-    globals: Names,
-    /// The same namespace laid out by index, for as long as a module is running.
+    /// The namespace of the module whose code is running, which is that
+    /// module's `__dict__`.
     ///
-    /// Empty between runs, which is when `globals` is the one that holds
-    /// everything. See [`Globals`].
+    /// Empty of everything the running code mentions, because those names are
+    /// in `open` instead for as long as that module is the one running.
+    home: Namespace,
+    /// The same namespace laid out by index. See [`Globals`].
     open: Globals,
     builtins: Names,
     /// The class a failed `assert` raises.
@@ -154,7 +174,7 @@ impl fmt::Debug for Vm {
     /// the same in every run.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Vm")
-            .field("globals", &self.globals)
+            .field("globals", &self.home)
             .finish_non_exhaustive()
     }
 }
@@ -167,8 +187,25 @@ impl Vm {
             .into_iter()
             .map(|(name, value)| (Box::from(name), value))
             .collect();
+        // `__main__` before anything else, because a machine runs a program from
+        // the top and a program run from the top is `__main__`. That is what
+        // `if __name__ == '__main__'` is asking, and a module read by an import
+        // gets its own name instead, which is what makes the test mean
+        // something.
+        let home = Namespace::default();
+        home.borrow_mut()
+            .insert("__name__".into(), Object::str("__main__"));
+        let modules = Modules::new();
+        // The program being run is a module like any other and is in
+        // `sys.modules` under `__main__`, which is how a program reaches its own
+        // namespace without a name for it. It holds the same cell the machine
+        // does, so it is the running namespace and not a picture of it.
+        modules.put(
+            "__main__",
+            Object::native(module::Module::new("__main__", None, Rc::clone(&home))),
+        );
         Vm {
-            globals: Names::default(),
+            home,
             open: Globals::default(),
             assertion_error: builtins
                 .get("AssertionError")
@@ -178,7 +215,7 @@ impl Vm {
             output,
             depth: 0,
             handled: Vec::new(),
-            modules: Modules::new(),
+            modules,
         }
     }
 
@@ -202,28 +239,65 @@ impl Vm {
         // Opened once for the whole run rather than once per body. Every
         // function in the module reads globals through these same slots, so a
         // call is a Rust call and not also a namespace rebuild.
-        self.open = Globals::open(&module.names, &mut self.globals);
-        // The module body is a frame like any other and counts against the
-        // limit like any other, which is why the deepest recursion that works
-        // here is one shallower than the limit rather than exactly it.
-        let ready = Ready::new(module);
-        let outcome = self.enter().and_then(|()| {
-            let mut frame = Frame::new(ready.shared());
-            let outcome = self.execute(&ready, &mut frame);
-            self.depth -= 1;
-            outcome
-        });
+        self.open = Globals::open(&module.names, &mut self.home.borrow_mut());
+        let ready = Ready::new(module, &self.home);
+        let outcome = self.body(&ready);
         // Whatever the body bound goes back into the namespace even when it
         // raised, because a program that fails halfway has still run the half
         // before the failure and the next run has to see it.
-        std::mem::take(&mut self.open).close(&mut self.globals);
+        mem::take(&mut self.open).close(&mut self.home.borrow_mut());
         outcome
+    }
+
+    /// Run a module body from the top.
+    ///
+    /// A frame like any other, and it counts against the recursion limit like
+    /// any other, which is why the deepest recursion that works is one
+    /// shallower than the limit rather than exactly it.
+    fn body(&mut self, ready: &Ready) -> Result<Object> {
+        self.enter()?;
+        let mut frame = Frame::new(ready.shared());
+        let outcome = self.execute(ready, &mut frame);
+        self.depth -= 1;
+        outcome
+    }
+
+    /// Lay out the globals of the module this body came from, if they are not
+    /// the ones already laid out, and say what to hand back afterwards.
+    ///
+    /// Nearly every call in a program is to a function in the module doing the
+    /// calling, and that case is one pointer comparison. A call that does cross
+    /// a boundary pays for two namespaces to change shape, which is unavoidable
+    /// while a global is an index: the number in the instruction means one name
+    /// in one module and a different name in another.
+    fn arrive(&mut self, ready: &Ready) -> Option<Departed> {
+        if Rc::ptr_eq(&self.home, ready.home()) {
+            return None;
+        }
+        let names = Rc::clone(self.open.names());
+        let home = mem::replace(&mut self.home, Rc::clone(ready.home()));
+        mem::take(&mut self.open).close(&mut home.borrow_mut());
+        self.open = Globals::open(ready.names(), &mut self.home.borrow_mut());
+        Some(Departed { home, names })
+    }
+
+    /// Put back what [`Vm::arrive`] moved out of the way.
+    fn depart(&mut self, departed: Option<Departed>) {
+        let Some(Departed { home, names }) = departed else {
+            return;
+        };
+        mem::take(&mut self.open).close(&mut self.home.borrow_mut());
+        self.open = Globals::open(&names, &mut home.borrow_mut());
+        self.home = home;
     }
 
     /// Run a frame that cannot stop halfway, which is every frame but a
     /// generator's.
     fn execute(&mut self, ready: &Ready, frame: &mut Frame) -> Result<Object> {
-        self.run_frame(ready, frame, &mut None)
+        let departed = self.arrive(ready);
+        let outcome = self.run_frame(ready, frame, &mut None);
+        self.depart(departed);
+        outcome
     }
 
     /// Run a frame until something stops it, and give back whatever that was:
@@ -551,16 +625,20 @@ impl Vm {
             }
 
             Instr::LoadAttr { dst, object, name } => {
-                let value = attribute(frame.get(object)?, self.open.name(name))?;
+                let value = self.attribute(frame.get(object)?, self.open.name(name))?;
                 frame.set(dst, value);
             }
             Instr::Import { dst, name } => {
-                let found = self.modules.import(self.open.name(name))?;
+                // Copied out, because importing runs a module body and that body
+                // is compiled from its own name table, so the one this frame
+                // reads through is put away and brought back while it happens.
+                let name = self.open.name(name).to_owned();
+                let found = self.import(&name)?;
                 frame.set(dst, found);
             }
             Instr::ImportFrom { dst, module, name } => {
                 let name = self.open.name(name);
-                let value = from_module(frame.get(module)?, name)?;
+                let value = self.import_from(frame.get(module)?, name)?;
                 frame.set(dst, value);
             }
             Instr::StoreAttr { object, name, src } => {
@@ -573,12 +651,23 @@ impl Vm {
                     instance.set(Box::from(name), value);
                 } else if let Some(class) = object.downcast::<Class>() {
                     class.set(Box::from(name), value);
+                } else if let Some(imported) = object.downcast::<module::Module>() {
+                    // Through the slots when the module being written to is the
+                    // one running, because that is where its namespace is. See
+                    // [`Vm::laid_out`].
+                    match self.laid_out(imported).and_then(|open| open.find(name)) {
+                        Some(slot) => self.open.set(slot, value),
+                        None => imported.set(name, value),
+                    }
                 } else {
                     return Err(later("attribute access"));
                 }
             }
             Instr::DeleteAttr { object, name } => {
-                let name = self.open.name(name);
+                // Owned, because unbinding a global goes through the same slots
+                // the name was read out of.
+                let name = self.open.name(name).to_owned();
+                let name = name.as_str();
                 let object = frame.get(object)?;
                 // The two kinds word the failure differently, so each says its
                 // own rather than sharing one that would have to guess.
@@ -592,6 +681,14 @@ impl Vm {
                         .delete(name)
                         .then_some(())
                         .ok_or_else(|| format!("type object '{}'", class.name()))
+                } else if let Some(imported) = object.downcast::<module::Module>() {
+                    let slot = self.laid_out(imported).and_then(|open| open.find(name));
+                    let gone = match slot {
+                        Some(slot) => self.open.take(slot).is_some(),
+                        None => imported.remove(name),
+                    };
+                    gone.then_some(())
+                        .ok_or_else(|| format!("module '{}'", imported.name()))
                 } else {
                     return Err(later("attribute access"));
                 };
@@ -734,11 +831,188 @@ impl Vm {
         Ok(Flow::Next)
     }
 
+    /// The slot layout, if it is the one this module's names are in.
+    ///
+    /// While a module's own code is running its namespace is the slots and its
+    /// map is empty of everything that code mentions, so a read or a write
+    /// aimed at that module has to go to the slots instead. Only one module is
+    /// ever in that state, so this is a pointer comparison, and it answers
+    /// `None` for every module but the one running.
+    ///
+    /// A program gets here by reaching its own module object, which it does by
+    /// importing itself or by looking its own name up in `sys.modules`. That is
+    /// rare enough that the name is scanned for afterwards rather than every
+    /// module carrying an index for it.
+    fn laid_out(&self, imported: &module::Module) -> Option<&Globals> {
+        Rc::ptr_eq(imported.namespace(), &self.home).then_some(&self.open)
+    }
+
+    /// An attribute of anything, which for a module has to know whether that
+    /// module is the one running. Everything else is in [`attribute`].
+    fn attribute(&self, object: &Object, name: &str) -> Result<Object> {
+        let Some(imported) = object.downcast::<module::Module>() else {
+            return attribute(object, name);
+        };
+        self.in_module(imported, name)
+            .ok_or_else(|| missing_from(imported, name))
+    }
+
+    /// A name taken out of a module by `from x import y`.
+    ///
+    /// The complaint is an `ImportError` and not the `AttributeError` the same
+    /// lookup written as `x.y` would give, because the two are asked in
+    /// different places and CPython words them differently.
+    fn import_from(&self, object: &Object, name: &str) -> Result<Object> {
+        let Some(imported) = object.downcast::<module::Module>() else {
+            return self.attribute(object, name);
+        };
+        self.in_module(imported, name).ok_or_else(|| {
+            let where_from = imported.origin().unwrap_or("unknown location");
+            Error::new(
+                Kind::ImportError,
+                format!(
+                    "cannot import name '{name}' from '{}' ({where_from})",
+                    imported.name()
+                ),
+            )
+        })
+    }
+
+    /// What a name is bound to in a module, wherever that module's namespace
+    /// is right now.
+    fn in_module(&self, imported: &module::Module, name: &str) -> Option<Object> {
+        self.laid_out(imported)
+            .and_then(|open| open.find(name))
+            .and_then(|slot| self.open.get(slot).cloned())
+            .or_else(|| imported.get(name))
+    }
+
     /// What a name is bound to in this run, for a caller that wants to look at
     /// the module namespace after the program has finished.
     #[must_use]
-    pub fn global(&self, name: &str) -> Option<&Object> {
-        self.globals.get(name)
+    pub fn global(&self, name: &str) -> Option<Object> {
+        self.home.borrow().get(name).cloned()
+    }
+
+    /// Add a directory to the front of `sys.path`.
+    ///
+    /// The caller running a script passes its directory, which is what CPython
+    /// puts in `sys.path[0]`, so a module beside the script is found before one
+    /// anywhere else.
+    pub fn add_path(&mut self, directory: &str) {
+        self.modules.add_path(directory);
+    }
+
+    /// Bind `__file__` in the main module, which is the script being run.
+    ///
+    /// Only the caller knows what that is. A machine started for something
+    /// other than a file, a test or an embedder evaluating a string, leaves it
+    /// unbound, which is what CPython does for `-c` as well.
+    pub fn set_file(&mut self, path: &Path) {
+        let origin = absolute(path);
+        self.home
+            .borrow_mut()
+            .insert("__file__".into(), Object::str(origin.as_str()));
+        // The entry in `sys.modules` is rebuilt rather than reached into,
+        // because a module's origin is what its repr prints and is fixed when
+        // it is made. Nothing is holding the old one yet: this runs before the
+        // program does.
+        self.modules.put(
+            "__main__",
+            Object::native(module::Module::new(
+                "__main__",
+                Some(&origin),
+                Rc::clone(&self.home),
+            )),
+        );
+    }
+
+    /// Say what the program was called with, which is `sys.argv`.
+    ///
+    /// The script's own name first and then its arguments, which is Python's
+    /// convention and not this process's command line.
+    pub fn set_argv(&mut self, argv: &[String]) {
+        self.modules.set_argv(argv);
+    }
+
+    /// The module a name refers to, importing it if this is the first time.
+    ///
+    /// # Errors
+    ///
+    /// `ModuleNotFoundError` when nothing answers to the name, and whatever the
+    /// module's own body raised when there is a file and running it failed.
+    pub fn import(&mut self, name: &str) -> Result<Object> {
+        match self.modules.resolve(name)? {
+            Found::Ready(module) => Ok(module),
+            Found::File(path) => self.load(name, &path),
+        }
+    }
+
+    /// Read a file, run it, and make a module out of what its body bound.
+    fn load(&mut self, name: &str, path: &Path) -> Result<Object> {
+        let origin = absolute(path);
+        let source = fs::read_to_string(path).map_err(|failed| {
+            // The file was there when the search looked at it, so this is a
+            // permission or an encoding or a disk, and none of those is the
+            // program's mistake in the way a missing module is. CPython raises
+            // the underlying `OSError` here rather than an `ImportError`.
+            Error::new(Kind::OSError, format!("{origin}: {failed}"))
+        })?;
+        let code = Self::build(&source, &origin)?;
+
+        // The two names every module has before it has run a line. They are set
+        // here rather than by the body, so a module that never mentions either
+        // one still has them, and they go in before the body starts, so a
+        // module can read its own `__name__` while initialising.
+        let namespace = Namespace::default();
+        {
+            let mut names = namespace.borrow_mut();
+            names.insert("__name__".into(), Object::str(name));
+            names.insert("__file__".into(), Object::str(origin.as_str()));
+        }
+
+        // In `sys.modules` before its body runs. Two modules that import each
+        // other reach this point twice, and the second time the first one is
+        // already here and half filled, which terminates and is what CPython
+        // hands over too.
+        let module = Object::native(module::Module::loading(
+            name,
+            &origin,
+            Rc::clone(&namespace),
+        ));
+        self.modules.put(name, module.clone());
+
+        // The body carries the namespace it belongs to, so entering its frame
+        // is what puts the importing module's globals away and brings them
+        // back. Nothing to save and restore here beyond that.
+        match self.body(&Ready::new(&code, &namespace)) {
+            Ok(_) => {
+                if let Some(loaded) = module.downcast::<module::Module>() {
+                    loaded.loaded();
+                }
+                Ok(module)
+            }
+            Err(raised) => {
+                // Out again, so the next import of this name runs the file
+                // rather than being handed a module that never finished.
+                self.modules.forget(name);
+                Err(raised)
+            }
+        }
+    }
+
+    /// Source to bytecode, with both front end failures spelled as exceptions.
+    ///
+    /// A module that does not parse and a module using something not lowered yet
+    /// are both `SyntaxError` here. The second is not really one, but a program
+    /// importing it cannot act on the difference and the alternative is an
+    /// exception class that does not exist in Python.
+    fn build(source: &str, origin: &str) -> Result<Module> {
+        let tree = parse_module(source)
+            .map_err(|failed| Error::new(Kind::SyntaxError, format!("{origin}: {failed}")))?;
+        let body = lower_module(&tree, origin)
+            .map_err(|failed| Error::new(Kind::SyntaxError, format!("{origin}: {failed}")))?;
+        Ok(compile(&body))
     }
 
     /// Write to wherever this run's output goes.
@@ -1090,7 +1364,14 @@ impl Vm {
         }
         let ready = Rc::clone(generator.ready());
         let mut suspended = None;
-        match self.run_frame(&ready, &mut frame, &mut suspended) {
+        // A generator suspends and resumes rather than running to the end, so
+        // the swap brackets the step rather than the whole body: between two
+        // `next` calls the generator is not running and its module's namespace
+        // belongs back in its map, where anything else can see it.
+        let departed = self.arrive(&ready);
+        let stepped = self.run_frame(&ready, &mut frame, &mut suspended);
+        self.depart(departed);
+        match stepped {
             // A register to resume into means a `yield` stopped it, and the
             // frame goes back where it came from to be started again from there.
             Ok(value) if suspended.is_some() => {
@@ -1239,6 +1520,21 @@ impl Globals {
         }
     }
 
+    /// The number a name has, by scanning, or nothing if this module does not
+    /// mention it. For the one caller that has a name and no number, which is
+    /// [`Vm::laid_out`].
+    fn find(&self, name: &str) -> Option<NameId> {
+        let at = self.names.iter().position(|known| &**known == name)?;
+        Some(NameId(
+            u32::try_from(at).expect("a name table is not that long"),
+        ))
+    }
+
+    /// The table the slots are numbered against.
+    fn names(&self) -> &Rc<[Box<str>]> {
+        &self.names
+    }
+
     fn get(&self, name: NameId) -> Option<&Object> {
         self.slots.get(name.0 as usize)?.as_ref()
     }
@@ -1257,6 +1553,17 @@ impl Globals {
     fn name(&self, name: NameId) -> &str {
         &self.names[name.0 as usize]
     }
+}
+
+/// The module a call was made from, so it can be gone back to.
+///
+/// Both halves are needed. The namespace is where the caller's globals were put
+/// while somebody else's were laid out, and the name table is what to lay them
+/// back out against, which cannot be read off the namespace because a map has
+/// no order and the numbers in the instructions do.
+struct Departed {
+    home: Namespace,
+    names: Rc<[Box<str>]>,
 }
 
 /// What running one instruction leaves the interpreter wanting to do next.
@@ -1691,12 +1998,37 @@ fn compare(op: CmpOp, left: &Object, right: &Object) -> Result<Object> {
     ops::compare(op, left, right)
 }
 
+/// A path as `__file__` reports it.
+///
+/// Absolute, because `__file__` outlives the working directory: a program that
+/// changes directory and then opens a file beside its own module has to still
+/// be able to find it, and a relative path stops meaning anything the moment
+/// that happens.
+///
+/// Made absolute by joining the working directory rather than by resolving,
+/// which is CPython's answer too. `python ./f.py` reports a `__file__` with the
+/// `./` still in it, and a module reached through a symbolic link reports the
+/// link rather than what it points at, so a program that reads its own source
+/// reads the file it was told about. A path that cannot be made absolute at all
+/// is used as it stands rather than refused, since it was good enough to read.
+fn absolute(path: &Path) -> String {
+    path::absolute(path)
+        .as_deref()
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
 /// A name nothing is bound to.
 fn undefined(name: &str) -> Error {
     Error::new(Kind::NameError, format!("name '{name}' is not defined"))
 }
 
 /// An attribute of a class or of an instance of one.
+///
+/// A module is not here, because reading one needs to know whether it is the
+/// module currently running, which is a fact about the machine. That is
+/// [`Vm::attribute`], and it falls through to this for everything else.
 ///
 /// Everything else still says it is not implemented, because everything else
 /// needs the attributes a builtin type has and there are none of those yet.
@@ -1736,11 +2068,6 @@ fn attribute(object: &Object, name: &str) -> Result<Object> {
             .lookup(name)
             .ok_or_else(|| no_attribute(&format!("type object '{}'", class.name()), name));
     }
-    if let Some(imported) = object.downcast::<module::Module>() {
-        return imported
-            .get(name)
-            .ok_or_else(|| no_attribute(&format!("module '{}'", imported.name()), name));
-    }
     if let Some(found) = method::lookup(object, name) {
         return Ok(found);
     }
@@ -1761,34 +2088,41 @@ fn bind(receiver: &Object, value: Object) -> Object {
     Object::native(Method::new(receiver.clone(), value))
 }
 
-/// A name taken out of a module by `from x import y`.
-///
-/// The complaint is an `ImportError` and not the `AttributeError` the same
-/// lookup written as `x.y` would give, because the two are asked in different
-/// places and CPython words them differently. `(unknown location)` is where the
-/// file would be named, and there is no file yet because every module here is
-/// written in Rust.
-fn from_module(object: &Object, name: &str) -> Result<Object> {
-    let Some(imported) = object.downcast::<module::Module>() else {
-        return attribute(object, name);
-    };
-    imported.get(name).ok_or_else(|| {
-        Error::new(
-            Kind::ImportError,
-            format!(
-                "cannot import name '{name}' from '{}' (unknown location)",
-                imported.name()
-            ),
-        )
-    })
-}
-
 /// `'C' object has no attribute 'x'`, with the description in front already
 /// worded for whichever of the two kinds was asked.
 fn no_attribute(whose: &str, name: &str) -> Error {
     Error::new(
         Kind::AttributeError,
         format!("{whose} has no attribute '{name}'"),
+    )
+}
+
+/// How to name a module that has not got an attribute.
+///
+/// Two shapes, because a module in the middle of its own body has not bound
+/// what it is going to bind yet, and that is nearly always a circular import
+/// rather than a name that does not exist. Saying so is the difference between
+/// a puzzle and an answer, and it is why CPython says it too.
+///
+/// CPython has a third shape, for a file in the working directory shadowing a
+/// library of the same name. That one needs the list of standard library names
+/// to compare against and there is no standard library here yet, so the module
+/// says what it can rather than guessing at a cause.
+fn missing_from(imported: &module::Module, name: &str) -> Error {
+    let module = imported.name();
+    if !imported.is_loading() {
+        return no_attribute(&format!("module '{module}'"), name);
+    }
+    let from = match imported.origin() {
+        Some(origin) => format!(" from '{origin}'"),
+        None => String::new(),
+    };
+    Error::new(
+        Kind::AttributeError,
+        format!(
+            "partially initialized module '{module}'{from} has no attribute \
+             '{name}' (most likely due to a circular import)"
+        ),
     )
 }
 
