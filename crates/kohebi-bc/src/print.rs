@@ -34,9 +34,12 @@ fn body(out: &mut String, module: &Module, code: &Code) {
         let names: Vec<String> = code.free.iter().map(|r| reg(*r)).collect();
         format!(", over {}", names.join(", "))
     };
+    // Worth a word in the heading because it changes what a call to this does
+    // before any of the instructions below run.
+    let kind = if code.generator { "generator " } else { "" };
     let _ = writeln!(
         out,
-        "code {}: {} registers{taken}",
+        "{kind}code {}: {} registers{taken}",
         code.name, code.registers
     );
     for (at, instr) in code.instrs.iter().enumerate() {
@@ -309,6 +312,7 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
         Instr::JumpIfFalse { test, to } => ("jumpf", format!("{}, {}", reg(*test), to.0)),
         Instr::JumpIfTrue { test, to } => ("jumpt", format!("{}, {}", reg(*test), to.0)),
         Instr::Return { src } => ("ret", reg(*src)),
+        Instr::Yield { dst, src } => ("yield", format!("{}, {}", reg(*dst), reg(*src))),
         Instr::Raise { exc, cause } => {
             let text = match (exc, cause) {
                 (None, _) => String::new(),

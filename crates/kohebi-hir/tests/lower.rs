@@ -1180,3 +1180,71 @@ fn the_class_statements_that_have_no_lowering_yet_say_which_one() {
         "line 1: a class with type parameters is not lowered yet"
     );
 }
+
+#[test]
+fn a_yield_anywhere_in_a_body_makes_the_whole_body_a_generator() {
+    // The word is on the body rather than on the statement, because calling it
+    // is what changes: a generator function runs none of itself when it is
+    // called, so the caller has to know before the first instruction.
+    assert_eq!(
+        whole("def f():\n    yield 1\n"),
+        "body <test>:\n    f = function f()\ngenerator body f():\n    eval yield 1"
+    );
+    // Buried where no straight line reaches it, and still a generator.
+    assert_eq!(
+        whole("def f():\n    if False:\n        yield 1\n"),
+        "body <test>:\n    f = function f()\n\
+         generator body f():\n    \
+         if truthy(False):\n        \
+         eval yield 1"
+    );
+}
+
+#[test]
+fn a_yield_belongs_to_the_innermost_def_that_holds_it() {
+    // The inner one suspends and the outer one does not, which is the rule that
+    // makes a factory of generators possible at all.
+    assert_eq!(
+        whole("def outer():\n    def inner():\n        yield 1\n    return inner\n"),
+        "body <test>:\n    \
+         outer = function outer()\n\
+         body outer():\n    \
+         inner = function inner()\n    \
+         return inner\n\
+         generator body inner():\n    \
+         eval yield 1"
+    );
+}
+
+#[test]
+fn a_lambda_with_a_yield_in_it_is_a_generator_function() {
+    // Nobody writes this and CPython allows it, so the flag is read off the
+    // same walk for a lambda as it is for a `def`.
+    assert_eq!(
+        whole("f = lambda: (yield 1)\n"),
+        "body <test>:\n    f = function <lambda>()\ngenerator body <lambda>():\n    return yield 1"
+    );
+}
+
+#[test]
+fn a_bare_yield_hands_out_nothing_and_prints_as_the_word_alone() {
+    assert_eq!(
+        whole("def f():\n    yield\n"),
+        "body <test>:\n    f = function f()\ngenerator body f():\n    eval yield"
+    );
+}
+
+#[test]
+fn a_yield_in_a_frame_that_cannot_suspend_is_a_syntax_error() {
+    // A module, a class body and a comprehension are the three frames that are
+    // not a function. CPython words the comprehension one differently and this
+    // does not yet.
+    assert_eq!(
+        refused("yield 1\n"),
+        "line 1: SyntaxError: 'yield' outside function"
+    );
+    assert_eq!(
+        refused("class C:\n    yield 1\n"),
+        "line 2: SyntaxError: 'yield' outside function"
+    );
+}

@@ -2612,3 +2612,200 @@ fn a_base_that_is_not_a_class_is_refused() {
         "TypeError: cannot create a class from 'int', which is not a class"
     );
 }
+
+// Generators
+
+#[test]
+fn calling_a_generator_function_runs_none_of_its_body() {
+    // The print is inside the body, so a call that ran the body would show it.
+    // Nothing comes out until something steps it.
+    assert_eq!(
+        out("def f():\n    print('ran')\n    yield 1\ng = f()\nprint('called')\nnext(g)\n"),
+        "called\nran\n"
+    );
+}
+
+#[test]
+fn a_generator_stops_at_each_yield_and_carries_on_from_there() {
+    assert_eq!(
+        out("def f():\n    yield 1\n    yield 2\n    yield 3\ng = f()\n\
+             print(next(g))\nprint(next(g))\nprint(next(g))\n"),
+        "1\n2\n3\n"
+    );
+}
+
+#[test]
+fn the_locals_of_a_generator_survive_the_suspension() {
+    // The frame is the whole of the state, so a loop counter is still counting
+    // after the `yield` in the middle of it hands control back to the caller.
+    assert_eq!(
+        out(
+            "def count(n):\n    i = 0\n    while i < n:\n        yield i\n        i = i + 1\n\
+             for x in count(4):\n    print(x)\n"
+        ),
+        "0\n1\n2\n3\n"
+    );
+}
+
+#[test]
+fn a_generator_is_its_own_iterator() {
+    // So a `for` over a half consumed generator carries on from where it was
+    // rather than starting again.
+    assert_eq!(
+        out(
+            "def f():\n    yield 1\n    yield 2\ng = f()\nprint(iter(g) is g)\n\
+             print(next(g))\nfor x in g:\n    print(x)\n"
+        ),
+        "True\n1\n2\n"
+    );
+}
+
+#[test]
+fn what_a_generator_returns_is_the_argument_to_the_first_stop_iteration() {
+    // Only the first. The generator is finished afterwards, and a finished one
+    // is an empty iterator forever, which is a bare `StopIteration` every time.
+    assert_eq!(
+        raises("def f():\n    yield 1\n    return 'r'\ng = f()\nnext(g)\nnext(g)\n"),
+        "StopIteration: r"
+    );
+    assert_eq!(
+        out("def f():\n    yield 1\n    return 'r'\ng = f()\nnext(g)\n\
+             try:\n    next(g)\nexcept StopIteration:\n    print('first')\n\
+             try:\n    next(g)\nexcept StopIteration:\n    print('second')\n"),
+        "first\nsecond\n"
+    );
+}
+
+#[test]
+fn a_generator_that_returns_nothing_raises_a_bare_stop_iteration() {
+    // `return`, `return None` and falling off the end are the same thing, and
+    // none of them puts a `None` in the exception's arguments.
+    assert_eq!(
+        raises("def f():\n    yield 1\ng = f()\nnext(g)\nnext(g)\n"),
+        "StopIteration"
+    );
+    assert_eq!(
+        raises("def f():\n    return\n    yield\nnext(f())\n"),
+        "StopIteration"
+    );
+}
+
+#[test]
+fn a_default_swallows_the_end_and_everything_it_carried() {
+    assert_eq!(
+        out("def f():\n    return 'r'\n    yield\nprint(next(f(), 'default'))\n"),
+        "default\n"
+    );
+}
+
+#[test]
+fn a_for_loop_discards_what_a_generator_returned() {
+    // The end of a walk travels as a value rather than as an exception, so a
+    // `return` in a generator ends the loop and does not escape it.
+    assert_eq!(
+        out("def f():\n    yield 1\n    return 'r'\nfor x in f():\n    print(x)\nprint('after')\n"),
+        "1\nafter\n"
+    );
+}
+
+#[test]
+fn a_generator_that_raises_is_over() {
+    assert_eq!(
+        out(
+            "def f():\n    yield 1\n    raise ValueError('boom')\ng = f()\nprint(next(g))\n\
+             try:\n    next(g)\nexcept ValueError:\n    print('raised')\n\
+             print(next(g, 'over'))\n"
+        ),
+        "1\nraised\nover\n"
+    );
+}
+
+#[test]
+fn a_generator_asking_for_its_own_next_value_is_refused() {
+    // It is being stepped already, and there is one frame. CPython says this
+    // too, rather than deadlocking or building a second frame.
+    assert_eq!(
+        raises("def f():\n    yield next(g)\ng = f()\nnext(g)\n"),
+        "ValueError: generator already executing"
+    );
+}
+
+#[test]
+fn a_generator_binds_its_arguments_when_it_is_called() {
+    // Before anything runs, which is why a call with the wrong number of them
+    // fails at the call rather than at the first `next`.
+    assert_eq!(
+        raises("def f(a):\n    yield a\nf(1, 2)\n"),
+        "TypeError: f() takes 1 positional argument but 2 were given"
+    );
+}
+
+#[test]
+fn a_finally_in_a_generator_runs_when_the_body_reaches_it() {
+    assert_eq!(
+        out(
+            "def f():\n    try:\n        yield 1\n        yield 2\n    finally:\n        \
+             print('cleanup')\nfor x in f():\n    print(x)\n"
+        ),
+        "1\n2\ncleanup\n"
+    );
+}
+
+#[test]
+fn a_generator_repr_names_the_body_the_way_it_was_qualified() {
+    // A method reads as `C.f` and one written inside a function as
+    // `outer.<locals>.g`, which is the qualified name rather than the plain
+    // one. The address is dropped, since nothing may depend on it.
+    let strip = |text: String| {
+        text.split(" at 0x")
+            .next()
+            .expect("a split always has a first part")
+            .to_owned()
+    };
+    assert_eq!(
+        strip(out(
+            "class C:\n    def f(self):\n        yield 1\nprint(C().f())\n"
+        )),
+        "<generator object C.f"
+    );
+    assert_eq!(
+        strip(out(
+            "def outer():\n    def g():\n        yield 1\n    return g()\nprint(outer())\n"
+        )),
+        "<generator object outer.<locals>.g"
+    );
+}
+
+#[test]
+fn unpacking_a_generator_walks_it() {
+    assert_eq!(
+        out("def f():\n    yield 1\n    yield 2\na, b = f()\nprint(a, b)\n"),
+        "1 2\n"
+    );
+    assert_eq!(
+        raises("def f():\n    yield 1\na, b = f()\n"),
+        "ValueError: not enough values to unpack (expected 2, got 1)"
+    );
+}
+
+#[test]
+fn one_generator_can_walk_another() {
+    assert_eq!(
+        out("def inner(n):\n    for i in range(n):\n        yield i\n\
+             def outer(n):\n    for v in inner(n):\n        yield v * 2\n\
+             print([x for x in outer(3)])\n"),
+        "[0, 2, 4]\n"
+    );
+}
+
+#[test]
+fn a_runaway_generator_recursion_is_an_exception_rather_than_a_crash() {
+    // Every resume is a call as far as the machine's stack is concerned, so the
+    // limit has to count them the way it counts an ordinary call.
+    let nested = "def nest(n):\n    if n == 0:\n        yield 0\n        return\n    \
+                  for v in nest(n - 1):\n        yield v + 1\n";
+    assert_eq!(
+        deep(move || raises(&format!("{nested}for x in nest(5000):\n    pass\n"))),
+        "RecursionError: maximum recursion depth exceeded"
+    );
+}

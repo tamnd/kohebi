@@ -736,3 +736,56 @@ fn a_class_body_reads_a_captured_name_through_the_cell_and_then_the_namespace() 
          \x20  3  ret        r1"
     );
 }
+
+#[test]
+fn a_generator_body_says_so_in_its_heading() {
+    // The listing carries it because a call reads it: a body with this word on
+    // it builds a generator when it is called and runs none of itself.
+    let listing = print(&module("def f():\n    yield 1\n"));
+    assert!(
+        listing.contains("generator code f:"),
+        "expected a generator heading in\n{listing}"
+    );
+    let plain = print(&module("def f():\n    return 1\n"));
+    assert!(
+        plain.contains("code f:") && !plain.contains("generator code f:"),
+        "expected a plain heading in\n{plain}"
+    );
+}
+
+#[test]
+fn a_yield_writes_the_register_the_resume_fills_in() {
+    // Two registers, not one. The value handed out and the value sent back are
+    // different things, and the second is what `x = yield 1` binds.
+    assert_eq!(
+        bc("def f():\n    x = yield 1\n    return x\n"),
+        "   0  makefunc   r0, f\n\
+         \x20  1  setglobal  f, r0\n\
+         \x20  2  const      r0, None\n\
+         \x20  3  ret        r0\n\
+         generator code f: 2 registers\n\
+         \x20  0  const      r1, 1\n\
+         \x20  1  yield      r0, r1\n\
+         \x20  2  ret        r0\n\
+         \x20  3  const      r1, None\n\
+         \x20  4  ret        r1"
+    );
+}
+
+#[test]
+fn a_bare_yield_hands_out_none_rather_than_nothing() {
+    // One shape of instruction rather than two, since `None` is a constant like
+    // any other and the alternative is an operand that is sometimes absent.
+    assert_eq!(
+        bc("def f():\n    yield\n"),
+        "   0  makefunc   r0, f\n\
+         \x20  1  setglobal  f, r0\n\
+         \x20  2  const      r0, None\n\
+         \x20  3  ret        r0\n\
+         generator code f: 2 registers\n\
+         \x20  0  const      r1, None\n\
+         \x20  1  yield      r0, r1\n\
+         \x20  2  const      r0, None\n\
+         \x20  3  ret        r0"
+    );
+}

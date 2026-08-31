@@ -131,6 +131,15 @@ pub struct Body {
     /// asked for in different places. An error message about a call wants the
     /// qualified one, and a class wants the bare one for `__name__`.
     pub qualname: Name,
+    /// Whether a `yield` is written anywhere in this body.
+    ///
+    /// It is a property of the whole body rather than of the statement that
+    /// suspends, because it changes what calling the body does. A generator
+    /// function runs none of its body when it is called: it hands back an
+    /// object, and the body runs a piece at a time from there. So the caller
+    /// has to know before the first instruction, which means lowering has to
+    /// have looked at the last one.
+    pub generator: bool,
     /// The parameters, whose slots are the first [`Params::count`] of them.
     pub params: Params,
     /// Every slot, indexed by [`Local`].
@@ -536,6 +545,18 @@ pub enum Expr {
         /// variables, so it takes cells the way a nested function does.
         captures: Vec<Local>,
     },
+    /// `yield x`, which stops the frame and hands the value to whoever is
+    /// stepping it.
+    ///
+    /// An expression rather than a statement because it has a value: the frame
+    /// starts again where it stopped, and what `send` passed in is what the
+    /// `yield` evaluates to. A bare `next` sends nothing, so the value is
+    /// `None`, which is why almost every `yield` in real code is written as a
+    /// statement and looks like one.
+    ///
+    /// Only a body with [`Body::generator`] set can hold one, and that flag is
+    /// set by the same pass that finds these.
+    Yield(Option<Box<Expr>>),
 }
 
 impl Expr {

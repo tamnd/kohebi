@@ -47,6 +47,7 @@ fn compile_body(body: &Body, names: &mut Vec<Box<str>>) -> Code {
         code: Code {
             name: body.name.clone(),
             qualname: body.qualname.clone(),
+            generator: body.generator,
             params: body.params,
             registers: slots,
             locals: body
@@ -859,6 +860,15 @@ impl Compiler<'_> {
                     bases,
                     captures,
                 });
+            }
+            Expr::Yield(value) => {
+                // A bare `yield` hands out `None`, which is a constant like any
+                // other, so the instruction has one shape rather than two.
+                let src = match value {
+                    Some(value) => self.operand(value),
+                    None => self.operand(&Expr::Const(Value::None)),
+                };
+                self.emit(Instr::Yield { dst, src });
             }
             Expr::Unpack {
                 value,

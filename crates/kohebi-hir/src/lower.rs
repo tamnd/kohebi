@@ -125,6 +125,9 @@ pub fn lower_module(module: &Mod, name: &str) -> Result<Body> {
         name: name.into(),
         // A module is not written inside anything, so the two are the same.
         qualname: name.into(),
+        // A module is run once, top to bottom, by whoever imported it. There is
+        // nothing to hand a generator object to.
+        generator: false,
         params: Params::default(),
         slots: scope.slots,
         block,
@@ -133,11 +136,18 @@ pub fn lower_module(module: &Mod, name: &str) -> Result<Body> {
     })
 }
 
-/// Whether evaluating this expression has to emit statements.
+/// Whether evaluating this expression has to be pinned where it was written.
 ///
-/// Only the four expressions that branch, and anything containing one. A
-/// comprehension is here too because it will branch once it is lowered, and
-/// answering `false` for it now would build a group that has to be revisited.
+/// True for the four expressions that branch, and anything containing one,
+/// since those emit statements and a statement cannot be left inside an
+/// expression tree. A comprehension is here too because it will branch once it
+/// is lowered, and answering `false` for it now would build a group that has to
+/// be revisited.
+///
+/// A `yield` is here for a different reason. It emits nothing, but it stops the
+/// frame, so an operand to its right that emits statements would have those
+/// statements run before the suspension rather than after it. Pinning it keeps
+/// the order the program wrote.
 fn branches(expr: &AExpr) -> bool {
     let mut found = false;
     walk(expr, &mut |kind| {
@@ -151,6 +161,8 @@ fn branches(expr: &AExpr) -> bool {
                 | ExprKind::SetComp { .. }
                 | ExprKind::DictComp { .. }
                 | ExprKind::GeneratorExp { .. }
+                | ExprKind::Yield { .. }
+                | ExprKind::YieldFrom { .. }
         ) {
             found = true;
         }
@@ -333,6 +345,14 @@ struct Binder {
     declared: HashSet<Name>,
     /// The names a `nonlocal` statement pointed at an enclosing function.
     nonlocals: Vec<(Name, u32)>,
+    /// Whether a `yield` was written anywhere in the frame, which is what makes
+    /// it a generator.
+    ///
+    /// Collected here rather than by a walk of its own because this pass already
+    /// visits every expression in the frame and already stops at the ones that
+    /// start a frame of their own, which is exactly the rule a `yield` follows:
+    /// a `yield` in a nested `def` belongs to that `def` and not to this one.
+    yields: bool,
 }
 
 impl Binder {
@@ -538,8 +558,17 @@ impl Binder {
         }
     }
 
-    /// An expression, for the walrus in it. Nothing else in one binds a name.
+    /// An expression, for the walrus in it and for whether it suspends.
+    ///
+    /// Neither question is about binding, but both want the same walk over the
+    /// same frame, and the walk is the expensive part.
     fn expr(&mut self, expr: &AExpr) {
+        if matches!(
+            &expr.kind,
+            ExprKind::Yield { .. } | ExprKind::YieldFrom { .. }
+        ) {
+            self.yields = true;
+        }
         if let ExprKind::NamedExpr { target, value } = &expr.kind {
             self.target(target);
             self.expr(value);
@@ -617,6 +646,13 @@ struct Scope {
     /// that mentions a class attribute by its bare name gets a `NameError`,
     /// which is why [`Lowering::capture`] steps over one.
     namespace: bool,
+    /// Whether this frame holds a `yield`, which is [`Body::generator`].
+    ///
+    /// Set by the pass that collects the frame's names, so it is known before
+    /// the first statement is lowered. That matters because a `yield` is only
+    /// legal in a frame that has one, and the read that decides it would
+    /// otherwise be looking at a flag the walk has not reached yet.
+    generator: bool,
     slots: Vec<Slot>,
     temps: u32,
     /// The names this frame keeps in slots, which for a module is none of them.
@@ -666,6 +702,7 @@ impl Scope {
     fn new(namespace: bool) -> Self {
         Scope {
             namespace,
+            generator: false,
             slots: Vec::new(),
             temps: 0,
             locals: HashMap::new(),
@@ -1283,6 +1320,7 @@ impl Lower {
         functions.push(Body {
             name: name.into(),
             qualname,
+            generator: scope.generator,
             params,
             slots: scope.slots,
             block,
@@ -1304,6 +1342,9 @@ impl Lower {
                 // only names it can bind are the ones a walrus binds.
                 let mut walrus = Binder::default();
                 walrus.expr(value);
+                // `lambda: (yield 1)` is a generator function, oddly enough, so
+                // the flag is read off the same walk here as it is for a `def`.
+                self.scope_mut().generator = walrus.yields;
                 for name in walrus.bound {
                     self.declare(&name);
                 }
@@ -1555,6 +1596,10 @@ impl Lower {
             self.scope_mut().bound = binder.bound.into_iter().collect();
             return Ok(());
         }
+        // Below the class body check on purpose. A class body is not a frame a
+        // `yield` can suspend, so leaving the flag false here is what turns a
+        // `yield` written in one into the syntax error it is.
+        self.scope_mut().generator = binder.yields;
         for name in binder.bound {
             if self.scope().declared.contains(&name) || self.scope().free.contains_key(&name) {
                 continue;
@@ -2045,6 +2090,21 @@ impl Lower {
                 }
                 Ok(Expr::Dict(pairs))
             }
+            ExprKind::Yield { value } => {
+                if !self.scope().generator {
+                    // Reachable from a module, from a class body and from a
+                    // comprehension, which are the three frames that are not a
+                    // function. CPython words the comprehension one differently
+                    // and this does not, which is a message to fix rather than
+                    // a program to accept.
+                    return syntax("'yield' outside function".to_owned(), line);
+                }
+                let value = match value {
+                    Some(value) => Some(self.lower_expr(value, out)?.boxed()),
+                    None => None,
+                };
+                Ok(Expr::Yield(value))
+            }
             other => Err(Failed::Unsupported(Unsupported {
                 what: expression_name(other),
                 line,
@@ -2190,7 +2250,7 @@ fn expression_name(kind: &ExprKind) -> &'static str {
     match kind {
         ExprKind::GeneratorExp { .. } => "a generator expression",
         ExprKind::Await { .. } => "an await expression",
-        ExprKind::Yield { .. } | ExprKind::YieldFrom { .. } => "a yield expression",
+        ExprKind::YieldFrom { .. } => "a yield from expression",
         ExprKind::JoinedStr { .. } | ExprKind::FormattedValue { .. } => "an f-string",
         ExprKind::TemplateStr { .. } | ExprKind::Interpolation { .. } => "a t-string",
         ExprKind::Starred { .. } => "a starred expression",

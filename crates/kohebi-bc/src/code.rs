@@ -127,6 +127,12 @@ pub struct Code {
     /// `__qualname__`: the name with the frames it is written inside in front,
     /// as in `C.f` for a method. See [`Body::qualname`](kohebi_hir::Body).
     pub qualname: Box<str>,
+    /// Whether calling this builds a generator instead of running it.
+    ///
+    /// Read once per call, before anything is executed, which is why it is a
+    /// field on the code rather than something scanned for. See
+    /// [`Body::generator`](kohebi_hir::Body).
+    pub generator: bool,
     /// The parameters, whose registers are the first [`Params::count`] of them.
     pub params: Params,
     /// How many registers a frame needs, which is the slots plus the deepest
@@ -484,6 +490,16 @@ pub enum Instr {
     },
 
     Return {
+        src: Reg,
+    },
+    /// Hand `src` out of the frame and stop, leaving everything else in place.
+    ///
+    /// The frame comes back to the instruction after this one, and `dst` is
+    /// whatever the resume passed in, which for a plain `next` is `None`. So it
+    /// writes a register the way a call does, and the only thing unusual about
+    /// it is the gap in the middle.
+    Yield {
+        dst: Reg,
         src: Reg,
     },
     Raise {

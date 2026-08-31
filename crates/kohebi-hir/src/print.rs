@@ -38,9 +38,12 @@ fn nested(out: &mut String, body: &Body) {
         } else {
             format!(" over {}", taken.join(", "))
         };
+        // In front of the word rather than after the parameters, because it is
+        // the kind of thing the body is and not something it does.
+        let kind = if func.generator { "generator " } else { "" };
         let _ = writeln!(
             out,
-            "body {}({}){over}:",
+            "{kind}body {}({}){over}:",
             func.name,
             params(func, func, &[], &[])
         );
@@ -375,6 +378,8 @@ fn expr(body: &Body, value: &Expr) -> String {
             bases,
             captures,
         } => class(body, *id, bases, captures),
+        Expr::Yield(None) => "yield".to_owned(),
+        Expr::Yield(Some(value)) => format!("yield {}", expr(body, value)),
     }
 }
 
