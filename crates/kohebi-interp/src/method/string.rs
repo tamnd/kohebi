@@ -1,7 +1,7 @@
-//! What a `str` knows how to do, as far as searching, splitting, joining and
-//! padding go.
+//! What a `str` knows how to do, as far as searching, splitting, joining,
+//! padding and changing case go.
 //!
-//! Twenty four of the forty seven. The rest are named in [`LATER`] so that a
+//! Thirty of the forty seven. The rest are named in [`LATER`] so that a
 //! program asking for one is told this runtime has not written it rather than
 //! told the name does not exist, which would be false.
 //!
@@ -33,15 +33,23 @@
 //! fixed run, and only a newline and a carriage return start the count again,
 //! which leaves a vertical tab as a line break to `splitlines` and not one
 //! here.
+//!
+//! ## Case
+//!
+//! The six case methods are a table lookup rather than anything Rust's
+//! standard library offers, for reasons that belong with the table and are
+//! given in [`kohebi_core::casing`]. All six of them take no arguments, so
+//! there is nothing to check here beyond that, and the bodies are one line
+//! each.
 
 // The same as in [`builtin`](crate::builtin) and for the same reason: every
 // body has the signature `Body` demands, so one that reads its arguments
 // without consuming them still takes them by value.
 #![expect(clippy::needless_pass_by_value, reason = "the signature is fixed")]
 
-use kohebi_core::{Error, Kind, Object, Result, Str, StrBuf};
+use kohebi_core::{Error, Kind, Object, Result, Str, StrBuf, casing};
 
-use super::{Body, Methods, clamp, one, refuse, saturate};
+use super::{Body, Methods, clamp, none, one, refuse, saturate};
 use crate::builtin::Args;
 use crate::iterate;
 use crate::vm::{Step, Vm};
@@ -52,8 +60,10 @@ pub(super) static METHODS: Methods = Methods {
     later: LATER,
 };
 
-/// The twenty four that are written, in the order `dir(str)` gives.
+/// The thirty that are written, in the order `dir(str)` gives.
 const READY: &[(&str, Body)] = &[
+    ("capitalize", capitalize),
+    ("casefold", casefold),
     ("center", center),
     ("count", count),
     ("endswith", endswith),
@@ -62,6 +72,7 @@ const READY: &[(&str, Body)] = &[
     ("index", index),
     ("join", join),
     ("ljust", ljust),
+    ("lower", lower),
     ("lstrip", lstrip),
     ("partition", partition),
     ("removeprefix", removeprefix),
@@ -77,23 +88,21 @@ const READY: &[(&str, Body)] = &[
     ("splitlines", splitlines),
     ("startswith", startswith),
     ("strip", strip),
+    ("swapcase", swapcase),
+    ("title", title),
+    ("upper", upper),
     ("zfill", zfill),
 ];
 
-/// The twenty three that are not.
+/// The seventeen that are not.
 ///
-/// Three groups. The case ones all need Unicode data Rust's standard library
-/// keeps to itself: `title` and `capitalize` need the `Cased` property to know
-/// where a word starts and a titlecase mapping that is not the uppercase one,
-/// `casefold` is not `to_lowercase` for three hundred odd code points, and
-/// `swapcase` has to make the final sigma decision itself. The classification
-/// ones need data it does not have either, because `isdigit`, `isdecimal` and
-/// `isnumeric` are three different properties and only the third is close to
-/// `char::is_numeric`. `format`, `encode` and `translate` each need a piece of
-/// machinery of their own: a mini language, a codec, and a translation table.
+/// Two groups. The classification ones need Unicode data of their own, and
+/// more of it than a reader expects: `isdigit`, `isdecimal` and `isnumeric`
+/// are three different properties and only the third is close to
+/// `char::is_numeric`. `format`, `format_map`, `encode`, `maketrans` and
+/// `translate` each need a piece of machinery instead: a mini language, a
+/// codec, and a translation table.
 const LATER: &[&str] = &[
-    "capitalize",
-    "casefold",
     "encode",
     "format",
     "format_map",
@@ -109,12 +118,8 @@ const LATER: &[&str] = &[
     "isspace",
     "istitle",
     "isupper",
-    "lower",
     "maketrans",
-    "swapcase",
-    "title",
     "translate",
-    "upper",
 ];
 
 /// Which end a search or a split works from.
@@ -740,6 +745,42 @@ fn trim(receiver: &Object, args: &Args, method: &str, front: bool, back: bool) -
         }
     }
     Ok(text(&source[start..end]))
+}
+
+/// `str.upper()`.
+fn upper(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    none(&args, "str", "upper")?;
+    Ok(text(&casing::upper(&points(receiver))))
+}
+
+/// `str.lower()`.
+fn lower(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    none(&args, "str", "lower")?;
+    Ok(text(&casing::lower(&points(receiver))))
+}
+
+/// `str.title()`.
+fn title(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    none(&args, "str", "title")?;
+    Ok(text(&casing::title(&points(receiver))))
+}
+
+/// `str.capitalize()`.
+fn capitalize(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    none(&args, "str", "capitalize")?;
+    Ok(text(&casing::capitalize(&points(receiver))))
+}
+
+/// `str.swapcase()`.
+fn swapcase(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    none(&args, "str", "swapcase")?;
+    Ok(text(&casing::swapcase(&points(receiver))))
+}
+
+/// `str.casefold()`.
+fn casefold(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+    none(&args, "str", "casefold")?;
+    Ok(text(&casing::casefold(&points(receiver))))
 }
 
 /// The string a method was found on.

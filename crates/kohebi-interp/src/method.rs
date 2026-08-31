@@ -19,8 +19,8 @@
 //!
 //! A lookup can find a method, or find a name the type has and this runtime has
 //! not written yet, or find nothing. The middle one matters: a table that only
-//! held what was finished would make `'a'.upper()` an `AttributeError`, and
-//! that is a lie, because `str` does have `upper`. So each type carries the
+//! held what was finished would make `'a'.isdigit()` an `AttributeError`, and
+//! that is a lie, because `str` does have `isdigit`. So each type carries the
 //! names it has not got to yet as well, and those raise a `NotImplementedError`
 //! that says so. A name in neither list is the `AttributeError` it should be.
 //!

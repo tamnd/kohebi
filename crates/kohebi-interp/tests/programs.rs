@@ -4051,10 +4051,10 @@ fn a_name_a_list_has_not_got_is_an_attribute_error_and_a_types_table_is_why() {
     );
     // A name the type really has, that this runtime has not written yet, is
     // neither of those. Calling it an `AttributeError` would be a lie, because
-    // `str` does have `upper`.
+    // `str` does have `isdigit`.
     assert_eq!(
-        raises("'a'.upper()"),
-        "NotImplementedError: str.upper is not implemented yet"
+        raises("'a'.isdigit()"),
+        "NotImplementedError: str.isdigit is not implemented yet"
     );
     assert_eq!(
         raises("'a'.nope"),
@@ -4510,20 +4510,134 @@ fn a_width_is_read_before_a_fill_character_and_both_have_their_own_wording() {
 }
 
 #[test]
-fn the_case_methods_are_still_named_rather_than_missing() {
-    // The five padding ones have left `later` and the six case ones have not,
-    // so the table can still tell a name it has not reached from a name that
-    // is not there.
+fn the_classification_methods_are_still_named_rather_than_missing() {
+    // The six case ones have left `later` and the twelve classification ones
+    // have not, so the table can still tell a name it has not reached from a
+    // name that is not there.
     assert_eq!(
-        raises("'a'.upper()"),
-        "NotImplementedError: str.upper is not implemented yet"
+        raises("'a'.isdigit()"),
+        "NotImplementedError: str.isdigit is not implemented yet"
     );
     assert_eq!(
-        raises("'a'.casefold()"),
-        "NotImplementedError: str.casefold is not implemented yet"
+        raises("'a'.format()"),
+        "NotImplementedError: str.format is not implemented yet"
     );
     assert_eq!(
         raises("'a'.nope"),
         "AttributeError: 'str' object has no attribute 'nope'"
+    );
+}
+
+#[test]
+fn changing_case_is_not_one_code_point_for_one_code_point() {
+    assert_eq!(
+        out(
+            "print(repr('ß'.upper()), repr('ﬃ'.upper()), repr('ǰ'.upper()))\n\
+             print(repr('İ'.lower()), repr('ß'.lower()), repr('abc'.upper()))\n\
+             print(repr('\\U0001f600a'.upper()), repr(''.upper()))\n"
+        ),
+        "'SS' 'FFI' 'J̌'\n\
+         'i̇' 'ß' 'ABC'\n\
+         '\u{1f600}A' ''\n"
+    );
+}
+
+#[test]
+fn a_sigma_at_the_end_of_a_word_is_a_different_letter_from_one_in_the_middle() {
+    // The one place where lowercasing a code point needs the rest of the
+    // string. The scan reads the input and not the output, which is what
+    // `'ΑΣΣ'` shows: the first sigma has a cased one after it and the second
+    // has not, so the two come out differently.
+    assert_eq!(
+        out(
+            "print('ΑΣ'.lower(), 'ΑΣΑ'.lower(), 'Σ'.lower(), 'ΑΣΣ'.lower())\n\
+             print('ΟΔΟΣ ΟΔΟΣ'.lower())\n\
+             # An apostrophe and a full stop are looked past in both directions,\n\
+             # so they do not end a word and they do not start one either.\n\
+             print(\"ΑΣ'\".lower(), \"Α'Σ\".lower(), 'ΑΣ.Α'.lower())\n"
+        ),
+        "ας ασα σ ασς\n\
+         οδος οδος\n\
+         ας' α'ς ασ.α\n"
+    );
+}
+
+#[test]
+fn title_starts_a_word_at_a_cased_character_and_not_at_a_letter() {
+    // `Cased` and not `isalpha`. The two disagree in both directions, which is
+    // why hiragana does not carry a word on and a lowercase roman numeral does.
+    assert_eq!(
+        out(
+            "print('hello world'.title(), '123abc'.title(), \"they're\".title())\n\
+             print('あa'.title(), 'ⅰa'.title(), 'ΑΣ ΒΣ'.title())\n\
+             # The character that starts a word gets the titlecase mapping, which\n\
+             # for the digraphs is a third letter and not the uppercase one.\n\
+             print('ǆǆ'.title(), 'ǆ'.upper())\n"
+        ),
+        "Hello World 123Abc They'Re\n\
+         あA Ⅰa Ας Βς\n\
+         ǅǆ Ǆ\n"
+    );
+}
+
+#[test]
+fn capitalize_titlecases_the_first_character_rather_than_uppercasing_it() {
+    assert_eq!(
+        out(
+            "print(repr('ǆa'.capitalize()), repr('ǆa'.upper()), repr(''.capitalize()))\n\
+             print('hELLO'.capitalize(), 'ßa'.capitalize(), 'σαΣ'.capitalize())\n"
+        ),
+        "'ǅa' 'ǄA' ''\n\
+         Hello Ssa Σας\n"
+    );
+}
+
+#[test]
+fn swapcase_asks_per_character_and_a_titlecase_one_is_neither() {
+    assert_eq!(
+        out("print('aB'.swapcase(), 'ß'.swapcase(), 'ΑΣ'.swapcase())\n\
+             # `ǅ` is titlecase, so it is neither uppercase nor lowercase and\n\
+             # nothing happens to it. `ⅰ` is lowercase without being a letter.\n\
+             print('ǅ'.swapcase(), 'ⅰ'.swapcase())\n"),
+        "Ab SS ας\n\
+         ǅ Ⅰ\n"
+    );
+}
+
+#[test]
+fn casefold_is_not_lower_and_wants_no_final_sigma() {
+    // Folding is for comparing, so `'ΑΣ'` and `'Ας'` have to come out the same,
+    // and they do because neither of them gets the final form.
+    assert_eq!(
+        out(
+            "print('ß'.casefold(), 'ß'.lower(), 'ﬁ'.casefold(), repr('İ'.casefold()))\n\
+             print('ΑΣ'.casefold(), 'Ας'.casefold(), 'Σ'.casefold(), 'ΑΣ'.lower())\n"
+        ),
+        "ss ß fi 'i̇'\n\
+         ασ ασ σ ας\n"
+    );
+}
+
+#[test]
+fn the_case_methods_take_no_arguments_at_all_and_all_say_it_the_same_way() {
+    let mut lines = Vec::new();
+    for call in [
+        "'a'.upper(1)",
+        "'a'.lower(1, 2)",
+        "'a'.title(x=1)",
+        "'a'.capitalize(1)",
+        "'a'.swapcase(None)",
+        "'a'.casefold(x=1)",
+    ] {
+        lines.push(raises(call));
+    }
+    assert_eq!(
+        lines.join("\n"),
+        "TypeError: str.upper() takes no arguments (1 given)\n\
+         TypeError: str.lower() takes no arguments (2 given)\n\
+         TypeError: str.title() takes no keyword arguments\n\
+         TypeError: str.capitalize() takes no arguments (1 given)\n\
+         TypeError: str.swapcase() takes no arguments (1 given)\n\
+         TypeError: str.casefold() takes no keyword arguments"
     );
 }

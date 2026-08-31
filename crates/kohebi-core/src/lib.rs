@@ -10,6 +10,7 @@
 
 #![doc(html_root_url = "https://docs.rs/kohebi-core/0.0.0")]
 
+pub mod casing;
 pub mod dict;
 pub mod error;
 pub mod exception;
