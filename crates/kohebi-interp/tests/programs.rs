@@ -3199,3 +3199,166 @@ fn a_runaway_generator_recursion_is_an_exception_rather_than_a_crash() {
         "RecursionError: maximum recursion depth exceeded"
     );
 }
+
+#[test]
+fn the_three_constructors_are_one_walk_with_three_endings() {
+    assert_eq!(
+        out(
+            "print(list(), list([1, 2]), list('ab'), list((1, 2)), list({1: 2}), list(range(3)))\n"
+        ),
+        "[] [1, 2] ['a', 'b'] [1, 2] [1] [0, 1, 2]\n"
+    );
+    assert_eq!(
+        out("print(tuple(), tuple([1, 2]), tuple('ab'), tuple(range(3)))\n"),
+        "() (1, 2) ('a', 'b') (0, 1, 2)\n"
+    );
+    // A set is counted rather than printed, because kohebi orders a set repr
+    // by insertion and CPython orders it by hash, and that difference belongs
+    // in its own test rather than in this one.
+    assert_eq!(
+        out("print(len(set()), len(set([1, 2, 1])), len(set('aa')), len(set(range(3))))\n"),
+        "0 2 1 3\n"
+    );
+    assert_eq!(
+        raises("set([[1]])\n"),
+        "TypeError: cannot use 'list' as a set element (unhashable type: 'list')"
+    );
+    for name in ["list", "tuple", "set"] {
+        assert_eq!(
+            raises(&format!("{name}(1)\n")),
+            "TypeError: 'int' object is not iterable"
+        );
+        assert_eq!(
+            raises(&format!("{name}([1], [2])\n")),
+            format!("TypeError: {name} expected at most 1 argument, got 2")
+        );
+        assert_eq!(
+            raises(&format!("{name}(x=1)\n")),
+            format!("TypeError: {name}() takes no keyword arguments")
+        );
+    }
+    // Not even the name CPython's own signature gives the argument, because
+    // none of these three takes it by name at all.
+    assert_eq!(
+        raises("list(iterable=[1])\n"),
+        "TypeError: list() takes no keyword arguments"
+    );
+}
+
+#[test]
+fn sorted_walks_anything_and_gives_back_a_list() {
+    assert_eq!(
+        out("print(sorted([]), sorted([3, 1, 2]), sorted('cab'), sorted([3, 1, 2, 1]))\n"),
+        "[] [1, 2, 3] ['a', 'b', 'c'] [1, 1, 2, 3]\n"
+    );
+    // A dict sorts its keys and a set sorts its members, which is the usual
+    // way to print either of them in an order that does not move.
+    assert_eq!(
+        out("print(sorted(set([3, 1, 2])), sorted({2: 'a', 1: 'b'}))\n"),
+        "[1, 2, 3] [1, 2]\n"
+    );
+    assert_eq!(
+        out("print(sorted(range(5, 0, -1)), sorted([2.5, 1, 3]))\n"),
+        "[1, 2, 3, 4, 5] [1, 2.5, 3]\n"
+    );
+    assert_eq!(
+        out("print(sorted([1, 2, 3], reverse=True), sorted([3, 1], reverse=True))\n"),
+        "[3, 2, 1] [3, 1]\n"
+    );
+    // `reverse=None` is a false reverse, and `key=None` is no key.
+    assert_eq!(
+        out("print(sorted([1], reverse=None), sorted([1, 2], key=None))\n"),
+        "[1] [1, 2]\n"
+    );
+}
+
+#[test]
+fn sorted_is_stable_in_both_directions() {
+    // `1 == True` and the two print differently, which is enough to see the
+    // order of two equal elements without a class to give them a tag.
+    assert_eq!(
+        out("print(sorted([1, True]), sorted([True, 1]), sorted([1.0, 1]), sorted([1, 1.0]))\n"),
+        "[1, True] [True, 1] [1.0, 1] [1, 1.0]\n"
+    );
+    // Reversing is not the same as sorting and then reversing the answer,
+    // which would put these two back to front.
+    assert_eq!(
+        out("print(sorted([1, True], reverse=True), sorted([True, 1], reverse=True))\n"),
+        "[1, True] [True, 1]\n"
+    );
+    let mixed = "values = [2, True, 1.0, 0, False, 1]\nprint(sorted(values))\nprint(sorted(values, reverse=True))\n";
+    assert_eq!(
+        out(mixed),
+        "[0, False, True, 1.0, 1, 2]\n[2, True, 1.0, 1, 0, False]\n"
+    );
+}
+
+#[test]
+fn sorted_counts_and_compares_in_its_own_words() {
+    // One message for every wrong count, where the three constructors have a
+    // pair of them.
+    assert_eq!(
+        raises("sorted()\n"),
+        "TypeError: sorted expected 1 argument, got 0"
+    );
+    assert_eq!(
+        raises("sorted(x=1)\n"),
+        "TypeError: sorted expected 1 argument, got 0"
+    );
+    assert_eq!(
+        raises("sorted([1], [2])\n"),
+        "TypeError: sorted expected 1 argument, got 2"
+    );
+    // `sort()` and not `sorted()`, because in CPython this is `list.sort`
+    // under another name and the complaint comes from there.
+    assert_eq!(
+        raises("sorted([1], foo=2)\n"),
+        "TypeError: sort() got an unexpected keyword argument 'foo'"
+    );
+    assert_eq!(
+        raises("sorted(1)\n"),
+        "TypeError: 'int' object is not iterable"
+    );
+    // The later of the two elements goes on the left of the comparison, so
+    // reversing the list swaps the two names in the message.
+    assert_eq!(
+        raises("sorted([1, 'a'])\n"),
+        "TypeError: '<' not supported between instances of 'str' and 'int'"
+    );
+    assert_eq!(
+        raises("sorted(['a', 1])\n"),
+        "TypeError: '<' not supported between instances of 'int' and 'str'"
+    );
+    assert_eq!(
+        raises("sorted([1, 'a'], reverse=True)\n"),
+        "TypeError: '<' not supported between instances of 'int' and 'str'"
+    );
+    // The one thing here CPython does and this does not.
+    assert_eq!(
+        raises("sorted([3, 1], key=abs)\n"),
+        "NotImplementedError: sorted(key=...) has to call a Python function and a builtin cannot yet"
+    );
+}
+
+#[test]
+fn a_sort_long_enough_to_need_more_than_one_merge() {
+    // Eleven elements is three passes of the bottom up merge with an odd run
+    // left over at the end of two of them, which is where an off by one in it
+    // would show.
+    let program = "\
+values = []
+for i in range(11):
+    values = values + [(i * 7) % 11]
+print(values)
+print(sorted(values))
+print(sorted(values, reverse=True))
+print(sorted(sorted(values)) == sorted(values))
+";
+    assert_eq!(
+        out(program),
+        "[0, 7, 3, 10, 6, 2, 9, 5, 1, 8, 4]\n\
+         [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\n\
+         [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]\n\
+         True\n"
+    );
+}
