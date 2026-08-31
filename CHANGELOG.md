@@ -6,6 +6,12 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 ## Unreleased
 
+## 0.0.18
+
+Six merged pull requests and the release where the builtin types get methods. A `list` has all eleven of its own and a `str` has forty two of its forty seven, which is every one that is a table rather than a parser, a codec registry or a translation map. The mechanism underneath is one table per type and one extra field on the builtin object, so `dict` and `set` are a file each from here rather than a design. `map` and `filter` arrived on the way, which takes `builtins` to twenty.
+
+A type that has a table can also say a name is wrong, and a type that has half a table has to say which half, so a lookup gained a third answer: a method, or a `NotImplementedError` naming the method, or the `AttributeError` a name that does not exist deserves. That is what makes it safe to ship `str` in four pieces instead of holding it back until all forty seven are written.
+
 `map` and `filter`, the two builtins that do not do anything when you call them. Both give back an object that holds the function and the walks and runs neither until something asks it for a value, which is the whole reason the type exists: `map(int, lines)` over a file that does not fit in memory is a program, and a version that collected its answers first would be a list comprehension with extra steps. So `map(1, [1])` is not refused at the call, because nothing has been called yet, while `map(abs, 1)` is, because the walk is taken there.
 
 `map` with more than one iterable stops when the shortest one does, and stepping it again pulls another value out of the longer ones. That looks like a bug and it is what CPython does, there being no flag anywhere saying the walk is over, and a generator with a side effect in it can see it happen. It is copied rather than improved on and there is a test that counts the pulls.
