@@ -948,6 +948,24 @@ fn a_bare_raise_puts_back_whatever_is_being_handled() {
     );
 }
 
+/// What the two import statements lower to. The interesting cases are the ones
+/// where the name bound is not the name written: a dotted import binds the head
+/// and still has to import the whole thing, because importing `a.b` is what
+/// puts `b` on `a`, and a `from` import pins the module once so that a module
+/// with a side effect in it runs that side effect once however many names come
+/// out of it.
+#[test]
+fn an_import_binds_the_head_and_a_from_import_pins_the_module() {
+    assert_eq!(hir("import sys\n"), "sys = import sys");
+    assert_eq!(hir("import sys as system\n"), "system = import sys");
+    assert_eq!(
+        hir("import os.path\n"),
+        "eval import os.path\nos = import os"
+    );
+    // With `as` there is no head to bind, so the dotted import is the value.
+    assert_eq!(hir("import os.path as p\n"), "p = import os.path");
+}
+
 // What is not done yet
 
 #[test]
@@ -964,9 +982,16 @@ fn an_unlowered_construct_says_what_it_was_and_where() {
         refused("a, *b, *c = d\n"),
         "line 1: more than one starred target in one assignment is not lowered yet"
     );
+    // An import lowers now, but not every shape of one: the dots in a relative
+    // import have no package to resolve against, and a star import binds names
+    // that are not known until it runs.
     assert_eq!(
-        refused("import os\n"),
-        "line 1: an import is not lowered yet"
+        refused("from . import thing\n"),
+        "line 1: a relative import is not lowered yet"
+    );
+    assert_eq!(
+        refused("from os import *\n"),
+        "line 1: a star import is not lowered yet"
     );
     assert_eq!(
         refused("try:\n    f()\nexcept* ValueError:\n    pass\n"),

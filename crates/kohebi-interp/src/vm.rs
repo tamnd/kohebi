@@ -1737,9 +1737,9 @@ fn attribute(object: &Object, name: &str) -> Result<Object> {
             .ok_or_else(|| no_attribute(&format!("type object '{}'", class.name()), name));
     }
     if let Some(imported) = object.downcast::<module::Module>() {
-        return imported.get(name).ok_or_else(|| {
-            no_attribute(&format!("module '{}'", imported.name()), name)
-        });
+        return imported
+            .get(name)
+            .ok_or_else(|| no_attribute(&format!("module '{}'", imported.name()), name));
     }
     if let Some(found) = method::lookup(object, name) {
         return Ok(found);

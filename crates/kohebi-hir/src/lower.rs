@@ -1163,19 +1163,18 @@ impl Lower {
             let whole = Expr::Import {
                 name: alias.name.clone(),
             };
-            let (bound, value) = match &alias.asname {
-                Some(asname) => (asname.clone(), whole),
-                None => {
-                    // The dotted name is still imported, because that is what
-                    // builds the submodule, and then the head is what gets
-                    // bound. For an undotted name the two are the same import
-                    // and the second one is a lookup in `sys.modules`.
-                    if alias.name.contains('.') {
-                        out.push(Stmt::Eval(whole));
-                    }
-                    let head = alias.name.split('.').next().unwrap_or(&alias.name);
-                    (Name::from(head), Expr::Import { name: head.into() })
+            let (bound, value) = if let Some(asname) = &alias.asname {
+                (asname.clone(), whole)
+            } else {
+                // The dotted name is still imported, because that is what
+                // builds the submodule, and then the head is what gets bound.
+                // For an undotted name the two are the same import and the
+                // second one is a lookup in `sys.modules`.
+                if alias.name.contains('.') {
+                    out.push(Stmt::Eval(whole));
                 }
+                let head = alias.name.split('.').next().unwrap_or(&alias.name);
+                (Name::from(head), Expr::Import { name: head.into() })
             };
             let place = self.write(&bound);
             out.push(Stmt::Store { place, value });
@@ -1219,9 +1218,12 @@ impl Lower {
                 line: stmt.attrs.lineno,
             }));
         };
-        let found = self.pin(out, Expr::Import {
-            name: module.into(),
-        });
+        let found = self.pin(
+            out,
+            Expr::Import {
+                name: module.into(),
+            },
+        );
         for alias in names {
             let bound = alias.asname.clone().unwrap_or_else(|| alias.name.clone());
             let place = self.write(&bound);

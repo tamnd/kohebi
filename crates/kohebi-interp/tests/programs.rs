@@ -59,6 +59,18 @@ fn raises(source: &str) -> String {
     raised.expect("expected this to raise")
 }
 
+/// What lowering says about a program it will not compile.
+///
+/// This is a different answer from a raise. It comes out before anything runs,
+/// so it is not an exception a program could catch, and it is worth asserting
+/// on because the alternative to a clear refusal is a wrong answer.
+fn refuses(source: &str) -> String {
+    let tree = parse_module(source).expect("expected this to parse");
+    lower_module(&tree, "<test>")
+        .expect_err("expected this not to lower")
+        .to_string()
+}
+
 #[test]
 fn arithmetic_gives_the_same_answers_python_does() {
     assert_eq!(out("print(10 + 3, 10 - 3, 10 * 3)\n"), "13 7 30\n");
@@ -4789,5 +4801,109 @@ fn the_case_methods_take_no_arguments_at_all_and_all_say_it_the_same_way() {
          TypeError: str.capitalize() takes no arguments (1 given)\n\
          TypeError: str.swapcase() takes no arguments (1 given)\n\
          TypeError: str.casefold() takes no keyword arguments"
+    );
+}
+
+/// `sys` is the only module there is so far, and it is built in, meaning it
+/// comes from the runtime rather than from a file. Everything asserted here is
+/// a fact about the machine the program is running on rather than a choice, so
+/// CPython and kohebi agree on all of it.
+#[test]
+fn importing_sys_gives_a_module_and_its_attributes() {
+    assert_eq!(
+        out("import sys\nprint(sys)\n"),
+        "<module 'sys' (built-in)>\n"
+    );
+    assert_eq!(
+        out("import sys\nprint(sys.byteorder, sys.maxunicode, sys.maxsize)\n"),
+        "little 1114111 9223372036854775807\n"
+    );
+    // A slice of `version_info`, not the whole of it: CPython's is a named
+    // tuple that reprs as `sys.version_info(major=3, ...)` and kohebi's is a
+    // plain tuple, and a slice of either is the same plain tuple.
+    assert_eq!(
+        out("import sys\nprint(sys.version_info[:2])\n"),
+        "(3, 14)\n"
+    );
+    assert_eq!(out("import sys\nprint(sys.__name__)\n"), "sys\n");
+}
+
+/// The name a module is bound to and the module itself are two separate things.
+/// `as` renames the binding and changes nothing about the object, which is why
+/// the two names are the same module rather than two copies of it.
+#[test]
+fn an_import_binds_a_name_and_as_binds_a_different_one() {
+    assert_eq!(
+        out("import sys\nimport sys as system\nprint(system is sys, system.byteorder)\n"),
+        "True little\n"
+    );
+    assert_eq!(
+        out("from sys import maxunicode, byteorder as order\nprint(maxunicode, order)\n"),
+        "1114111 little\n"
+    );
+    // A second import of something already imported is a lookup, not a second
+    // build, and the place it looks is the dictionary the program can see.
+    assert_eq!(
+        out("import sys\nprint(sys.modules['sys'] is sys, 'sys' in sys.modules)\n"),
+        "True True\n"
+    );
+}
+
+/// An import inside a function is an ordinary statement that runs when the
+/// function runs and binds a local, so the module is found the same way and
+/// the name does not escape.
+#[test]
+fn an_import_in_a_function_binds_a_local() {
+    assert_eq!(
+        out("def f():\n    import sys\n    return sys.byteorder\nprint(f())\n"),
+        "little\n"
+    );
+    assert_eq!(
+        raises("def f():\n    import sys\nf()\nprint(sys)\n"),
+        "NameError: name 'sys' is not defined"
+    );
+}
+
+/// The three ways an import goes wrong, each with the words CPython uses. A
+/// missing module and a missing name from a module that exists are different
+/// exceptions, and a dotted name reports the head rather than the whole thing
+/// because the head is what could not be found.
+#[test]
+fn a_missing_module_and_a_missing_name_are_different_errors() {
+    assert_eq!(
+        raises("import nosuchmodule\n"),
+        "ModuleNotFoundError: No module named 'nosuchmodule'"
+    );
+    assert_eq!(
+        raises("import nosuch.thing\n"),
+        "ModuleNotFoundError: No module named 'nosuch'"
+    );
+    assert_eq!(
+        raises("from sys import nosuchname\n"),
+        "ImportError: cannot import name 'nosuchname' from 'sys' (unknown location)"
+    );
+    assert_eq!(
+        raises("import sys\nprint(sys.nosuchattr)\n"),
+        "AttributeError: module 'sys' has no attribute 'nosuchattr'"
+    );
+}
+
+/// The two shapes of import that are refused rather than guessed at. A
+/// relative import has no package to resolve its dots against yet, and a star
+/// import binds names the compiler cannot know, which would turn every read in
+/// the frame into a lookup. Both say so with the line.
+#[test]
+fn a_relative_import_and_a_star_import_are_refused_by_name() {
+    assert_eq!(
+        refuses("from . import thing\n"),
+        "line 1: a relative import is not lowered yet"
+    );
+    assert_eq!(
+        refuses("from .package import thing\n"),
+        "line 1: a relative import is not lowered yet"
+    );
+    assert_eq!(
+        refuses("import sys\nfrom sys import *\n"),
+        "line 2: a star import is not lowered yet"
     );
 }

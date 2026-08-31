@@ -137,7 +137,11 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
             "import",
             format!("{}, {}", reg(*dst), module.name_at(*name)),
         ),
-        Instr::ImportFrom { dst, module: from, name } => (
+        Instr::ImportFrom {
+            dst,
+            module: from,
+            name,
+        } => (
             "importfrom",
             format!("{}, {}.{}", reg(*dst), reg(*from), module.name_at(*name)),
         ),

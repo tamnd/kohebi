@@ -84,7 +84,12 @@ impl Module {
 
 impl std::fmt::Debug for Module {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Module").field("name", &self.name).finish()
+        // The name only. A module's namespace is every value a program bound at
+        // module level, and printing that in a debug line is a page of output
+        // and a cycle away from a hang, since a module can hold itself.
+        f.debug_struct("Module")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
     }
 }
 
@@ -150,16 +155,14 @@ impl Modules {
         if let Some(found) = self.get(name) {
             return Ok(found);
         }
-        let built = match name {
-            "sys" => self.sys(),
-            _ => {
-                let head = name.split('.').next().unwrap_or(name);
-                return Err(Error::new(
-                    Kind::ModuleNotFoundError,
-                    format!("No module named '{head}'"),
-                ));
-            }
-        };
+        if name != "sys" {
+            let head = name.split('.').next().unwrap_or(name);
+            return Err(Error::new(
+                Kind::ModuleNotFoundError,
+                format!("No module named '{head}'"),
+            ));
+        }
+        let built = self.sys();
         self.put(name, built.clone());
         Ok(built)
     }
@@ -173,8 +176,7 @@ impl Modules {
         let Object::Dict(dict) = &self.loaded else {
             return None;
         };
-        let found = dict.borrow().get(&key(name)).cloned();
-        found
+        dict.borrow().get(&key(name)).cloned()
     }
 
     fn put(&self, name: &str, module: Object) {
@@ -195,11 +197,25 @@ impl Modules {
             names.insert(name.into(), value);
         };
 
-        bind("argv", Object::list(std::env::args().map(|arg| Object::str(arg.as_str())).collect()));
+        bind(
+            "argv",
+            Object::list(
+                std::env::args()
+                    .map(|arg| Object::str(arg.as_str()))
+                    .collect(),
+            ),
+        );
         bind("modules", self.loaded.clone());
         bind("path", Object::list(Vec::new()));
         bind("platform", Object::str(PLATFORM));
-        bind("byteorder", Object::str(if cfg!(target_endian = "little") { "little" } else { "big" }));
+        bind(
+            "byteorder",
+            Object::str(if cfg!(target_endian = "little") {
+                "little"
+            } else {
+                "big"
+            }),
+        );
         bind("maxsize", Object::int(i64::MAX));
         bind("maxunicode", Object::int(0x0010_FFFF));
         bind("version", Object::str(version().as_str()));
@@ -222,7 +238,10 @@ impl Modules {
                     .as_str(),
             ),
         );
-        bind("builtin_module_names", Object::tuple(vec![Object::str("sys")]));
+        bind(
+            "builtin_module_names",
+            Object::tuple(vec![Object::str("sys")]),
+        );
 
         Object::native(Module::new("sys", None, names))
     }
@@ -279,7 +298,9 @@ mod tests {
     #[test]
     fn a_name_that_is_not_built_in_is_a_module_not_found_error() {
         let modules = Modules::new();
-        let error = modules.import("nosuch").expect_err("nothing else is built in");
+        let error = modules
+            .import("nosuch")
+            .expect_err("nothing else is built in");
         assert_eq!(error.kind, Kind::ModuleNotFoundError);
         assert_eq!(error.message, "No module named 'nosuch'");
     }
