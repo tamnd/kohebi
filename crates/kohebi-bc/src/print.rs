@@ -133,6 +133,14 @@ fn parts(module: &Module, code: &Code, instr: &Instr) -> (&'static str, String) 
             "delattr",
             format!("{}.{}", reg(*object), module.name_at(*name)),
         ),
+        Instr::Import { dst, name } => (
+            "import",
+            format!("{}, {}", reg(*dst), module.name_at(*name)),
+        ),
+        Instr::ImportFrom { dst, module: from, name } => (
+            "importfrom",
+            format!("{}, {}.{}", reg(*dst), reg(*from), module.name_at(*name)),
+        ),
         Instr::LoadItem { dst, object, index } => (
             "getitem",
             format!("{}, {}[{}]", reg(*dst), reg(*object), reg(*index)),

@@ -453,6 +453,25 @@ pub enum Expr {
         object: Box<Expr>,
         name: Name,
     },
+    /// Find a module, which is what an `import` statement does before it binds
+    /// anything.
+    ///
+    /// The name is the whole dotted one, since that is what the search is for.
+    /// Which part of the result gets bound is the statement's business, because
+    /// `import a.b` binds `a` and `import a.b as c` binds `a.b`.
+    Import {
+        name: Name,
+    },
+    /// Take a name out of a module, for `from x import y`.
+    ///
+    /// Not an [`Expr::Attr`] on the module, because a name that is not there is
+    /// an `ImportError` naming the module rather than an `AttributeError`
+    /// naming the type, and the two are different enough that the caller cannot
+    /// turn one into the other.
+    ImportFrom {
+        module: Box<Expr>,
+        name: Name,
+    },
     Item {
         object: Box<Expr>,
         index: Box<Expr>,

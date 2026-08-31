@@ -43,6 +43,7 @@ pub mod generator;
 pub mod iterate;
 pub mod lazy;
 pub mod method;
+pub mod module;
 pub mod ready;
 pub mod vm;
 

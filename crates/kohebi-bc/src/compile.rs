@@ -767,6 +767,15 @@ impl Compiler<'_> {
                 let name = self.name(name);
                 self.emit(Instr::LoadAttr { dst, object, name });
             }
+            Expr::Import { name } => {
+                let name = self.name(name);
+                self.emit(Instr::Import { dst, name });
+            }
+            Expr::ImportFrom { module, name } => {
+                let module = self.operand(module);
+                let name = self.name(name);
+                self.emit(Instr::ImportFrom { dst, module, name });
+            }
             Expr::Item { object, index } => {
                 let object = self.operand(object);
                 let index = self.operand(index);

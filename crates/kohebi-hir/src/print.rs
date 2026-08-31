@@ -309,6 +309,10 @@ fn expr(body: &Body, value: &Expr) -> String {
             format!("matches({}, {})", slot(body, *caught), expr(body, test))
         }
         Expr::Attr { object, name } => format!("{}.{name}", operand(body, object)),
+        Expr::Import { name } => format!("import {name}"),
+        Expr::ImportFrom { module, name } => {
+            format!("from {} import {name}", operand(body, module))
+        }
         Expr::Item { object, index } => {
             format!("{}[{}]", operand(body, object), expr(body, index))
         }
