@@ -79,6 +79,7 @@ use kohebi_core::{Compare, Error, Int, Kind, Native, Object, Result, exception, 
 
 use crate::iterate::{self, Range};
 use crate::lazy::Lazy;
+use crate::stream::{Stream, Which};
 use crate::vm::{Step, Vm};
 
 /// What a builtin does when it is called.
@@ -384,19 +385,28 @@ pub fn table() -> Vec<(&'static str, Object)> {
 fn print(vm: &mut Vm, mut args: Args) -> Result<Object> {
     let sep = text(&mut args, "sep", " ")?;
     let end = text(&mut args, "end", "\n")?;
-    match args.take("file") {
-        None | Some(Object::None) => {}
-        Some(other) => {
-            return Err(Error::new(
-                Kind::NotImplementedError,
-                format!(
-                    "print(file=...) wants a file object and there are no file \
-                     objects yet, so a {} cannot be written to",
-                    other.type_name()
-                ),
-            ));
-        }
-    }
+    // `None` means standard output, which is what the default is short for.
+    // Anything else has to be something this runtime knows how to write to, and
+    // the only two of those are the standard streams. A file object would be
+    // the third and there are none yet, so the complaint says that rather than
+    // pretending `print` cannot take a `file` at all.
+    let sink = match args.take("file") {
+        None | Some(Object::None) => Which::Stdout,
+        Some(other) => match other.downcast::<Stream>() {
+            Some(stream) => stream.which,
+            None => {
+                return Err(Error::new(
+                    Kind::NotImplementedError,
+                    format!(
+                        "print(file=...) takes sys.stdout or sys.stderr, and \
+                         writing to an object of type '{}' would need a file \
+                         object, which is not written yet",
+                        other.type_name()
+                    ),
+                ));
+            }
+        },
+    };
     let flush = args.take("flush").is_some_and(|value| value.truthy());
     args.rest("print")?;
 
@@ -408,9 +418,9 @@ fn print(vm: &mut Vm, mut args: Args) -> Result<Object> {
         line.push_str(&value.display());
     }
     line.push_str(&end);
-    vm.write(&line)?;
+    vm.write_to(sink, &line)?;
     if flush {
-        vm.flush()?;
+        vm.flush_to(sink)?;
     }
     Ok(Object::None)
 }

@@ -35,6 +35,7 @@
 
 mod list;
 mod path;
+mod stream;
 mod string;
 
 use kohebi_core::{Error, Int, Kind, Object, Result};
@@ -96,6 +97,9 @@ fn methods(object: &Object) -> Option<&'static Methods> {
         // becomes is why the question is asked once, in one place.
         Object::Native(_) if object.downcast::<crate::path::Path>().is_some() => {
             Some(&path::METHODS)
+        }
+        Object::Native(_) if object.downcast::<crate::stream::Stream>().is_some() => {
+            Some(&stream::METHODS)
         }
         _ => None,
     }

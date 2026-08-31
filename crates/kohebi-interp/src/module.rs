@@ -396,6 +396,17 @@ impl Modules {
 
         bind("argv", self.argv.clone());
         bind("modules", self.loaded.clone());
+        // Built here and then held, because the module goes into `sys.modules`
+        // on the first import and every lookup after that finds the same two
+        // objects. That is what makes `sys.stdout is sys.stdout` true.
+        bind(
+            "stdout",
+            crate::stream::object(crate::stream::Which::Stdout),
+        );
+        bind(
+            "stderr",
+            crate::stream::object(crate::stream::Which::Stderr),
+        );
         bind("path", self.path.clone());
         bind("platform", Object::str(PLATFORM));
         bind(

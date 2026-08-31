@@ -558,3 +558,100 @@ except AttributeError as e:
         )
     );
 }
+
+/// Standard error is a different place from standard output, which is the only
+/// thing about `sys.stderr` a program really depends on. The two are checked
+/// apart rather than together, because a runtime that folded them would pass a
+/// test that only looked at one.
+#[test]
+fn the_two_standard_streams_go_to_two_places() {
+    let file = source(
+        "streams-apart",
+        r"import sys
+
+print('one')
+print('two', file=sys.stderr)
+sys.stdout.write('three\n')
+sys.stderr.write('four\n')
+sys.stdout.writelines(['five', '\n'])
+",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(out, "one\nthree\nfive\n");
+    assert_eq!(err, "two\nfour\n");
+}
+
+/// What a stream says about itself, and what `write` gives back, which is a
+/// count of characters and not of bytes.
+#[test]
+fn a_stream_answers_the_questions_cpython_answers() {
+    let file = source(
+        "streams-about",
+        r"import sys
+
+print(sys.stdout)
+print(repr(sys.stdout.name), repr(sys.stdout.mode), repr(sys.stdout.encoding))
+print(repr(sys.stdout.errors), repr(sys.stderr.errors), sys.stdout.closed)
+print(sys.stdout.writable(), sys.stdout.readable(), repr(sys.stdout.newlines))
+print(sys.stdout is sys.stdout, sys.stdout is sys.stderr)
+print(sys.stderr.write('é\U0001f600'), file=sys.stdout)
+",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "<_io.TextIOWrapper name='<stdout>' mode='w' encoding='utf-8'>\n\
+         '<stdout>' 'w' 'utf-8'\n\
+         'strict' 'backslashreplace' False\n\
+         True False None\n\
+         True False\n\
+         2\n"
+    );
+    assert_eq!(err, "\u{e9}\u{1f600}");
+}
+
+/// A name a `TextIOWrapper` really has but this runtime has not written says
+/// so, and a name it has not got at all is the ordinary `AttributeError`. The
+/// two wordings use the qualified type name, which is what CPython puts there.
+#[test]
+fn a_stream_tells_a_missing_method_from_an_unwritten_one() {
+    let file = source(
+        "streams-later",
+        r"import sys
+try:
+    sys.stdout.fileno()
+except NotImplementedError as e:
+    print('NotImplementedError:', e)
+try:
+    sys.stdout.buffer
+except NotImplementedError as e:
+    print('NotImplementedError:', e)
+try:
+    sys.stdout.nope
+except AttributeError as e:
+    print('AttributeError:', e)
+try:
+    sys.stdout.write(1)
+except TypeError as e:
+    print('TypeError:', e)
+try:
+    print('x', file=1)
+except NotImplementedError as e:
+    print('NotImplementedError:', e)
+",
+    );
+    let (ok, out, err) = run(&["run", &file]);
+    assert!(ok, "stderr was {err:?}");
+    assert_eq!(
+        out,
+        "NotImplementedError: _io.TextIOWrapper.fileno is not implemented yet\n\
+         NotImplementedError: _io.TextIOWrapper.buffer is not implemented yet\n\
+         AttributeError: '_io.TextIOWrapper' object has no attribute 'nope'\n\
+         TypeError: write() argument must be str, not int\n\
+         NotImplementedError: print(file=...) takes sys.stdout or sys.stderr, \
+         and writing to an object of type 'int' would need a file object, \
+         which is not written yet\n"
+    );
+}
