@@ -10,7 +10,11 @@ Patch release every few merged PRs, so there is always a recent tag to bisect fr
 
 The inheritance the two questions know about is the exception tree, `bool` under `int`, a written class's chain of bases, and `object` over all of it. So `isinstance(True, int)` is true and `isinstance(1, bool)` is false, `isinstance(ValueError('x'), Exception)` is true, and a tuple of classes works and may hold tuples of its own, which is what these two allow and an `except` clause does not.
 
-`int`, `float`, `dict`, `bytes` and `object` are names now. The constructors behind them are not written and calling one says so, rather than the name not resolving at all: `type(1)` gives back `int`, and once a program has that it will write `int` next.
+`int`, `float`, `dict`, `bytes` and `object` are names now. The constructors behind them are not written and calling one says so, rather than the name not resolving at all: `type(1)` gives back `int`, and once a program has that it will write `int` next. Four of the five got their constructors before the release and `bytes` is the one left.
+
+`dict()` takes the four shapes it takes in CPython: another dictionary, a view, a sequence of pairs, and keyword arguments, and a positional and keywords together with the keywords winning. That is the same list `dict.update` already took and it is the same code, because they are the same operation with a dictionary that exists in one case and does not in the other.
+
+`object()` hands back a value with nothing in it. Nothing else in the runtime is that shape, and a program only ever does two things with one, which are ask whether it is itself and ask whether it is true. `sentinel = object()` is why it exists and that idiom needs no more than those.
 
 `int` and `float` are constructors as well now, and both of them read a string. That is a wider grammar than a literal in source: whitespace on either end is stripped, a leading sign is allowed, `int` takes a base and the `0x`, `0o` and `0b` prefixes that go with one, and both take decimal digits from any script, so `int('١٢')` is 12 and `int('١٢', 16)` is 18. Underscores follow the literal rule of a digit on each side, with the one exception CPython makes for a single underscore after a base prefix, so `0x_1f` is 31 and `0x__1f` is an error. `int` of a float truncates toward zero and refuses an infinity and a NaN with two different exceptions, and `float` of an integer too large to be a double raises rather than handing back an infinity.
 

@@ -37,6 +37,10 @@
 //! way the lexer does, which is the `number` module: stripped of whitespace, signed,
 //! based, and written in whatever script's digits the program had to hand.
 //!
+//! `dict(x)` builds a dictionary out of the same four shapes `d.update(x)`
+//! takes, and `object()` hands back a value with nothing in it, which is the
+//! one thing a program uses as a sentinel and nothing else in the runtime is.
+//!
 //! `type(x)` gives back a type object, which is [`types`], and `isinstance` and
 //! `issubclass` ask about the small inheritance graph those make up. A type
 //! object is a name and a constructor and not a namespace yet, so it does not
