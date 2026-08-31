@@ -1,9 +1,9 @@
-//! What a `str` knows how to do, as far as searching, splitting, joining,
-//! padding and changing case go.
+//! What a `str` knows how to do, which by now is most of it.
 //!
-//! Thirty of the forty seven. The rest are named in [`LATER`] so that a
-//! program asking for one is told this runtime has not written it rather than
-//! told the name does not exist, which would be false.
+//! Forty two of the forty seven. The five that are left are named in
+//! [`LATER`] so that a program asking for one is told this runtime has not
+//! written it rather than told the name does not exist, which would be
+//! false.
 //!
 //! ## Code points
 //!
@@ -34,20 +34,20 @@
 //! which leaves a vertical tab as a line break to `splitlines` and not one
 //! here.
 //!
-//! ## Case
+//! ## Case, and what a string is made of
 //!
-//! The six case methods are a table lookup rather than anything Rust's
-//! standard library offers, for reasons that belong with the table and are
-//! given in [`kohebi_core::casing`]. All six of them take no arguments, so
-//! there is nothing to check here beyond that, and the bodies are one line
-//! each.
+//! The six case methods and the twelve `is` methods are all table lookups
+//! rather than anything Rust's standard library offers, for reasons that
+//! belong with the tables and are given in [`kohebi_core::casing`] and
+//! [`kohebi_core::classify`]. All eighteen take no arguments, so there is
+//! nothing to check here beyond that, and the bodies are one line each.
 
 // The same as in [`builtin`](crate::builtin) and for the same reason: every
 // body has the signature `Body` demands, so one that reads its arguments
 // without consuming them still takes them by value.
 #![expect(clippy::needless_pass_by_value, reason = "the signature is fixed")]
 
-use kohebi_core::{Error, Kind, Object, Result, Str, StrBuf, casing};
+use kohebi_core::{Error, Kind, Object, Result, Str, StrBuf, casing, classify};
 
 use super::{Body, Methods, clamp, none, one, refuse, saturate};
 use crate::builtin::Args;
@@ -60,7 +60,7 @@ pub(super) static METHODS: Methods = Methods {
     later: LATER,
 };
 
-/// The thirty that are written, in the order `dir(str)` gives.
+/// The forty two that are written, in the order `dir(str)` gives.
 const READY: &[(&str, Body)] = &[
     ("capitalize", capitalize),
     ("casefold", casefold),
@@ -70,6 +70,18 @@ const READY: &[(&str, Body)] = &[
     ("expandtabs", expandtabs),
     ("find", find),
     ("index", index),
+    ("isalnum", isalnum),
+    ("isalpha", isalpha),
+    ("isascii", isascii),
+    ("isdecimal", isdecimal),
+    ("isdigit", isdigit),
+    ("isidentifier", isidentifier),
+    ("islower", islower),
+    ("isnumeric", isnumeric),
+    ("isprintable", isprintable),
+    ("isspace", isspace),
+    ("istitle", istitle),
+    ("isupper", isupper),
     ("join", join),
     ("ljust", ljust),
     ("lower", lower),
@@ -94,33 +106,13 @@ const READY: &[(&str, Body)] = &[
     ("zfill", zfill),
 ];
 
-/// The seventeen that are not.
+/// The five that are not.
 ///
-/// Two groups. The classification ones need Unicode data of their own, and
-/// more of it than a reader expects: `isdigit`, `isdecimal` and `isnumeric`
-/// are three different properties and only the third is close to
-/// `char::is_numeric`. `format`, `format_map`, `encode`, `maketrans` and
-/// `translate` each need a piece of machinery instead: a mini language, a
-/// codec, and a translation table.
-const LATER: &[&str] = &[
-    "encode",
-    "format",
-    "format_map",
-    "isalnum",
-    "isalpha",
-    "isascii",
-    "isdecimal",
-    "isdigit",
-    "isidentifier",
-    "islower",
-    "isnumeric",
-    "isprintable",
-    "isspace",
-    "istitle",
-    "isupper",
-    "maketrans",
-    "translate",
-];
+/// What they have in common is that none of them is a table. `format` and
+/// `format_map` are a mini language with its own parser. `encode` is the
+/// codec registry. `maketrans` and `translate` are a translation table, which
+/// wants `dict` to have methods first.
+const LATER: &[&str] = &["encode", "format", "format_map", "maketrans", "translate"];
 
 /// Which end a search or a split works from.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -783,6 +775,37 @@ fn casefold(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
     Ok(text(&casing::casefold(&points(receiver))))
 }
 
+/// The twelve methods that ask a string what it is made of.
+///
+/// All of them take no arguments and give back a `bool`, so the only thing
+/// that differs is which question gets asked. The answers are in
+/// [`kohebi_core::classify`], which is where the reasons live too.
+macro_rules! asks {
+    ($($name:ident => $answer:path,)*) => {
+        $(
+            fn $name(_vm: &mut Vm, receiver: &Object, args: Args) -> Result<Object> {
+                none(&args, "str", stringify!($name))?;
+                Ok(Object::Bool($answer(&points(receiver))))
+            }
+        )*
+    };
+}
+
+asks! {
+    isalnum => classify::is_alnum,
+    isalpha => classify::is_alpha,
+    isascii => classify::is_ascii,
+    isdecimal => classify::is_decimal,
+    isdigit => classify::is_digit,
+    isidentifier => classify::is_identifier,
+    islower => classify::is_lower,
+    isnumeric => classify::is_numeric,
+    isprintable => classify::is_printable_str,
+    isspace => classify::is_space,
+    istitle => classify::is_title,
+    isupper => classify::is_upper,
+}
+
 /// The string a method was found on.
 ///
 /// Infallible for the same reason [`list::items`](super::list) is: the lookup
@@ -904,10 +927,12 @@ fn locate(hay: &[u32], needle: &[u32], start: usize, end: usize, from: From) -> 
 /// Whether a code point is whitespace, which is what `split()` with no
 /// separator splits on and what `strip()` with no argument takes off.
 ///
-/// Python counts the four file and group separators as whitespace and Unicode
-/// does not, so Rust's answer is right for every code point except those.
+/// This used to be `char::is_whitespace` with the four file and group
+/// separators added back, because Python counts those and Unicode does not.
+/// Now that `isspace` needs the same answer it is one table read off CPython
+/// instead of one read off Rust with a correction on top.
 fn spacey(cp: u32) -> bool {
-    (0x1c..=0x1f).contains(&cp) || char::from_u32(cp).is_some_and(char::is_whitespace)
+    classify::is_space_point(cp)
 }
 
 /// Whether a line break starts here, and how many code points of it there are,

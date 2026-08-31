@@ -11,6 +11,7 @@
 #![doc(html_root_url = "https://docs.rs/kohebi-core/0.0.0")]
 
 pub mod casing;
+pub mod classify;
 pub mod dict;
 pub mod error;
 pub mod exception;
@@ -21,6 +22,7 @@ pub mod native;
 pub mod object;
 pub mod ops;
 pub mod printable;
+pub(crate) mod ranges;
 pub mod slice;
 pub mod text;
 
