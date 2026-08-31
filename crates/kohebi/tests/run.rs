@@ -249,10 +249,13 @@ fn the_flags_for_machinery_that_is_not_built_are_refused() {
 /// program that counts its arguments get the number a person would expect.
 #[test]
 fn the_program_sees_its_own_arguments_and_not_the_runtimes() {
-    let file = source("argv", "import sys\nprint(sys.argv)\n");
+    // The script itself is printed separately from the rest, because a Windows
+    // path has backslashes in it and a repr escapes them, so comparing against
+    // the path as this test wrote it would be comparing two different strings.
+    let file = source("argv", "import sys\nprint(len(sys.argv), sys.argv[1:])\n");
     let (ok, out, err) = run(&["run", &file, "--", "one", "two"]);
     assert!(ok, "stderr was {err:?}");
-    assert_eq!(out, format!("['{file}', 'one', 'two']\n"));
+    assert_eq!(out, "3 ['one', 'two']\n");
 }
 
 /// A module beside the script is found and run, and what its body bound is
