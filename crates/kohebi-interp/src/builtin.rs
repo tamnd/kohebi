@@ -12,19 +12,36 @@
 //!
 //! ## What is here
 //!
-//! `print`, `len`, `range`, `iter` and `next`. The last four arrived with the
-//! iteration protocol, which is what they all needed: `len` was held back
-//! rather than shipped working on four of the six containers it should work
-//! on, and the other three are the protocol itself with a name on it.
+//! `print`, `len`, `range`, `iter` and `next` arrived with the iteration
+//! protocol, which is what four of them needed: `len` was held back rather than
+//! shipped working on four of the six containers it should work on, and `iter`,
+//! `next` and `range` are the protocol itself with names on it.
+//!
+//! `abs`, `repr`, `bool` and `str` came next, and they are here together
+//! because they are the same shape. Each takes one value and answers one
+//! question about it, none of them walks anything, and none of them calls back
+//! into Python. That last part is why they could be written now: a builtin
+//! cannot call a Python function yet, so `sorted(key=...)`, `map` and `filter`
+//! are waiting on the machine rather than on anyone's opinion about them.
 //!
 //! Every builtin exception class is here too, and it comes from
 //! [`kohebi_core::exception`] rather than from this module, because a class is
 //! data about a hierarchy and none of it needs the [`Vm`]. This module puts the
 //! two lists together and that is the whole of its part in it.
 //!
-//! Everything still missing from `builtins` is a type, and a type needs
-//! classes. `range` is the exception, and only because a program that has
-//! `for` and no `range` cannot count.
+//! ## What is not here
+//!
+//! Most of what is left in `builtins` is a type, and a type needs classes.
+//! `range`, `bool` and `str` are the exceptions, and each is a function that
+//! constructs one rather than the type itself: `bool` and `str` cannot be
+//! subclassed, and `str` has no methods on it that a program can look up. That
+//! is the same hole that keeps `''.upper()` a special case in the machine
+//! rather than a name found on a type, and it closes in one piece of work
+//! rather than four.
+//!
+//! `str(bytes, encoding)` is refused because there are no codecs. The argument
+//! checks CPython does before it reaches one are done here anyway, since none
+//! of them needs a codec to exist.
 
 // Every builtin body has the signature `Body` demands, so one that reads its
 // arguments without consuming them still takes them by value.
@@ -209,6 +226,10 @@ pub fn table() -> Vec<(&'static str, Object)> {
         ("iter", iter as Body, Flavour::Function),
         ("next", next as Body, Flavour::Function),
         ("range", range as Body, Flavour::Class),
+        ("abs", abs as Body, Flavour::Function),
+        ("repr", repr as Body, Flavour::Function),
+        ("bool", bool as Body, Flavour::Class),
+        ("str", str as Body, Flavour::Class),
     ]
     .into_iter()
     .map(|(name, body, flavour)| {
@@ -268,17 +289,7 @@ fn print(vm: &mut Vm, mut args: Args) -> Result<Object> {
 
 /// `len(x)`.
 fn len(_vm: &mut Vm, args: Args) -> Result<Object> {
-    args.no_keywords("len")?;
-    // `len` is one of the few builtins CPython describes this way rather than
-    // with the "expected at least" wording the others use, and it says it for
-    // too few and too many alike.
-    if args.positional.len() != 1 {
-        return Err(Error::type_error(format!(
-            "len() takes exactly one argument ({} given)",
-            args.positional.len()
-        )));
-    }
-    let value = &args.positional[0];
+    let value = only(&args, "len")?;
     if let Some(size) = ops::len(value) {
         return Ok(Object::int(i64::try_from(size).unwrap_or(i64::MAX)));
     }
@@ -300,6 +311,117 @@ fn len(_vm: &mut Vm, args: Args) -> Result<Object> {
         "object of type '{}' has no len()",
         value.type_name()
     )))
+}
+
+/// `abs(x)`.
+fn abs(_vm: &mut Vm, args: Args) -> Result<Object> {
+    ops::abs(only(&args, "abs")?)
+}
+
+/// `repr(x)`.
+fn repr(_vm: &mut Vm, args: Args) -> Result<Object> {
+    Ok(Object::str(only(&args, "repr")?.repr()))
+}
+
+/// `bool(x)` and `bool()`.
+///
+/// Every object has a truth and none of them can refuse to answer, so this is
+/// the one of the four here that has no error but a miscount.
+fn bool(_vm: &mut Vm, args: Args) -> Result<Object> {
+    args.no_keywords("bool")?;
+    args.arity("bool", 0, 1)?;
+    Ok(Object::Bool(
+        args.positional.first().is_some_and(Object::truthy),
+    ))
+}
+
+/// `str(x)` and `str()`, but not `str(bytes, encoding, errors)`.
+///
+/// The decoding form needs the codecs and there are none, so it is refused. Not
+/// before the argument checks CPython does first, though: `str(1, 2)` is a
+/// `TypeError` about the encoding not being a string in both, because nothing
+/// about that check needs a codec to exist.
+fn str(_vm: &mut Vm, mut args: Args) -> Result<Object> {
+    args.arity("str", 0, 3)?;
+    let object = pick(&mut args, "object", 0)?;
+    let encoding = pick(&mut args, "encoding", 1)?;
+    let errors = pick(&mut args, "errors", 2)?;
+    args.rest("str")?;
+
+    // Nothing to convert is the empty string, and CPython does not look at the
+    // encoding to say so: `str(encoding='utf-8')` is `''` rather than a
+    // complaint about there being nothing to decode.
+    let Some(object) = object else {
+        return Ok(Object::str(""));
+    };
+    // Both of these are checked before anything is checked about the object,
+    // which is the whole reason `str(1, 2)` names the encoding rather than the
+    // 1. They are checked in this order for the same reason.
+    let by_encoding = coding(encoding.as_ref(), "encoding")?;
+    let by_errors = coding(errors.as_ref(), "errors")?;
+    if !by_encoding && !by_errors {
+        return Ok(Object::str(object.display()));
+    }
+
+    match object {
+        Object::Str(_) => Err(Error::type_error("decoding str is not supported")),
+        Object::Bytes(_) => Err(Error::new(
+            Kind::NotImplementedError,
+            "str(bytes, encoding) wants a codec and there are no codecs yet",
+        )),
+        other => Err(Error::type_error(format!(
+            "decoding to str: need a bytes-like object, {} found",
+            other.type_name()
+        ))),
+    }
+}
+
+/// An argument that can be given either way, refusing a call that gave both.
+///
+/// `str` is the only builtin here that takes one. Everything else is positional
+/// only, which is what a builtin usually is, and says so with
+/// [`Args::no_keywords`].
+fn pick(args: &mut Args, name: &str, at: usize) -> Result<Option<Object>> {
+    let named = args.take(name);
+    match (args.positional.get(at), named) {
+        (Some(_), Some(_)) => Err(Error::type_error(format!(
+            "argument for str() given by name ('{name}') and position ({})",
+            at + 1
+        ))),
+        (Some(value), None) => Ok(Some(value.clone())),
+        (None, named) => Ok(named),
+    }
+}
+
+/// One of `str`'s two codec arguments, which has to be a string if it is there
+/// at all. The answer is whether it was given, because that is the only thing
+/// the caller does with it.
+fn coding(value: Option<&Object>, name: &str) -> Result<bool> {
+    match value {
+        None => Ok(false),
+        Some(Object::Str(_)) => Ok(true),
+        Some(other) => Err(Error::type_error(format!(
+            "str() argument '{name}' must be str, not {}",
+            other.type_name()
+        ))),
+    }
+}
+
+/// The one argument a builtin that takes exactly one was given, in the words
+/// CPython uses when it was given some other number of them.
+///
+/// `len`, `repr` and `abs` all describe their arity this way rather than with
+/// the "expected at least" wording [`Args::arity`] writes, and all three say it
+/// for too few and too many alike.
+fn only<'a>(args: &'a Args, function: &str) -> Result<&'a Object> {
+    args.no_keywords(function)?;
+    match args.positional.as_slice() {
+        [value] => Ok(value),
+        given => Err(Error::type_error(format!(
+            "{function}() takes exactly one argument ({} given)",
+            given.len()
+        ))),
+    }
 }
 
 /// `iter(x)`.
