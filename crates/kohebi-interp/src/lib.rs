@@ -44,6 +44,10 @@
 //! are different places and a program can write to either. [`stream`] has what
 //! those two can do and what they cannot, which is everything that would need a
 //! file descriptor or a file object.
+//!
+//! `d.keys()`, `d.values()` and `d.items()` hand back windows onto the
+//! dictionary rather than copies of it, which is [`view`]. The set behaviour
+//! CPython gives two of the three is not written and is refused by name.
 
 #![doc(html_root_url = "https://docs.rs/kohebi-interp/0.0.0")]
 
@@ -59,6 +63,7 @@ pub mod module;
 pub mod path;
 pub mod ready;
 pub mod stream;
+pub mod view;
 pub mod vm;
 
 pub use builtin::{Args, Builtin, Flavour};
@@ -71,6 +76,7 @@ pub use lazy::Lazy;
 pub use path::Path;
 pub use ready::Ready;
 pub use stream::{Stream, Which};
+pub use view::View;
 pub use vm::{Step, Vm};
 
 /// The design documents that govern this crate.

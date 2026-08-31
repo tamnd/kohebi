@@ -121,6 +121,7 @@ use crate::module::{self, Found, Modules};
 use crate::path as pathlib;
 use crate::ready::Ready;
 use crate::stream::{self, Which};
+use crate::view;
 
 /// A namespace, which is a map from a name to whatever it is bound to.
 type Names = FxHashMap<Box<str>, Object>;
@@ -1906,11 +1907,18 @@ fn spread(named: &mut Vec<(Box<str>, Object)>, value: &Object, function: &str) -
     Ok(())
 }
 
+/// The refusal if there is one, and the operator's own answer if there is not.
+fn refuse_or(refused: Option<Error>, answer: impl FnOnce() -> Result<Object>) -> Result<Object> {
+    match refused {
+        Some(refused) => Err(refused),
+        None => answer(),
+    }
+}
+
 /// A binary operator.
 fn binary(op: Operator, left: &Object, right: &Object) -> Result<Object> {
     match op {
         Operator::Add => ops::add(left, right),
-        Operator::Sub => ops::sub(left, right),
         Operator::Mult => ops::mul(left, right),
         // A path joins with `/` rather than dividing, and it is asked first
         // because the operators in `kohebi-core` know nothing about a type
@@ -1926,9 +1934,24 @@ fn binary(op: Operator, left: &Object, right: &Object) -> Result<Object> {
         Operator::Pow => ops::pow(left, right),
         Operator::LShift => ops::lshift(left, right),
         Operator::RShift => ops::rshift(left, right),
-        Operator::BitAnd => ops::bit_and(left, right),
-        Operator::BitOr => ops::bit_or(left, right),
-        Operator::BitXor => ops::bit_xor(left, right),
+        // The four a `dict_keys` or a `dict_items` would answer as a set, asked
+        // the same way and for the same reason the path join above is: the
+        // operators know nothing about a type this crate defines, and a view
+        // that fell through to them would be told the operation is impossible
+        // when it is only unwritten. Nothing that is not a view falls out of
+        // the question, so `1 - 2` pays a discriminant check for it.
+        Operator::Sub => refuse_or(view::refuse_operator("-", left, right), || {
+            ops::sub(left, right)
+        }),
+        Operator::BitAnd => refuse_or(view::refuse_operator("&", left, right), || {
+            ops::bit_and(left, right)
+        }),
+        Operator::BitOr => refuse_or(view::refuse_operator("|", left, right), || {
+            ops::bit_or(left, right)
+        }),
+        Operator::BitXor => refuse_or(view::refuse_operator("^", left, right), || {
+            ops::bit_xor(left, right)
+        }),
         // No builtin type implements `@`, so this is always the error. It is
         // written out here rather than in the operators because a matrix
         // multiply that has no operands to work on has nothing to say about
@@ -2046,9 +2069,23 @@ fn compare(op: CmpOp, left: &Object, right: &Object) -> Result<Object> {
         CmpOp::Is => return Ok(Object::Bool(left.is(right))),
         CmpOp::IsNot => return Ok(Object::Bool(!left.is(right))),
         // `x in y` asks the container, so the operands go the other way round.
-        CmpOp::In => return ops::contains(right, left),
-        CmpOp::NotIn => return Ok(ops::not(&ops::contains(right, left)?)),
+        // A view answers for itself, because the three of them look in three
+        // different places and only the dictionary knows where those are.
+        CmpOp::In => {
+            return view::contains(right, left).unwrap_or_else(|| ops::contains(right, left));
+        }
+        CmpOp::NotIn => {
+            let found =
+                view::contains(right, left).unwrap_or_else(|| ops::contains(right, left))?;
+            return Ok(ops::not(&found));
+        }
     };
+    // A `dict_keys` compared against a set is a subset test in CPython, and
+    // this runtime does not do subset tests. Refused rather than answered by
+    // identity, which would say `d.keys() == d.keys()` is false.
+    if let Some(refused) = view::refuse_comparison(left, right) {
+        return Err(refused);
+    }
     ops::compare(op, left, right)
 }
 

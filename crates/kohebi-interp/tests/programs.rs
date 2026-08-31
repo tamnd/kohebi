@@ -4964,3 +4964,125 @@ fn writelines_adds_nothing_and_stops_where_it_fails() {
         Some("TypeError: write() argument must be str, not int")
     );
 }
+
+/// A view is a window onto the dictionary and not a copy of it, so an entry put
+/// in afterwards is in the view. A program that binds `d.keys()` early and reads
+/// it late depends on this, and a runtime that copied would be wrong quietly.
+#[test]
+fn a_view_sees_what_the_dictionary_does_later() {
+    let (out, raised) = execute(
+        "d = {'a': 1}\n\
+         ks = d.keys()\n\
+         vs = d.values()\n\
+         its = d.items()\n\
+         d['b'] = 2\n\
+         print(ks, vs, its)\n\
+         print(len(ks), 'b' in ks, 2 in vs, ('b', 2) in its)\n\
+         del d['a']\n\
+         print(ks, len(its))\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "dict_keys(['a', 'b']) dict_values([1, 2]) dict_items([('a', 1), ('b', 2)])\n\
+         2 True True True\n\
+         dict_keys(['b']) 1\n"
+    );
+}
+
+/// Walking a dictionary and walking its keys are the same walk, and the third
+/// one hands back a pair. All three refuse a dictionary that changed underneath
+/// them, which is the reason they carry a size at all.
+#[test]
+fn the_three_views_walk_and_notice_a_dictionary_that_moved() {
+    let (out, raised) = execute(
+        "d = {'a': 1, 'b': 2}\n\
+         print([k for k in d], [k for k in d.keys()])\n\
+         print([v for v in d.values()], [p for p in d.items()])\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "['a', 'b'] ['a', 'b']\n\
+         [1, 2] [('a', 1), ('b', 2)]\n"
+    );
+
+    let (_, raised) = execute("d = {'a': 1}\nfor k in d.items():\n    d['b'] = 2\n");
+    assert_eq!(
+        raised.as_deref(),
+        Some("RuntimeError: dictionary changed size during iteration")
+    );
+}
+
+/// An unhashable key is an error and not a `False`, because the question went
+/// to a hash table and never reached a comparison. `dict_values` scans, so the
+/// same question there is answered rather than refused.
+#[test]
+fn an_unhashable_lookup_is_refused_by_the_two_that_hash() {
+    let (out, raised) = execute(
+        "d = {'a': 1}\n\
+         print([] in d.values(), [] in d.items(), ('a', 1, 2) in d.items())\n\
+         try:\n\
+         \x20   [] in d.keys()\n\
+         except TypeError as e:\n\
+         \x20   print('TypeError:', e)\n\
+         try:\n\
+         \x20   ([], 1) in d.items()\n\
+         except TypeError as e:\n\
+         \x20   print('TypeError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "False False False\n\
+         TypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n\
+         TypeError: cannot use 'list' as a dict key (unhashable type: 'list')\n"
+    );
+}
+
+/// `update` takes four shapes and the keywords win, because they are applied
+/// after whatever came in positionally.
+#[test]
+fn update_takes_four_shapes_and_the_keywords_go_last() {
+    let (out, raised) = execute(
+        "d = {}\n\
+         d.update({'a': 1})\n\
+         d.update([('b', 2)])\n\
+         d.update({'c': 3}.items())\n\
+         d.update(d=4)\n\
+         d.update({'e': 5}, e=6)\n\
+         print(d)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(out, "{'a': 1, 'b': 2, 'c': 3, 'd': 4, 'e': 6}\n");
+}
+
+/// `pop` with a default and `pop` without are two different methods wearing one
+/// name: the missing key is the default in one and a `KeyError` in the other.
+///
+/// The `KeyError` is built out of the key and not out of a message, which a
+/// test here cannot see yet because `e.args` needs attribute access on an
+/// exception instance. What it can see is that the key is not quoted twice,
+/// which is what building one out of its own `repr` would do.
+#[test]
+fn popping_a_key_that_is_not_there_depends_on_the_default() {
+    let (out, raised) = execute(
+        "d = {'a': 1}\n\
+         print(d.pop('a'), d.pop('a', 'gone'))\n\
+         try:\n\
+         \x20   d.pop('a')\n\
+         except KeyError as e:\n\
+         \x20   print('KeyError:', e)\n\
+         try:\n\
+         \x20   {}.popitem()\n\
+         except KeyError as e:\n\
+         \x20   print('KeyError:', e)\n",
+    );
+    assert_eq!(raised, None);
+    assert_eq!(
+        out,
+        "1 gone\n\
+         KeyError: 'a'\n\
+         KeyError: 'popitem(): dictionary is empty'\n"
+    );
+}

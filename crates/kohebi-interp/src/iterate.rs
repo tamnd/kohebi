@@ -42,6 +42,8 @@ use std::rc::Rc;
 
 use kohebi_core::{Dict, Error, Int, Kind, Native, Object, Result, Set, StrBuf};
 
+use crate::view;
+
 /// What [`Next`](kohebi_bc::Instr::Next) writes when there is nothing left.
 ///
 /// One value, cloned into a register, compared by asking whether the register
@@ -206,9 +208,17 @@ enum Walk {
     /// A `bytes` walks its bytes as integers, which is what `list(b'ab')`
     /// gives.
     Bytes(Rc<[u8]>),
-    /// A dict walks its keys. The second field is the size it had when the walk
-    /// started, which is how a change of size during it is caught.
-    Dict(Rc<RefCell<Dict>>, usize),
+    /// A dict, walked through one of the three views. A bare `for k in d` is
+    /// the same walk as `for k in d.keys()`, which is why there is one variant
+    /// and not four.
+    ///
+    /// `size` is what the dictionary held when the walk started, which is how a
+    /// change of size during it is caught.
+    Dict {
+        entries: Rc<RefCell<Dict>>,
+        size: usize,
+        of: view::Of,
+    },
     Set(Rc<RefCell<Set>>, usize),
     /// A range, which is the only walk that carries its own cursor rather than
     /// using the shared index.
@@ -264,14 +274,14 @@ impl Iter {
                 self.at.set(at + 1);
                 found
             }
-            Walk::Dict(entries, size) => {
+            Walk::Dict { entries, size, of } => {
                 let entries = entries.borrow();
                 changed(entries.len(), *size, "dictionary")?;
                 match entries.entry_at(at) {
                     None => None,
-                    Some((key, _, next)) => {
+                    Some((key, value, next)) => {
                         self.at.set(next);
-                        Some(key.object().clone())
+                        Some(of.entry(key.object(), value))
                     }
                 }
             }
@@ -318,7 +328,7 @@ impl Native for Iter {
             Walk::Text { ascii: true, .. } => "str_ascii_iterator",
             Walk::Text { ascii: false, .. } => "str_iterator",
             Walk::Bytes(_) => "bytes_iterator",
-            Walk::Dict(..) => "dict_keyiterator",
+            Walk::Dict { of, .. } => of.iterator_name(),
             Walk::Set(..) => "set_iterator",
             Walk::Range { .. } => "range_iterator",
         }
@@ -370,16 +380,31 @@ pub fn over(value: &Object) -> Result<Object> {
         Object::Bytes(bytes) => Walk::Bytes(Rc::clone(bytes)),
         Object::Dict(entries) => {
             let size = entries.borrow().len();
-            Walk::Dict(Rc::clone(entries), size)
+            Walk::Dict {
+                entries: Rc::clone(entries),
+                size,
+                of: view::Of::Keys,
+            }
         }
         Object::Set(members) => {
             let size = members.borrow().len();
             Walk::Set(Rc::clone(members), size)
         }
-        Object::Native(native) => match native.as_any().downcast_ref::<Range>() {
-            Some(range) => range.walk(),
-            None => return Err(not_iterable(value)),
-        },
+        Object::Native(native) => {
+            if let Some(range) = native.as_any().downcast_ref::<Range>() {
+                range.walk()
+            } else if let Some(view) = native.as_any().downcast_ref::<view::View>() {
+                // The dictionary and not the view, so walking `d.items()` and
+                // walking `d` are the same walk with a different `of`.
+                Walk::Dict {
+                    entries: Rc::clone(&view.entries),
+                    size: view.len(),
+                    of: view.of,
+                }
+            } else {
+                return Err(not_iterable(value));
+            }
+        }
         _ => return Err(not_iterable(value)),
     };
     Ok(Object::native(Iter {

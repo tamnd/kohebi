@@ -33,10 +33,12 @@
 //! word the refusal differently. Every one of those was read off a running
 //! 3.14.7 rather than reasoned about.
 
+mod dict;
 mod list;
 mod path;
 mod stream;
 mod string;
+mod view;
 
 use kohebi_core::{Error, Int, Kind, Object, Result};
 
@@ -90,6 +92,7 @@ pub fn missing(object: &Object, name: &str) -> Option<Error> {
 /// The methods of whatever type this value is.
 fn methods(object: &Object) -> Option<&'static Methods> {
     match object {
+        Object::Dict(_) => Some(&dict::METHODS),
         Object::List(_) => Some(&list::METHODS),
         Object::Str(_) => Some(&string::METHODS),
         // A downcast rather than a variant, because a path is a native value
@@ -100,6 +103,12 @@ fn methods(object: &Object) -> Option<&'static Methods> {
         }
         Object::Native(_) if object.downcast::<crate::stream::Stream>().is_some() => {
             Some(&stream::METHODS)
+        }
+        // Three tables rather than one, because the three views do not have the
+        // same names on them.
+        Object::Native(_) => {
+            let view = object.downcast::<crate::view::View>()?;
+            Some(view::methods(view.of))
         }
         _ => None,
     }
