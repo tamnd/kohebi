@@ -107,7 +107,7 @@ jobs:
       - uses: actions/attest-build-provenance@v4.2.2
         with:
           subject-path: dist/*
-      - uses: softprops/action-gh-release@v3.0.2
+      - uses: softprops/action-gh-release@v3.0.3
         with:
           tag_name: ${{ env.TAG }}
           files: dist/*
