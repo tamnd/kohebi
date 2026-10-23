@@ -50,7 +50,7 @@ jobs:
       # when it does fail it fails here rather than as `can't find crate for
       # core` several minutes into a build.
       - run: rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - run: cargo build --release --bin kohebi --target ${{ matrix.target }}
       - name: Package
         shell: bash
@@ -70,7 +70,7 @@ jobs:
           else
             tar czf "$name.tar.gz" "$name"
           fi
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: dist-${{ matrix.target }}
           # One pattern per line. The upload action's globs are not a shell's,
@@ -94,7 +94,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ env.TAG }}
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
           pattern: dist-*
           merge-multiple: true
@@ -107,7 +107,7 @@ jobs:
       - uses: actions/attest-build-provenance@v4.2.2
         with:
           subject-path: dist/*
-      - uses: softprops/action-gh-release@v3.0.2
+      - uses: softprops/action-gh-release@v3.0.3
         with:
           tag_name: ${{ env.TAG }}
           files: dist/*
@@ -141,7 +141,7 @@ jobs:
         with:
           ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: The tag and the manifests agree
         run: |
           set -euo pipefail

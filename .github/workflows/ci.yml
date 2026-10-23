@@ -28,7 +28,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --all-features
 
@@ -42,8 +42,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2.9.2
-      - uses: taiki-e/install-action@v2.87.0
+      - uses: Swatinem/rust-cache@v2.9.3
+      - uses: taiki-e/install-action@v2.87.29
         with:
           tool: cargo-nextest
       # --no-tests=warn because the crates are still skeletons and nextest
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
       # Must match rust-version in Cargo.toml and rust-toolchain.toml.
       - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - run: cargo check --workspace --all-features
 
   docs:
@@ -73,7 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - run: cargo doc --workspace --no-deps --all-features
 
   # Packaging is checked on every change rather than at release time, because a
@@ -85,7 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@v2.9.3
       - run: cargo publish --workspace --locked --dry-run
 
   deny:
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: taiki-e/install-action@v2.87.0
+      - uses: taiki-e/install-action@v2.87.29
         with:
           tool: cargo-deny
       - run: cargo deny check
@@ -106,7 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2.87.0
+      - uses: taiki-e/install-action@v2.87.29
         with:
           tool: cargo-geiger
       - run: cargo geiger --workspace --output-format GitHubMarkdown >> "$GITHUB_STEP_SUMMARY" || true
